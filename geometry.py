@@ -2,25 +2,21 @@ import tkinter as tk
 from tkinter import ttk
 
 class GeometryPanel(ttk.LabelFrame):
-    def __init__(self, parent, app_vars, refresh_callback):
+    def __init__(self, parent, app_state, refresh_callback):
         super().__init__(parent, text="Aspect Ratio & Geometry", padding=10)
-        self.vars = app_vars
+        self.state = app_state
         self.refresh_callback = refresh_callback
         self.create_widgets()
 
     def create_widgets(self):
         # --- Force 16:9 Widescreen ---
-        # FIX: Use self.split_active instead of local variable
-        self.split_active = tk.BooleanVar(value=False)
+        self.widescreen_active = tk.BooleanVar(value=False)
         
         ttk.Checkbutton(self, text="Force 16:9 Widescreen\n(Crop Top/Bottom Black Bars)", 
-                       variable=self.split_active, 
+                       variable=self.widescreen_active, 
                        command=self.refresh_callback).pack(anchor="w", pady=10)
-
+        
         # --- Vertical Offset (Slider) ---
-        if 'geo_offset' not in self.vars:
-            self.vars['geo_offset'] = tk.DoubleVar(value=0.0)
-
         self.offset_label_frame = ttk.Frame(self)
         self.offset_label_frame.pack(fill="x", pady=5)
         
@@ -28,7 +24,7 @@ class GeometryPanel(ttk.LabelFrame):
         self.val_label = ttk.Label(self.offset_label_frame, text="0", width=5)
         self.val_label.pack(side="right")
         
-        self.offset_slider = ttk.Scale(self, from_=-100, to=100, variable=self.vars['geo_offset'], 
+        self.offset_slider = ttk.Scale(self, from_=-100, to=100, variable=self.state['geo_offset'], 
                                    orient="horizontal", 
                                    command=lambda v: self.update_offset(v))
         self.offset_slider.pack(fill="x")
@@ -39,8 +35,9 @@ class GeometryPanel(ttk.LabelFrame):
         split_frame.pack(fill="x", pady=10)
 
         # 1. Checkbox to Enable/Disable Feature
+        self.split_duration_active = tk.BooleanVar(value=False)
         ttk.Checkbutton(split_frame, text="Split by Duration", 
-                       variable=self.split_active, 
+                       variable=self.split_duration_active, 
                        command=self.toggle_split_ui).pack(anchor="w", pady=5)
 
         # 2. Frame for Options (Starts Disabled)
@@ -48,25 +45,22 @@ class GeometryPanel(ttk.LabelFrame):
         self.options_frame.pack(fill="x", pady=2)
 
         # Variable to store number of parts
-        if 'split_duration_min' not in self.vars:
-            self.vars['split_duration_min'] = tk.IntVar(value=30)
-
         ttk.Label(self.options_frame, text="Chunk Length (Minutes):").pack(side="left")
         
-        self.parts_combo = ttk.Combobox(self.options_frame, textvariable=self.vars['split_duration_min'], 
-                                     values=[10, 20, 30, 40, 50, 60], 
+        self.parts_combo = ttk.Combobox(self.options_frame, textvariable=self.state['split_duration_min'], 
+                                     values=["10", "20", "30", "40", "50", "60"], 
                                      state="disabled", width=10) # Disabled initially
         self.parts_combo.pack(side="left", padx=5)
         
         # Bind change to refresh (optional)
-        self.vars['split_duration_min'].trace_add("write", lambda *args: self.refresh_callback())
+        self.state['split_duration_min'].trace_add("write", lambda *args: self.refresh_callback())
 
     def update_offset(self, value):
         self.val_label.config(text=str(int(float(value))))
 
     def toggle_split_ui(self):
         """Enable or Disable parts dropdown based on checkbox"""
-        if self.split_active.get():
+        if self.split_duration_active.get():
             self.parts_combo.config(state="readonly")
         else:
             self.parts_combo.config(state="disabled")

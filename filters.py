@@ -5,9 +5,9 @@ from tkinter import ttk
 class FiltersPanel(ttk.Frame):
     """A reusable UI component for Video and Audio Filters"""
 
-    def __init__(self, parent, app_vars):
+    def __init__(self, parent, app_state):
         super().__init__(parent)
-        self.vars = app_vars
+        self.state = app_state
         self.create_widgets()
 
     def create_widgets(self):
@@ -23,21 +23,21 @@ class FiltersPanel(ttk.Frame):
         
         # --- NEW: Stretch to Fill ---
         # If checked, it will force video to fill frame (Ignore Aspect Ratio)
-        # if 'stretch_fill' not in self.vars:
-        #     self.vars['stretch_fill'] = tk.BooleanVar(value=False)
-            
-        # ttk.Checkbutton(v_filt_col, text="Stretch to Fill Frame\n(Ignore Aspect Ratio)", variable=self.vars['stretch_fill']).pack(anchor="w")
+        # if not hasattr(self.state, 'stretch_fill'):
+        #     self.state.stretch_fill = tk.BooleanVar(value=False)
+             
+        # ttk.Checkbutton(v_filt_col, text="Stretch to Fill Frame\n(Ignore Aspect Ratio)", variable=getattr(self.state, 'stretch_fill')).pack(anchor="w")
 
         ttk.Checkbutton(
-            v_filt_col, text="Deinterlace (Yadif)", variable=self.vars["deint"]
+            v_filt_col, text="Deinterlace (Yadif)", variable=self.state['deint']
         ).pack(anchor="w")
         ttk.Checkbutton(
-            v_filt_col, text="Denoise (HQDN3D)", variable=self.vars["denoise"]
+            v_filt_col, text="Denoise (HQDN3D)", variable=self.state['denoise']
         ).pack(anchor="w")
         ttk.Checkbutton(
-            v_filt_col, text="Libplacebo Scaling", variable=self.vars["libplacebo"]
+            v_filt_col, text="Libplacebo Scaling", variable=self.state['libplacebo']
         ).pack(anchor="w")
-
+    
         # --- Audio Filters Column ---
         a_filt_col = ttk.Frame(filt_frame)
         a_filt_col.pack(side="left", fill="x", expand=True, padx=5)
@@ -47,12 +47,12 @@ class FiltersPanel(ttk.Frame):
         )
 
         ttk.Checkbutton(
-            a_filt_col, text="Enable Volume", variable=self.vars["vol_enable"]
+            a_filt_col, text="Enable Volume", variable=self.state['vol_enable']
         ).pack(anchor="w")
 
         vol_input_frame = ttk.Frame(a_filt_col)
         vol_input_frame.pack(fill="x", pady=2)
-        ttk.Entry(vol_input_frame, textvariable=self.vars["vol_val"], width=10).pack(
+        ttk.Entry(vol_input_frame, textvariable=self.state['vol_val'], width=10).pack(
             side="left", padx=5
         )
         ttk.Label(vol_input_frame, text="(dB)").pack(side="left")

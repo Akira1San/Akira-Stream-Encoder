@@ -1,0 +1,1 @@
+{"ffmpeg_path": "ffmpeg_test", "use_gpu": false, "encoder_var": "libx264", "resolution_var": "1280x720", "cq_var": 25, "deint": true, "burn_subs": true, "sub_size": 30, "eq_brightness": 0.5, "eq_contrast": 1.5}

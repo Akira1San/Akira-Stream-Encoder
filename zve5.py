@@ -262,27 +262,27 @@ class VideoTab(ttk.Frame):
         self.settings_book.add(self.tab_general, text="General (Video/Audio)")
         
         # Add Encoding Panel
-        self.enc_panel = EncodingPanel(self.tab_general, self.vars)
+        self.enc_panel = EncodingPanel(self.tab_general, StateWrapper(self.vars))
         self.enc_panel.pack(fill="x", padx=5, pady=5)
         
         # Add Filters Panel
-        self.filters_panel = FiltersPanel(self.tab_general, self.vars)
+        self.filters_panel = FiltersPanel(self.tab_general, StateWrapper(self.vars))
         self.filters_panel.pack(fill="x", padx=5, pady=5)
 
         # --- NEW: TAB B: GEOMETRY (Aspect Ratio) ---
         self.tab_geo = ttk.Frame(self.settings_book)
         self.settings_book.add(self.tab_geo, text="Geometry")
         
-        self.geo_panel = GeometryPanel(self.tab_geo, self.vars, self.refresh_preview_from_settings)
+        self.geo_panel = GeometryPanel(self.tab_geo, StateWrapper(self.vars), self.refresh_preview_from_settings)
         self.geo_panel.pack(fill="both", expand=True, padx=5, pady=5)
 
-# --- TAB C: COLOR CORRECTION ---
+        # --- TAB C: COLOR CORRECTION ---
         self.tab_color = ttk.Frame(self.settings_book)
         self.settings_book.add(self.tab_color, text="Color Correction (EQ)")
         
         # Add EQ Panel (Gets full width/height here)
         # Pass the refresh function as the 4th argument
-        self.eq_panel = ColorCorrectionPanel(self.tab_color, self.vars, self.vars['deint'], self.refresh_preview_from_settings)
+        self.eq_panel = ColorCorrectionPanel(self.tab_color, StateWrapper(self.vars), self.vars['deint'], self.refresh_preview_from_settings)
         self.eq_panel.pack(fill="both", expand=True, padx=5, pady=5)
 
         # --- TAB D: SUBTITLES ---
@@ -290,7 +290,7 @@ class VideoTab(ttk.Frame):
         self.settings_book.add(self.tab_subs, text="Subtitles")
         
         # Add Subtitles Panel
-        self.subs_panel = SubtitlesPanel(self.tab_subs, self.vars, self.refresh_preview_from_settings)
+        self.subs_panel = SubtitlesPanel(self.tab_subs, StateWrapper(self.vars), self.refresh_preview_from_settings)
         self.subs_panel.pack(fill="both", expand=True, padx=5, pady=5)
 
     # --- Helper Methods ---
@@ -640,6 +640,31 @@ class VideoTab(ttk.Frame):
 
 import io
 
+
+class StateWrapper:
+    """Wrapper that allows both dictionary and attribute access to vars"""
+    def __init__(self, vars_dict):
+        self._vars = vars_dict
+    
+    def __getitem__(self, key):
+        return self._vars[key]
+    
+    def __setitem__(self, key, value):
+        self._vars[key] = value
+    
+    def __getattr__(self, key):
+        try:
+            return self._vars[key]
+        except KeyError:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{key}'")
+    
+    def __setattr__(self, key, value):
+        if key == '_vars':
+            super().__setattr__(key, value)
+        else:
+            self._vars[key] = value
+
+
 class VideoEncoderApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -661,6 +686,7 @@ class VideoEncoderApp(tk.Tk):
             'cq_var': tk.IntVar(value=23),
             'use_orig_br_var': tk.BooleanVar(value=False),
             'max_br_var': tk.IntVar(value=4000),
+            'container': tk.StringVar(value="mp4"),  # mp4, mkv, avi
             
             # --- Subtitle Variables ---
             'burn_subs': tk.BooleanVar(value=False),
@@ -675,6 +701,7 @@ class VideoEncoderApp(tk.Tk):
 
             # --- EQ Settings ---
             'eq_bypass': tk.BooleanVar(value=False),
+            'eq_enable': tk.BooleanVar(value=False),  # Created dynamically but needed here
             'eq_brightness': tk.DoubleVar(value=0.0),
             'eq_contrast': tk.DoubleVar(value=1.0),
             'eq_saturation': tk.DoubleVar(value=1.0),
@@ -698,7 +725,11 @@ class VideoEncoderApp(tk.Tk):
             # --- Cut Parts ---
             'cut_parts': tk.StringVar(value="1"),
             'split_duration_min': tk.IntVar(value=30),
+            'split_mode': tk.BooleanVar(value=False),
         }
+
+        # Bind container variable to auto-update output extension
+        self.vars['container'].trace('w', self.update_output_extension)
 
         # Top Control Panel
         control_frame = ttk.Frame(self, padding=5)
@@ -1104,6 +1135,20 @@ class VideoEncoderApp(tk.Tk):
 
         # --- AUDIO ---
         cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+
+        # --- CONTAINER-SPECIFIC FLAGS ---
+        container = self.vars['container'].get()
+        
+        if container == "mp4":
+            cmd.extend(["-movflags", "+faststart"])
+        elif container == "mkv":
+            # MKV is flexible, no special flags needed
+            pass
+        elif container == "avi":
+            cmd.extend(["-avoid_negative_ts", "make_zero"])
+
+        # Add output format flag
+        cmd.extend(["-f", container])
         
         cmd.extend(["-y", output_path])
         return cmd
@@ -1145,6 +1190,33 @@ class VideoEncoderApp(tk.Tk):
         b = int(hex_color[4:6], 16)
         alpha = int((1.0 - opacity) * 255)
         return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
+
+    def update_output_extension(self, *args):
+        """Auto-update output filename extension when container changes"""
+        container = self.vars['container'].get()
+        output_path = self.vars['output_path'].get()
+        
+        base_path = os.path.splitext(output_path)[0]
+        new_path = f"{base_path}.{container}"
+        self.vars['output_path'].set(new_path)
+
+    def validate_container_codec(self):
+        """Warn if container/codec combination has issues"""
+        container = self.vars['container'].get()
+        codec = self.vars['encoder_var'].get()
+        
+        compatibility = {
+            "mp4": ["h264_nvenc", "h264_amf", "libx264", "hevc_nvenc", "hevc_amf", "libx265"],
+            "mkv": ["h264_nvenc", "h264_amf", "libx264", "hevc_nvenc", "hevc_amf", "libx265", "vp9", "av1"],
+            "avi": ["h264_nvenc", "h264_amf", "libx264"]  # Limited support
+        }
+        
+        if codec not in compatibility.get(container, []):
+            messagebox.showwarning(
+                "Compatibility Warning",
+                f"Warning: {codec} may not be fully compatible with {container.upper()} container.\n"
+                f"Recommended codecs: {', '.join(compatibility.get(container, []))}"
+            )
 
     def save_settings(self):
         data = {
