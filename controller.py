@@ -346,7 +346,9 @@ class VideoController:
             
             if parts_count == 1:
                 # --- NORMAL ENCODING (Existing Logic) ---
-                output_file = os.path.join(self.state.output_folder.get(), f"encoded_{os.path.basename(input_file)}")
+                container = self.state.container.get()
+                base_name = os.path.splitext(os.path.basename(input_file))[0]
+                output_file = os.path.join(self.state.output_folder.get(), f"encoded_{base_name}.{container}")
                 self.encode_single_file(input_file, output_file)
             else:
                 # --- SPLIT ENCODING (New Logic) ---
@@ -394,7 +396,8 @@ class VideoController:
                     
                     # Create Output Filename
                     base_name = os.path.splitext(os.path.basename(input_file))[0]
-                    output_file = os.path.join(self.state.output_folder.get(), f"{base_name}_Part{i+1}.mp4")
+                    container = self.state.container.get()
+                    output_file = os.path.join(self.state.output_folder.get(), f"{base_name}_Part{i+1}.{container}")
                     
                     status_var.set(f"Part {i+1}/{num_parts}: {os.path.basename(input_file)}")
                     
