@@ -26,6 +26,7 @@ class SharedState:
         self.cq_var = tk.IntVar(value=23)
         self.use_orig_br_var = tk.BooleanVar(value=False)
         self.max_br_var = tk.IntVar(value=4000)
+        self.container = tk.StringVar(value="mp4")  # mp4, mkv, avi
         
         # Subtitle Variables
         self.burn_subs = tk.BooleanVar(value=False)
