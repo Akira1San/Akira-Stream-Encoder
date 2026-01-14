@@ -728,9 +728,6 @@ class VideoEncoderApp(tk.Tk):
             'split_mode': tk.BooleanVar(value=False),
         }
 
-        # Bind container variable to auto-update output extension
-        self.vars['container'].trace('w', self.update_output_extension)
-
         # Top Control Panel
         control_frame = ttk.Frame(self, padding=5)
         control_frame.pack(fill="x")
@@ -876,7 +873,9 @@ class VideoEncoderApp(tk.Tk):
             
             if parts_count == 1:
                 # --- NORMAL ENCODING (Existing Logic) ---
-                output_file = os.path.join(self.vars['output_folder'].get(), f"encoded_{os.path.basename(input_file)}")
+                container = self.vars['container'].get()
+                base_name = os.path.splitext(os.path.basename(input_file))[0]
+                output_file = os.path.join(self.vars['output_folder'].get(), f"encoded_{base_name}.{container}")
                 self.encode_single_file(input_file, output_file)
             else:
                 # --- SPLIT ENCODING (New Logic) ---
@@ -924,7 +923,8 @@ class VideoEncoderApp(tk.Tk):
                     
                     # Create Output Filename
                     base_name = os.path.splitext(os.path.basename(input_file))[0]
-                    output_file = os.path.join(self.vars['output_folder'].get(), f"{base_name}_Part{i+1}.mp4")
+                    container = self.vars['container'].get()
+                    output_file = os.path.join(self.vars['output_folder'].get(), f"{base_name}_Part{i+1}.{container}")
                     
                     self.status_var.set(f"Part {i+1}/{num_parts}: {os.path.basename(input_file)}")
                     
@@ -1190,15 +1190,6 @@ class VideoEncoderApp(tk.Tk):
         b = int(hex_color[4:6], 16)
         alpha = int((1.0 - opacity) * 255)
         return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
-
-    def update_output_extension(self, *args):
-        """Auto-update output filename extension when container changes"""
-        container = self.vars['container'].get()
-        output_path = self.vars['output_path'].get()
-        
-        base_path = os.path.splitext(output_path)[0]
-        new_path = f"{base_path}.{container}"
-        self.vars['output_path'].set(new_path)
 
     def validate_container_codec(self):
         """Warn if container/codec combination has issues"""
