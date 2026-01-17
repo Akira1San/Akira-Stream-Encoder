@@ -131,38 +131,41 @@ class TrimController:
             total_duration = self.get_video_duration(input_path)
             base_name = os.path.splitext(os.path.basename(input_path))[0]
             output_folder = getattr(self.state, 'output_folder').get()
+            container = getattr(self.state, 'container').get()
             
             # Cut position already aligned to keyframe
             aligned_cut_time = cut_time
             
             # Create segment 1 (before cut)
-            output_path_1 = os.path.join(output_folder, f"{base_name}_part1.mp4")
+            output_path_1 = os.path.join(output_folder, f"{base_name}_part1.{container}")
             success_1, msg_1 = self._create_segment(
                 input_path, output_path_1, 
                 0.0, aligned_cut_time, 
-                tracks_to_cut
+                tracks_to_cut,
+                container
             )
             
             if not success_1:
                 return False, msg_1
             
             # Create segment 2 (after cut)
-            output_path_2 = os.path.join(output_folder, f"{base_name}_part2.mp4")
+            output_path_2 = os.path.join(output_folder, f"{base_name}_part2.{container}")
             success_2, msg_2 = self._create_segment(
                 input_path, output_path_2,
                 aligned_cut_time, total_duration,
-                tracks_to_cut
+                tracks_to_cut,
+                container
             )
             
             if not success_2:
                 return False, msg_2
             
-            return True, f"Successfully cut video into 2 segments: {base_name}_part1.mp4 and {base_name}_part2.mp4"
+            return True, f"Successfully cut video into 2 segments: {base_name}_part1.{container} and {base_name}_part2.{container}"
             
         except Exception as e:
             return False, f"Cut operation failed: {str(e)}"
     
-    def _create_segment(self, input_path, output_path, start_time, end_time, tracks_to_cut):
+    def _create_segment(self, input_path, output_path, start_time, end_time, tracks_to_cut, container):
         """
         Create a single video segment
         
@@ -172,6 +175,7 @@ class TrimController:
             start_time: Start time in seconds
             end_time: End time in seconds
             tracks_to_cut: List of track types to include
+            container: Container format (mp4, mkv, avi)
             
         Returns:
             (success: bool, message: str)
@@ -209,10 +213,8 @@ class TrimController:
         # Stream copy (fast)
         cmd.extend(["-c", "copy"])
         
-        # Timestamp handling
-        cmd.extend(["-avoid_negative_ts", "1"])
-        
-        # Output file
+        # Output file with container format (no problematic flags needed for stream copy)
+        cmd.extend(["-f", container])
         cmd.extend(["-y", output_path])
         
         try:
