@@ -16,6 +16,7 @@ from color_correction import ColorCorrectionPanel
 from geometry import GeometryPanel
 from tracks_panel import TrackSelectionPanel
 from trim_panel import TrimPanel
+from video_validator import VideoValidator
 
 # Check for PIL (Pillow)
 try:
@@ -84,6 +85,10 @@ class ConfigTab(ttk.Frame):
             side="right"
         )
         ttk.Button(btn_frame, text="Clear List", command=self.clear_file_list).pack(
+            side="right", padx=5
+        )
+
+        ttk.Button(btn_frame, text="Validate Video", command=self.validate_video_file).pack(
             side="right", padx=5
         )
 
@@ -167,7 +172,62 @@ class ConfigTab(ttk.Frame):
             else:
                 messagebox.showinfo("Info", "Select a valid file index.")
         else:
-            messagebox.showwarning("Info", "Select a file first from the list.")
+            messagebox.showwarning("Info", "Select a file first from list.")
+
+    def validate_video_file(self):
+        """Validate selected video file for health and DTS issues"""
+        selection = self.files_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Validation", "Please select a file first.")
+            return
+        
+        index = selection[0]
+        if 0 <= index < len(self.vars['input_files']):
+            filepath = self.vars['input_files'][index]
+            self.run_validation(filepath)
+        else:
+            messagebox.showwarning("Validation", "Select a valid file index.")
+
+    def run_validation(self, filepath):
+        """Run video validation and show results"""
+        validator = VideoValidator(getattr(self.vars, 'ffmpeg_path').get(), self.log)
+        
+        # Quick health check
+        if not validator.quick_health_check(filepath):
+            self.log("Quick health check failed")
+            messagebox.showwarning("Video Validation", "❌ Quick health check failed. File may be corrupted.")
+            return
+        
+        # DTS check
+        dts_result = validator.check_dts_issues(filepath)
+        
+        # Frame rate analysis
+        fps_info = validator.analyze_frame_rate(filepath)
+        
+        # Build results message
+        issues = []
+        warnings = []
+        
+        if dts_result['has_issues']:
+            warnings.extend(dts_result['issues'])
+        
+        if fps_info.get('is_vfr', True):
+            warnings.append(f"Variable frame rate: {fps_info.get('fps_str', 'unknown')}")
+        
+        if fps_info.get('is_problematic', True):
+            warnings.append(f"Unusual frame rate: {fps_info.get('fps_str', 'unknown')}")
+        
+        # Show results
+        if not issues and not warnings:
+            result = messagebox.showinfo("Video Validation", "✅ Video appears healthy\n\nNo DTS or frame rate issues detected.")
+        elif not warnings:
+            result = messagebox.showinfo("Video Validation", f"⚠️ Warnings found:\n\n" + "\n".join(dts_result.get('issues', [])))
+        elif not issues:
+            result = messagebox.showinfo("Video Validation", f"⚠️ Minor issues found:\n\n" + "\n".join(warnings))
+        else:
+            result = messagebox.showwarning("Video Validation", f"❌ Issues found:\n\n" + "\n".join(dts_result['issues']) + "\n\nRecommendation: Consider re-encoding problematic files")
+        
+        self.log(f"Validation completed for {os.path.basename(filepath)}")
 
     def detect_and_show_info(self, filepath):
         self.log(f"Getting info for {os.path.basename(filepath)}...")
