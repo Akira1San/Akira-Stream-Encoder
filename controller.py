@@ -345,10 +345,27 @@ class VideoController:
             parts_count = int(self.state.cut_parts.get())
             
             if parts_count == 1:
-                # --- NORMAL ENCODING (Existing Logic) ---
+                # --- NORMAL ENCODING ---
                 container = self.state.container.get()
-                base_name = os.path.splitext(os.path.basename(input_file))[0]
-                output_file = os.path.join(self.state.output_folder.get(), f"encoded_{base_name}.{container}")
+                
+                if self.state.use_custom_filename.get() and self.state.custom_filename.get().strip():
+                    # Custom filename
+                    custom_name = self.state.custom_filename.get().strip()
+                    # Remove extension if user included it
+                    if custom_name.endswith(('.mp4', '.mkv', '.avi')):
+                        custom_name = os.path.splitext(custom_name)[0]
+                    output_file = os.path.join(
+                        self.state.output_folder.get(), 
+                        f"{custom_name}.{container}"
+                    )
+                else:
+                    # Default behavior
+                    base_name = os.path.splitext(os.path.basename(input_file))[0]
+                    output_file = os.path.join(
+                        self.state.output_folder.get(), 
+                        f"encoded_{base_name}.{container}"
+                    )
+                
                 self.encode_single_file(input_file, output_file)
             else:
                 # --- SPLIT ENCODING (New Logic) ---

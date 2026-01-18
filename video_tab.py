@@ -70,6 +70,29 @@ class ConfigTab(ttk.Frame):
             side="right"
         )
 
+        # --- Custom Output Filename ---
+        ttk.Separator(output_frame, orient='horizontal').pack(fill='x', pady=8)
+
+        ttk.Checkbutton(
+            output_frame, 
+            text="Custom Output Filename",
+            variable=self.vars['use_custom_filename']
+        ).pack(anchor='w')
+
+        self.filename_entry = ttk.Entry(
+            output_frame,
+            textvariable=self.vars['custom_filename'],
+            width=50,
+            state='disabled'
+        )
+        self.filename_entry.pack(fill='x', pady=5)
+
+        # Bind checkbox to enable/disable entry
+        self.vars['use_custom_filename'].trace('w', self.on_custom_filename_toggle)
+        
+        # Bind split mode to disable custom filename
+        self.vars['split_mode'].trace('w', self.on_split_mode_toggle)
+
         # --- Input Files (Moved from Video Tab) ---
         list_frame = ttk.LabelFrame(self, text="Input Files Queue", padding=10)
         list_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -142,6 +165,22 @@ class ConfigTab(ttk.Frame):
         folder = filedialog.askdirectory(title="Select output folder")
         if folder:
             self.vars["output_folder"].set(folder)
+
+    def on_custom_filename_toggle(self, *args):
+        """Enable/disable filename entry based on checkbox state"""
+        if self.vars['use_custom_filename'].get():
+            self.filename_entry.config(state='normal')
+        else:
+            self.filename_entry.config(state='disabled')
+            self.vars['custom_filename'].set("")
+
+    def on_split_mode_toggle(self, *args):
+        """Disable custom filename when split mode is active"""
+        if self.vars['split_mode'].get():
+            # Disable custom filename in split mode
+            self.vars['use_custom_filename'].set(False)
+            self.filename_entry.config(state='disabled')
+            self.vars['custom_filename'].set("")
 
     def browse_input(self):
         filenames = filedialog.askopenfilenames(

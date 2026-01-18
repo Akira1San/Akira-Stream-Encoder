@@ -28,6 +28,10 @@ class SharedState:
         self.max_br_var = tk.IntVar(value=4000)
         self.container = tk.StringVar(value="mp4")  # mp4, mkv, avi
         
+        # Custom output filename
+        self.use_custom_filename = tk.BooleanVar(value=False)
+        self.custom_filename = tk.StringVar(value="")
+        
         # Subtitle Variables
         self.burn_subs = tk.BooleanVar(value=False)
         self.sub_font = tk.StringVar(value="Arial")
@@ -233,7 +237,9 @@ class VideoEncoderApp(tk.Tk):
             'eq_rg': self.state.eq_gamma_r.get(),
             'eq_gg': self.state.eq_gamma_g.get(),
             'eq_gb': self.state.eq_gamma_b.get(),
-            'cut_parts': self.state.cut_parts.get()
+            'cut_parts': self.state.cut_parts.get(),
+            'use_custom_filename': self.state.use_custom_filename.get(),
+            'custom_filename': self.state.custom_filename.get()
         })
         
         try:
