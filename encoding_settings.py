@@ -52,10 +52,40 @@ class EncodingPanel(ttk.LabelFrame):
             width=10
         ).grid(row=4, column=1, sticky="w")
 
+        # --- SCALE FILTER ---
+        ttk.Separator(self, orient='horizontal').grid(row=5, column=0, columnspan=4, sticky="we", pady=10)
+        
+        ttk.Label(self, text="Scale Mode:").grid(row=6, column=0, sticky="e", padx=5)
+        ttk.Combobox(
+            self,
+            textvariable=self.state['scale_mode'],
+            values=["off", "on"],
+            state="readonly",
+            width=10
+        ).grid(row=6, column=1, sticky="w")
+
+        ttk.Label(self, text="Algorithm:").grid(row=6, column=2, sticky="e", padx=5)
+        ttk.Combobox(
+            self,
+            textvariable=self.state['scale_algorithm'],
+            values=["bilinear", "bicubic", "lanczos", "spline", "area"],
+            state="readonly",
+            width=10
+        ).grid(row=6, column=3, sticky="w")
+
+        ttk.Label(self, text="Quality:").grid(row=7, column=0, sticky="e", padx=5)
+        ttk.Combobox(
+            self,
+            textvariable=self.state['scale_quality'],
+            values=["speed", "quality"],
+            state="readonly",
+            width=10
+        ).grid(row=7, column=1, sticky="w")
+
         # --- NEW: FAST SPLIT ---
         # We need a container for the new checkbutton. 
         # Since this class IS a Labelframe, we can just add to it.
-        ttk.Separator(self, orient='horizontal').grid(row=5, column=0, columnspan=4, sticky="we", pady=10)
+        ttk.Separator(self, orient='horizontal').grid(row=8, column=0, columnspan=4, sticky="we", pady=10)
         
         ttk.Checkbutton(self, text="Fast Split (No Re-encoding)\nKeeps original format/quality", 
-                       variable=self.state['split_mode']).grid(row=6, column=0, columnspan=4, sticky="w", pady=5)
+                       variable=self.state['split_mode']).grid(row=9, column=0, columnspan=4, sticky="w", pady=5)

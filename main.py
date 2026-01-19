@@ -32,6 +32,11 @@ class SharedState:
         self.use_custom_filename = tk.BooleanVar(value=False)
         self.custom_filename = tk.StringVar(value="")
         
+        # Scale Filter State
+        self.scale_mode = tk.StringVar(value="off")  # off / on
+        self.scale_algorithm = tk.StringVar(value="bilinear")  # bilinear / bicubic / lanczos / spline / area
+        self.scale_quality = tk.StringVar(value="speed")  # speed / quality
+        
         # Subtitle Variables
         self.burn_subs = tk.BooleanVar(value=False)
         self.sub_font = tk.StringVar(value="Arial")
@@ -239,7 +244,10 @@ class VideoEncoderApp(tk.Tk):
             'eq_gb': self.state.eq_gamma_b.get(),
             'cut_parts': self.state.cut_parts.get(),
             'use_custom_filename': self.state.use_custom_filename.get(),
-            'custom_filename': self.state.custom_filename.get()
+            'custom_filename': self.state.custom_filename.get(),
+            'scale_mode': self.state.scale_mode.get(),
+            'scale_algorithm': self.state.scale_algorithm.get(),
+            'scale_quality': self.state.scale_quality.get()
         })
         
         try:

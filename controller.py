@@ -208,10 +208,78 @@ class VideoController:
             
             if self.state.force_widescreen.get():
                 # Simple scale (Crop handles aspect ratio)
-                video_filters.append(f"scale={target_res}")
+                if self.state.scale_mode.get() == "on":
+                    # Apply algorithm-specific scaling
+                    algorithm = self.state.scale_algorithm.get()
+                    quality = self.state.scale_quality.get()
+                    
+                    if algorithm == "bilinear":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=lanczos"
+                        else:
+                            scale_filter = f"scale={target_res}"
+                    elif algorithm == "bicubic":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=bicubic+accurate_rnd"
+                        else:
+                            scale_filter = f"scale={target_res}:flags=bicubic"
+                    elif algorithm == "lanczos":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=lanczos+accurate_rnd"
+                        else:
+                            scale_filter = f"scale={target_res}:flags=lanczos"
+                    elif algorithm == "spline":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=spline+accurate_rnd"
+                        else:
+                            scale_filter = f"scale={target_res}:flags=spline"
+                    elif algorithm == "area":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=area+accurate_rnd"
+                        else:
+                            scale_filter = f"scale={target_res}:flags=area"
+                    
+                    video_filters.append(scale_filter)
+                else:
+                    # Default behavior (basic scale without algorithm)
+                    video_filters.append(f"scale={target_res}")
             else:
                 # Normal mode (Fill frame)
-                video_filters.append(f"scale={target_res}")
+                if self.state.scale_mode.get() == "on":
+                    # Apply algorithm-specific scaling
+                    algorithm = self.state.scale_algorithm.get()
+                    quality = self.state.scale_quality.get()
+                    
+                    if algorithm == "bilinear":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=lanczos"
+                        else:
+                            scale_filter = f"scale={target_res}"
+                    elif algorithm == "bicubic":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=bicubic+accurate_rnd"
+                        else:
+                            scale_filter = f"scale={target_res}:flags=bicubic"
+                    elif algorithm == "lanczos":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=lanczos+accurate_rnd"
+                        else:
+                            scale_filter = f"scale={target_res}:flags=lanczos"
+                    elif algorithm == "spline":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=spline+accurate_rnd"
+                        else:
+                            scale_filter = f"scale={target_res}:flags=spline"
+                    elif algorithm == "area":
+                        if quality == "quality":
+                            scale_filter = f"scale={target_res}:flags=area+accurate_rnd"
+                        else:
+                            scale_filter = f"scale={target_res}:flags=area"
+                    
+                    video_filters.append(scale_filter)
+                else:
+                    # Default behavior (basic scale without algorithm)
+                    video_filters.append(f"scale={target_res}")
 
         # 4. Filters
         if self.state.deint.get(): video_filters.append("yadif")
