@@ -17,7 +17,7 @@ class EncodingPanel(ttk.LabelFrame):
 
         ttk.Label(self, text="Resolution:").grid(row=1, column=0, sticky="e", padx=5)
         ttk.Combobox(self, textvariable=self.state['resolution_var'], 
-                     values=["none", "1920x1080", "1280x720", "720x480", "720x404", "640x480"], 
+                     values=["none", "1920x1080", "1280x720", "720x480", "720x404", "640x480", "640x368"], 
                      state="readonly", width=15).grid(row=1, column=1, sticky="w")
         
         ttk.Label(self, text="Framerate:").grid(row=1, column=2, sticky="e", padx=5)
