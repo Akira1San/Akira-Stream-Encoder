@@ -1,6 +1,41 @@
 import tkinter as tk
 from tkinter import ttk
 
+class ToolTip:
+    """Create a tooltip for a given widget"""
+    def __init__(self, widget, text='widget info'):
+        self.widget = widget
+        self.text = text
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+        self.tipwindow = None
+
+    def enter(self, event=None):
+        self.showtip()
+
+    def leave(self, event=None):
+        self.hidetip()
+
+    def showtip(self):
+        if self.tipwindow or not self.text:
+            return
+        x, y, cx, cy = self.widget.bbox("insert")
+        x = x + self.widget.winfo_rootx() + 25
+        y = y + cy + self.widget.winfo_rooty() + 25
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                        background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                        font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hidetip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
 class EncodingPanel(ttk.LabelFrame):
     def __init__(self, parent, app_state):
         super().__init__(parent, text="Encoding Settings", padding=10)
@@ -56,31 +91,37 @@ class EncodingPanel(ttk.LabelFrame):
         ttk.Separator(self, orient='horizontal').grid(row=5, column=0, columnspan=4, sticky="we", pady=10)
         
         ttk.Label(self, text="Scale Mode:").grid(row=6, column=0, sticky="e", padx=5)
-        ttk.Combobox(
+        scale_mode_combo = ttk.Combobox(
             self,
             textvariable=self.state['scale_mode'],
             values=["off", "on"],
             state="readonly",
             width=10
-        ).grid(row=6, column=1, sticky="w")
+        )
+        scale_mode_combo.grid(row=6, column=1, sticky="w")
+        ToolTip(scale_mode_combo, "Enable/disable advanced scaling algorithms.\nOff: Basic scaling\nOn: Use selected algorithm with quality settings")
 
         ttk.Label(self, text="Algorithm:").grid(row=6, column=2, sticky="e", padx=5)
-        ttk.Combobox(
+        algorithm_combo = ttk.Combobox(
             self,
             textvariable=self.state['scale_algorithm'],
             values=["bilinear", "bicubic", "lanczos", "spline", "area"],
             state="readonly",
             width=10
-        ).grid(row=6, column=3, sticky="w")
+        )
+        algorithm_combo.grid(row=6, column=3, sticky="w")
+        ToolTip(algorithm_combo, "Scaling algorithm:\nBilinear: Fast, basic quality\nBicubic: Good balance of speed/quality\nLanczos: High quality, slower\nSpline: Smooth scaling\nArea: Best for downscaling")
 
         ttk.Label(self, text="Quality:").grid(row=7, column=0, sticky="e", padx=5)
-        ttk.Combobox(
+        quality_combo = ttk.Combobox(
             self,
             textvariable=self.state['scale_quality'],
             values=["speed", "quality"],
             state="readonly",
             width=10
-        ).grid(row=7, column=1, sticky="w")
+        )
+        quality_combo.grid(row=7, column=1, sticky="w")
+        ToolTip(quality_combo, "Quality vs Speed trade-off:\nSpeed: Faster processing, standard quality\nQuality: Slower processing, enhanced accuracy")
 
         # --- NEW: FAST SPLIT ---
         # We need a container for the new checkbutton. 
