@@ -7,16 +7,64 @@ import threading
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
-from filters import FiltersPanel
-
 from encoding_settings import EncodingPanel
 from subtitles import SubtitlesPanel
-from filters import FiltersPanel
 from color_correction import ColorCorrectionPanel
 from geometry import GeometryPanel
+
+class CollapsibleFrame(ttk.Frame):
+    """A collapsible frame with an arrow button to expand/collapse content"""
+    def __init__(self, parent, title="", **kwargs):
+        super().__init__(parent, **kwargs)
+        self.title = title
+        self.is_expanded = True
+        
+        # Header frame with title and arrow button
+        self.header_frame = ttk.Frame(self)
+        self.header_frame.pack(fill="x", padx=5, pady=2)
+        
+        # Arrow button (▼ when expanded, ► when collapsed)
+        self.arrow_button = ttk.Button(
+            self.header_frame, 
+            text="▼", 
+            width=3,
+            command=self.toggle_collapse
+        )
+        self.arrow_button.pack(side="left")
+        
+        # Title label
+        self.title_label = ttk.Label(
+            self.header_frame, 
+            text=title, 
+            font=("Arial", 9, "bold")
+        )
+        self.title_label.pack(side="left", padx=(5, 0))
+        
+        # Content frame (this will be hidden/shown)
+        self.content_frame = ttk.Frame(self)
+        self.content_frame.pack(fill="both", expand=True, padx=5, pady=2)
+        
+    def toggle_collapse(self):
+        """Toggle the collapsed/expanded state"""
+        if self.is_expanded:
+            # Collapse
+            self.content_frame.pack_forget()
+            self.arrow_button.config(text="►")
+            self.is_expanded = False
+        else:
+            # Expand
+            self.content_frame.pack(fill="both", expand=True, padx=5, pady=2)
+            self.arrow_button.config(text="▼")
+            self.is_expanded = True
+    
+    def get_content_frame(self):
+        """Return the content frame where widgets should be added"""
+        return self.content_frame
 from tracks_panel import TrackSelectionPanel
 from trim_panel import TrimPanel
 from video_validator import VideoValidator
+from scan_controller import ScanController
+from scan_panel import ScanPanel
 
 # Check for PIL (Pillow)
 try:
@@ -313,7 +361,7 @@ class ConfigTab(ttk.Frame):
             self.log(err_msg)
 
 class VideoTab(ttk.Frame):
-    """Workspace: Preview + Settings Notebook + Subtitles"""
+    """Workspace: Settings (Left) + Preview with Tabs (Right) - Enhanced Layout"""
     def __init__(self, parent, app_state, trim_controller, log_callback):
         super().__init__(parent)
         self.vars = app_state
@@ -323,14 +371,80 @@ class VideoTab(ttk.Frame):
         self.preview_thread = None
         self.stop_preview = False
         self.default_font = self.get_default_font()
+        
+        self.scan_controller = ScanController(self.vars, self.log)
     
     def set_config_tab(self, config_tab):
         """Set reference to config tab for cross-tab communication"""
         self.config_tab = config_tab
         
-        # --- 1. PREVIEW AREA (Top - Always Visible) ---
-        preview_frame = ttk.LabelFrame(self, text="Real-time Preview", padding=10)
-        preview_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        # --- MAIN HORIZONTAL SPLIT: Settings (Left) + Preview+Tabs (Right) ---
+        main_paned = ttk.PanedWindow(self, orient="horizontal")
+        main_paned.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # --- LEFT PANE: SETTINGS PANELS (Vertical Stack) ---
+        settings_frame = ttk.Frame(main_paned)
+        main_paned.add(settings_frame, weight=1)
+        
+        # Create scrollable canvas for settings
+        canvas = tk.Canvas(settings_frame, highlightthickness=0, bg="white")
+        scrollbar = ttk.Scrollbar(settings_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        # Configure scrolling
+        def configure_scroll_region(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        scrollable_frame.bind("<Configure>", configure_scroll_region)
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Bind mousewheel to canvas and scrollable_frame
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+        
+        # Make sure the canvas can receive focus for mouse wheel events
+        canvas.focus_set()
+        
+        # --- CORE SETTINGS PANELS (Stacked Vertically with Collapsible Frames) ---
+        
+        # Panel 1: Encoding Settings (Collapsible)
+        encoding_collapsible = CollapsibleFrame(scrollable_frame, "Encoding Settings")
+        encoding_collapsible.pack(fill="x", padx=5, pady=2)
+        self.enc_panel = EncodingPanel(encoding_collapsible.get_content_frame(), self.vars)
+        self.enc_panel.pack(fill="x", padx=5, pady=5)
+        
+        # Panel 2: Geometry Settings (Collapsible)
+        geo_collapsible = CollapsibleFrame(scrollable_frame, "Geometry")
+        geo_collapsible.pack(fill="x", padx=5, pady=2)
+        self.geo_panel = GeometryPanel(geo_collapsible.get_content_frame(), self.vars, self.refresh_preview_from_settings)
+        self.geo_panel.pack(fill="x", padx=5, pady=5)
+        
+        # Panel 3: Color Correction (Collapsible)
+        color_collapsible = CollapsibleFrame(scrollable_frame, "Color Correction")
+        color_collapsible.pack(fill="x", padx=5, pady=2)
+        self.eq_panel = ColorCorrectionPanel(color_collapsible.get_content_frame(), self.vars, self.vars['deint'], self.refresh_preview_from_settings)
+        self.eq_panel.pack(fill="x", padx=5, pady=5)
+        
+        # Panel 4: Subtitles (Collapsible)
+        subs_collapsible = CollapsibleFrame(scrollable_frame, "Subtitles")
+        subs_collapsible.pack(fill="x", padx=5, pady=2)
+        self.subs_panel = SubtitlesPanel(subs_collapsible.get_content_frame(), self.vars, self.refresh_preview_from_settings)
+        self.subs_panel.pack(fill="x", padx=5, pady=5)
+        
+        # Force update of scroll region after all panels are added
+        self.after(100, lambda: canvas.configure(scrollregion=canvas.bbox("all")))
+        
+        # --- RIGHT PANE: PREVIEW AREA ---
+        preview_frame = ttk.LabelFrame(main_paned, text="Real-time Preview", padding=10)
+        main_paned.add(preview_frame, weight=2)
 
         if not HAS_PIL:
             ttk.Label(preview_frame, text="Preview requires 'Pillow' library.", foreground="red").pack(pady=20)
@@ -359,58 +473,31 @@ class VideoTab(ttk.Frame):
             self.time_label = ttk.Label(time_frame, text="00:00")
             self.time_label.pack(side="right")
             self.timeline.bind("<ButtonRelease-1>", lambda e: self.refresh_preview_from_settings())
-
-        # --- 2. SETTINGS NOTEBOOK (Middle - Nested Tabs) ---
-        # This solves the space issue by splitting settings into categories
-        self.settings_book = ttk.Notebook(self)
-        self.settings_book.pack(fill="both", expand=True, padx=10, pady=5)
-
-        # --- TAB A: GENERAL (Encoding + Filters) ---
-        self.tab_general = ttk.Frame(self.settings_book)
-        self.settings_book.add(self.tab_general, text="General (Video/Audio)")
-        
-        # Add Encoding Panel
-        self.enc_panel = EncodingPanel(self.tab_general, self.vars)
-        self.enc_panel.pack(fill="x", padx=5, pady=5)
-        
-        # Add Filters Panel
-        self.filters_panel = FiltersPanel(self.tab_general, self.vars)
-        self.filters_panel.pack(fill="x", padx=5, pady=5)
-
-        # --- NEW: TAB B: TRIM/CUT (Between General and Geometry) ---
-        self.tab_trim_cut = ttk.Frame(self.settings_book)
-        self.settings_book.add(self.tab_trim_cut, text="Trim/Cut")
-        
-        # Add Trim/Cut Panel
-        self.trim_panel = TrimPanel(
-            self.tab_trim_cut, self.vars, self.trim_controller, self.log,
-            self.set_cut_point, self.execute_cut
-        )
-        self.trim_panel.pack(fill="both", expand=True, padx=5, pady=5)
-
-        # --- NEW: TAB C: GEOMETRY (Aspect Ratio) ---
-        self.tab_geo = ttk.Frame(self.settings_book)
-        self.settings_book.add(self.tab_geo, text="Geometry")
-        
-        self.geo_panel = GeometryPanel(self.tab_geo, self.vars, self.refresh_preview_from_settings)
-        self.geo_panel.pack(fill="both", expand=True, padx=5, pady=5)
-
-        # --- TAB D: COLOR CORRECTION ---
-        self.tab_color = ttk.Frame(self.settings_book)
-        self.settings_book.add(self.tab_color, text="Color Correction (EQ)")
-        
-        # Add EQ Panel (Gets full width/height here)
-        # Pass the refresh function as the 4th argument
-        self.eq_panel = ColorCorrectionPanel(self.tab_color, self.vars, self.vars['deint'], self.refresh_preview_from_settings)
-        self.eq_panel.pack(fill="both", expand=True, padx=5, pady=5)
-
-        # --- TAB E: SUBTITLES ---
-        self.tab_subs = ttk.Frame(self.settings_book)
-        self.settings_book.add(self.tab_subs, text="Subtitles")
-        
-        # Add Subtitles Panel
-        self.subs_panel = SubtitlesPanel(self.tab_subs, self.vars, self.refresh_preview_from_settings)
-        self.subs_panel.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # --- TABS AREA (Inside Preview Frame) ---
+            # Create notebook for specialized tabs
+            self.tabs_notebook = ttk.Notebook(preview_frame)
+            self.tabs_notebook.pack(fill="both", expand=True, pady=(5, 0))
+            
+            # Tab 1: Trim/Cut
+            self.tab_trim_cut = ttk.Frame(self.tabs_notebook)
+            self.tabs_notebook.add(self.tab_trim_cut, text="Trim/Cut")
+            self.trim_panel = TrimPanel(
+                self.tab_trim_cut, self.vars, self.trim_controller, self.log,
+                self.set_cut_point, self.execute_cut
+            )
+            self.trim_panel.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Tab 2: Scan/Repair (Audio)
+            self.tab_scan = ttk.Frame(self.tabs_notebook)
+            self.tabs_notebook.add(self.tab_scan, text="Scan/Repair")
+            self.scan_panel = ScanPanel(
+                self.tab_scan,
+                self.vars,
+                self.scan_controller,
+                self.log
+            )
+            self.scan_panel.pack(fill="both", expand=True, padx=5, pady=5)
 
     # --- Helper Methods ---
     def bind_release_to_preview(self, widget):

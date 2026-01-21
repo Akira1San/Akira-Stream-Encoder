@@ -26,6 +26,8 @@ class SharedState:
         self.cq_var = tk.IntVar(value=23)
         self.use_orig_br_var = tk.BooleanVar(value=False)
         self.max_br_var = tk.IntVar(value=4000)
+        self.bitrate_mode = tk.StringVar(value="CBR (Constant Bitrate)")
+        self.target_bitrate = tk.StringVar(value="2000")
         self.container = tk.StringVar(value="mp4")  # mp4, mkv, avi
         
         # Custom output filename
@@ -89,6 +91,23 @@ class SharedState:
         # Additional variables created by modules
         self.split_mode = tk.BooleanVar(value=False)
         self.eq_enable = tk.BooleanVar(value=False)
+        
+        # Audio scan results
+        self.audio_scan_results = {}
+        self.audio_scan_mode = tk.StringVar(value='fast')
+        
+        # Audio fix options
+        self.audio_fix_strategy = tk.StringVar(value='reencode')
+        self.audio_bitrate = tk.StringVar(value='128k')
+        self.audio_samplerate = tk.StringVar(value='44100')
+        self.audio_fix_sync = tk.BooleanVar(value=False)
+        self.audio_fix_codec = tk.BooleanVar(value=False)
+        
+        # Audio scan log verbosity
+        self.audio_scan_verbosity = tk.StringVar(value='normal')
+        
+        # Output folder for fixed files
+        self.fixed_files_folder = tk.StringVar(value='')
         
         # Runtime state
         self.is_encoding = False
@@ -247,7 +266,15 @@ class VideoEncoderApp(tk.Tk):
             'custom_filename': self.state.custom_filename.get(),
             'scale_mode': self.state.scale_mode.get(),
             'scale_algorithm': self.state.scale_algorithm.get(),
-            'scale_quality': self.state.scale_quality.get()
+            'scale_quality': self.state.scale_quality.get(),
+            'audio_scan_mode': self.state.audio_scan_mode.get(),
+            'audio_fix_strategy': self.state.audio_fix_strategy.get(),
+            'audio_bitrate': self.state.audio_bitrate.get(),
+            'audio_samplerate': self.state.audio_samplerate.get(),
+            'audio_scan_verbosity': self.state.audio_scan_verbosity.get(),
+            'fixed_files_folder': self.state.fixed_files_folder.get(),
+            'bitrate_mode': self.state.bitrate_mode.get(),
+            'target_bitrate': self.state.target_bitrate.get()
         })
         
         try:
@@ -286,7 +313,15 @@ class VideoEncoderApp(tk.Tk):
                     "eq_rg": self.state.eq_gamma_r,
                     "eq_gg": self.state.eq_gamma_g,
                     "eq_gb": self.state.eq_gamma_b,
-                    "cut_parts": self.state.cut_parts
+                    "cut_parts": self.state.cut_parts,
+                    "audio_scan_mode": self.state.audio_scan_mode,
+                    "audio_fix_strategy": self.state.audio_fix_strategy,
+                    "audio_bitrate": self.state.audio_bitrate,
+                    "audio_samplerate": self.state.audio_samplerate,
+                    "audio_scan_verbosity": self.state.audio_scan_verbosity,
+                    "fixed_files_folder": self.state.fixed_files_folder,
+                    "bitrate_mode": self.state.bitrate_mode,
+                    "target_bitrate": self.state.target_bitrate
                 }
                 
                 for legacy_name, var in legacy_mappings.items():

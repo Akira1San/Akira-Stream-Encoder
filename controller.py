@@ -131,6 +131,7 @@ class VideoController:
         """Build the complete FFmpeg command based on current settings"""
         # 1. Executable
         cmd = [self.state.ffmpeg_path.get()]
+        target_bitrate = None
 
         # --- CHECK FAST SPLIT MODE ---
         if self.state.split_mode.get():
@@ -162,7 +163,9 @@ class VideoController:
         
         if self.state.use_gpu.get():
             cmd.extend(["-preset", "p4"])
-            if target_bitrate:
+            if self.state.bitrate_mode.get() == "CBR (Constant Bitrate)":
+                if target_bitrate is None:
+                    target_bitrate = int(self.state.target_bitrate.get())
                 cmd.extend(["-rc", "cbr"])
                 cmd.extend(["-b:v", f"{target_bitrate}k", "-maxrate", f"{target_bitrate}k", "-bufsize", f"{target_bitrate * 2}k"])
             else:
@@ -170,7 +173,9 @@ class VideoController:
                 cmd.extend(["-cq", str(self.state.cq_var.get()), "-b:v", "0k"])
         else:
             cmd.extend(["-preset", "medium"])
-            if target_bitrate:
+            if self.state.bitrate_mode.get() == "CBR (Constant Bitrate)":
+                if target_bitrate is None:
+                    target_bitrate = int(self.state.target_bitrate.get())
                 cmd.extend(["-b:v", f"{target_bitrate}k"])
             else:
                 cmd.extend(["-crf", str(self.state.cq_var.get())])
@@ -340,8 +345,25 @@ class VideoController:
     def encode_single_file(self, input_path, output_file, start_time_str=None, duration_str=None):
         """Encodes a single file with optional trimming/splitting"""
         try:
+            # Determine target bitrate for CBR mode
+            target_bitrate = None
+            if self.state.bitrate_mode.get() == "CBR (Constant Bitrate)":
+                if self.state.use_orig_br_var.get():
+                    orig_bitrate = self.get_video_bitrate(input_path)
+                    if orig_bitrate:
+                        target_bitrate = orig_bitrate
+                        self.log(f"Using CBR with detected original bitrate: {orig_bitrate} kbps")
+                    else:
+                        target_bitrate = int(self.state.target_bitrate.get())
+                        self.log(f"Could not detect original bitrate, using custom: {target_bitrate} kbps")
+                else:
+                    target_bitrate = int(self.state.target_bitrate.get())
+                    self.log(f"Using CBR with custom bitrate: {target_bitrate} kbps")
+            else:
+                self.log("Using VBR mode (variable bitrate based on CQ)")
+            
             # Build command
-            cmd = self.build_ffmpeg_command(input_path, output_file, start_time_str=start_time_str, duration_str=duration_str)
+            cmd = self.build_ffmpeg_command(input_path, output_file, target_bitrate=target_bitrate, start_time_str=start_time_str, duration_str=duration_str)
             self.log(f"Running: {' '.join(cmd)}")
             
             # Run FFmpeg using Popen
@@ -434,6 +456,22 @@ class VideoController:
                         f"encoded_{base_name}.{container}"
                     )
                 
+                target_bitrate = None
+                if self.state.bitrate_mode.get() == "CBR (Constant Bitrate)":
+                    if self.state.use_orig_br_var.get():
+                        orig_bitrate = self.get_video_bitrate(input_file)
+                        if orig_bitrate:
+                            target_bitrate = orig_bitrate
+                            self.log(f"Using CBR with detected original bitrate: {orig_bitrate} kbps")
+                        else:
+                            target_bitrate = int(self.state.target_bitrate.get())
+                            self.log(f"Original bitrate detection failed, using custom CBR: {target_bitrate} kbps")
+                    else:
+                        target_bitrate = int(self.state.target_bitrate.get())
+                        self.log(f"Using CBR with custom bitrate: {target_bitrate} kbps")
+                else:
+                    self.log("Using VBR mode (variable bitrate based on CQ)")
+                
                 self.encode_single_file(input_file, output_file)
             else:
                 # --- SPLIT ENCODING (New Logic) ---
@@ -487,6 +525,22 @@ class VideoController:
                     status_var.set(f"Part {i+1}/{num_parts}: {os.path.basename(input_file)}")
                     
                     # Encode this part
+                    target_bitrate = None
+                    if self.state.bitrate_mode.get() == "CBR (Constant Bitrate)":
+                        if self.state.use_orig_br_var.get():
+                            orig_bitrate = self.get_video_bitrate(input_file)
+                            if orig_bitrate:
+                                target_bitrate = orig_bitrate
+                                self.log(f"Using CBR with detected original bitrate: {orig_bitrate} kbps")
+                            else:
+                                target_bitrate = int(self.state.target_bitrate.get())
+                                self.log(f"Original bitrate detection failed, using custom CBR: {target_bitrate} kbps")
+                        else:
+                            target_bitrate = int(self.state.target_bitrate.get())
+                            self.log(f"Using CBR with custom bitrate: {target_bitrate} kbps")
+                    else:
+                        self.log("Using VBR mode (variable bitrate based on CQ)")
+                    
                     self.encode_single_file(input_file, output_file, start_time_str=time_str, duration_str=dur_str)
 
         # --- END OF BATCH ---
