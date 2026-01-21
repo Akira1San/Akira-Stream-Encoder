@@ -51,14 +51,14 @@ class EncodingPanel(ttk.LabelFrame):
         ttk.Checkbutton(row1_frame, text="Use GPU (NVENC)", variable=self.state['use_gpu']).pack(side="left", padx=5)
         ttk.Label(row1_frame, text="Encoder:").pack(side="left", padx=(20, 5))
         ttk.Combobox(row1_frame, textvariable=self.state['encoder_var'], 
-                     values=["h264_nvenc", "hevc_nvenc", "libx264"], state="readonly", width=15).pack(side="left")
+                     values=["h264_nvenc", "hevc_nvenc", "libx264", "libx265"], state="readonly", width=15).pack(side="left")
 
         # Row 2: Resolution and Framerate
         row2_frame = ttk.Frame(self)
         row2_frame.pack(fill="x", pady=2)
         ttk.Label(row2_frame, text="Resolution:").pack(side="left", padx=5)
         ttk.Combobox(row2_frame, textvariable=self.state['resolution_var'], 
-                     values=["none", "1920x1080", "1280x720", "720x480", "720x404", "640x480", "640x368"], 
+                     values=["none", "1920x1080", "1280x720", "720x480", "720x404", "720x400", "640x480", "640x368"], 
                      state="readonly", width=15).pack(side="left", padx=(5, 20))
         
         ttk.Label(row2_frame, text="Framerate:").pack(side="left", padx=5)

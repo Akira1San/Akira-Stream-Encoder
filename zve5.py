@@ -768,6 +768,15 @@ class VideoEncoderApp(tk.Tk):
             'max_br_var': tk.IntVar(value=4000),
             'container': tk.StringVar(value="mp4"),  # mp4, mkv, avi
             
+            # --- Bitrate Controls ---
+            'bitrate_mode': tk.StringVar(value="CBR (Constant Bitrate)"),
+            'target_bitrate': tk.StringVar(value="2000"),
+            
+            # --- Scale Controls ---
+            'scale_mode': tk.StringVar(value="off"),
+            'scale_algorithm': tk.StringVar(value="bicubic"),
+            'scale_quality': tk.StringVar(value="quality"),
+            
             # --- Subtitle Variables ---
             'burn_subs': tk.BooleanVar(value=False),
             'sub_font': tk.StringVar(value="Arial"),
@@ -874,6 +883,15 @@ class VideoEncoderApp(tk.Tk):
             messagebox.showerror("FFmpeg Error", "FFmpeg path is invalid.")
             return
 
+        # Validate H.265 hardware compatibility
+        encoder = self.vars['encoder_var'].get()
+        if encoder in ["hevc_nvenc", "libx265"]:
+            if not self.validate_h265_hardware_compatibility():
+                return
+
+        # Validate container compatibility
+        self.validate_container_codec()
+
         self.log("Starting batch encoding...")
         self.is_encoding = True
         self.processing_thread = threading.Thread(
@@ -881,11 +899,19 @@ class VideoEncoderApp(tk.Tk):
         )
         self.processing_thread.start()
 
-    def encode_single_file(self, input_path, output_file, start_time_str=None, duration_str=None):
+    def encode_single_file(self, input_path, output_file, target_bitrate=None, start_time_str=None, duration_str=None):
         """Encodes a single file with optional trimming/splitting"""
         try:
             # Build command
-            cmd = self.build_ffmpeg_command(input_path, output_file, start_time_str=start_time_str, duration_str=duration_str)
+            cmd = self.build_ffmpeg_command(input_path, output_file, target_bitrate=target_bitrate, start_time_str=start_time_str, duration_str=duration_str)
+            
+            # Validate command before execution
+            is_valid, validation_msg = self.validate_ffmpeg_command(cmd)
+            if not is_valid:
+                self.log(f"Command validation failed: {validation_msg}")
+                messagebox.showerror("Command Validation Error", f"FFmpeg command validation failed:\n{validation_msg}")
+                return
+            
             self.log(f"Running: {' '.join(cmd)}")
             
             # Run FFmpeg using Popen
@@ -927,8 +953,14 @@ class VideoEncoderApp(tk.Tk):
             return_code = self.current_process.wait()
             
             if return_code != 0:
+                encoder = self.vars['encoder_var'].get()
                 self.log(f"Encoding FAILED for {os.path.basename(output_file)}. Return code: {return_code}")
-                messagebox.showerror("Encoding Error", f"Encoding failed.\nReturn code: {return_code}")
+                
+                # H.265-specific error handling and fallback suggestions
+                if encoder in ["hevc_nvenc", "libx265"]:
+                    self._handle_h265_encoding_failure(return_code, encoder, output_file)
+                else:
+                    messagebox.showerror("Encoding Error", f"Encoding failed.\nReturn code: {return_code}")
             else:
                 self.log(f"Successfully encoded {os.path.basename(output_file)}")
                 
@@ -937,9 +969,73 @@ class VideoEncoderApp(tk.Tk):
             self.log(err_msg)
             messagebox.showerror("Error", err_msg)
         except Exception as e:
+            encoder = self.vars['encoder_var'].get()
             err_msg = f"Exception during encoding:\n{e}"
             self.log(err_msg)
-            messagebox.showerror("Critical Error", err_msg)
+            
+            # H.265-specific exception handling
+            if encoder in ["hevc_nvenc", "libx265"]:
+                self._handle_h265_encoding_exception(e, encoder)
+            else:
+                messagebox.showerror("Critical Error", err_msg)
+
+    def _handle_h265_encoding_failure(self, return_code, encoder, output_file):
+        """Handle H.265-specific encoding failures with fallback suggestions"""
+        if encoder == "hevc_nvenc":
+            messagebox.showerror(
+                "H.265 NVENC Encoding Failed",
+                f"H.265 hardware encoding failed (Return code: {return_code}).\n\n"
+                "Possible causes:\n"
+                "• GPU memory insufficient\n"
+                "• Driver compatibility issues\n"
+                "• Hardware encoder limitations\n\n"
+                "Suggested solutions:\n"
+                "• Try reducing resolution or quality settings\n"
+                "• Switch to 'libx265' for CPU-based H.265 encoding\n"
+                "• Update GPU drivers\n"
+                "• Use H.264 encoding instead"
+            )
+        elif encoder == "libx265":
+            messagebox.showerror(
+                "libx265 Encoding Failed", 
+                f"CPU-based H.265 encoding failed (Return code: {return_code}).\n\n"
+                "Possible causes:\n"
+                "• Insufficient system memory\n"
+                "• Invalid encoding parameters\n"
+                "• Corrupted input file\n\n"
+                "Suggested solutions:\n"
+                "• Reduce video resolution or quality settings\n"
+                "• Increase available system memory\n"
+                "• Try H.264 encoding instead\n"
+                "• Check input file integrity"
+            )
+    
+    def _handle_h265_encoding_exception(self, exception, encoder):
+        """Handle H.265-specific encoding exceptions"""
+        error_str = str(exception).lower()
+        
+        if "memory" in error_str or "out of memory" in error_str:
+            messagebox.showerror(
+                "H.265 Memory Error",
+                f"H.265 encoding failed due to memory issues.\n\n"
+                "Suggested parameter adjustments:\n"
+                "• Reduce resolution (e.g., 1920x1080 → 1280x720)\n"
+                "• Increase CRF value (lower quality, less memory)\n"
+                "• Close other applications to free memory\n"
+                f"• Switch from {encoder} to H.264 encoding"
+            )
+        elif "invalid" in error_str or "parameter" in error_str:
+            messagebox.showerror(
+                "H.265 Parameter Error",
+                f"H.265 encoding failed due to invalid parameters.\n\n"
+                "This may be caused by:\n"
+                "• Incompatible resolution settings\n"
+                "• Invalid quality range for H.265\n"
+                "• Unsupported encoding options\n\n"
+                "Try using default settings or switch to H.264 encoding."
+            )
+        else:
+            messagebox.showerror("H.265 Encoding Error", f"H.265 encoding exception:\n{exception}")
 
     def process_batch(self):
         files = self.vars['input_files']
@@ -947,6 +1043,25 @@ class VideoEncoderApp(tk.Tk):
         # --- 1. PROCESS FILES ---
         for input_file in files:
             if not self.is_encoding: break
+            
+            # H.265-specific bitrate handling
+            target_bitrate = None
+            if self.vars.get('bitrate_mode', tk.StringVar()).get() == "CBR (Constant Bitrate)":
+                if self.vars['use_orig_br_var'].get():
+                    # Detect original bitrate for H.265 optimization
+                    orig_bitrate = self.get_video_bitrate(input_file)
+                    if orig_bitrate:
+                        target_bitrate = self._optimize_h265_bitrate(orig_bitrate, input_file)
+                        self.log(f"H.265 optimized bitrate: {target_bitrate} kbps (original: {orig_bitrate} kbps)")
+                else:
+                    # Use user-specified target bitrate
+                    try:
+                        target_bitrate = int(self.vars['target_bitrate'].get())
+                        # Apply H.265 bitrate recommendations
+                        target_bitrate = self._validate_h265_bitrate(target_bitrate, input_file)
+                    except ValueError:
+                        self.log("Invalid target bitrate specified, using quality-based encoding")
+                        target_bitrate = None
             
             # Check Split Mode
             parts_count = int(self.vars['cut_parts'].get())
@@ -956,7 +1071,7 @@ class VideoEncoderApp(tk.Tk):
                 container = self.vars['container'].get()
                 base_name = os.path.splitext(os.path.basename(input_file))[0]
                 output_file = os.path.join(self.vars['output_folder'].get(), f"encoded_{base_name}.{container}")
-                self.encode_single_file(input_file, output_file)
+                self.encode_single_file(input_file, output_file, target_bitrate=target_bitrate)
             else:
                 # --- SPLIT ENCODING (New Logic) ---
                 self.log(f"Splitting {os.path.basename(input_file)} by duration...")
@@ -1009,7 +1124,7 @@ class VideoEncoderApp(tk.Tk):
                     self.status_var.set(f"Part {i+1}/{num_parts}: {os.path.basename(input_file)}")
                     
                     # Encode this part
-                    self.encode_single_file(input_file, output_file, start_time_str=time_str, duration_str=dur_str)
+                    self.encode_single_file(input_file, output_file, target_bitrate=target_bitrate, start_time_str=time_str, duration_str=dur_str)
 
         # --- END OF BATCH ---
         self.status_var.set("Batch Complete")
@@ -1105,29 +1220,16 @@ class VideoEncoderApp(tk.Tk):
             
         cmd.extend(["-i", input_path])
         cmd.extend(["-r", self.vars['framerate_var'].get()])
-        cmd.extend(["-c:v", self.vars['encoder_var'].get()])
         
-        if self.vars['use_gpu'].get():
-            cmd.extend(["-preset", "p4"])
-            if target_bitrate:
-                cmd.extend(["-rc", "cbr"])
-                cmd.extend(["-b:v", f"{target_bitrate}k", "-maxrate", f"{target_bitrate}k", "-bufsize", f"{target_bitrate * 2}k"])
-            else:
-                cmd.extend(["-rc", "vbr"])
-                cmd.extend(["-cq", str(self.vars['cq_var'].get()), "-b:v", "0k"])
+        encoder = self.vars['encoder_var'].get()
+        cmd.extend(["-c:v", encoder])
+        
+        # H.265-specific parameter handling
+        if encoder in ["hevc_nvenc", "libx265"]:
+            self._apply_h265_parameters(cmd, encoder, target_bitrate)
         else:
-            cmd.extend(["-preset", "medium"])
-            if target_bitrate:
-                cmd.extend(["-b:v", f"{target_bitrate}k"])
-            else:
-                cmd.extend(["-crf", str(self.vars['cq_var'].get())])
-        
-        # --- STRICT STREAMER FLAGS ---
-        cmd.extend(["-g", "144"]) 
-        cmd.extend(["-bf", "0"])
-        cmd.extend(["-pix_fmt", "yuv420p"])
-        cmd.extend(["-profile:v", "main"])
-        cmd.extend(["-level:v", "4.0"])
+            # H.264 parameter handling (existing logic)
+            self._apply_h264_parameters(cmd, encoder, target_bitrate)
         
         # --- VIDEO FILTERS ---
         video_filters = []
@@ -1271,6 +1373,252 @@ class VideoEncoderApp(tk.Tk):
         alpha = int((1.0 - opacity) * 255)
         return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
 
+    def _apply_h265_parameters(self, cmd, encoder, target_bitrate):
+        """Apply H.265-specific encoding parameters"""
+        if encoder == "hevc_nvenc":
+            # GPU H.265 encoding parameters
+            cmd.extend(["-preset", "p4"])
+            if target_bitrate:
+                cmd.extend(["-rc", "cbr"])
+                cmd.extend(["-b:v", f"{target_bitrate}k", "-maxrate", f"{target_bitrate}k", "-bufsize", f"{target_bitrate * 2}k"])
+                self.log(f"Using H.265 NVENC with CBR: {target_bitrate} kbps")
+            else:
+                cmd.extend(["-rc", "vbr"])
+                cmd.extend(["-cq", str(self.vars['cq_var'].get()), "-b:v", "0k"])
+                self.log(f"Using H.265 NVENC with CQ: {self.vars['cq_var'].get()}")
+        elif encoder == "libx265":
+            # CPU H.265 encoding parameters
+            cmd.extend(["-preset", "medium"])
+            if target_bitrate:
+                cmd.extend(["-b:v", f"{target_bitrate}k"])
+                self.log(f"Using libx265 with CBR: {target_bitrate} kbps")
+            else:
+                # Use CRF for libx265 (quality-based encoding)
+                crf_value = max(18, min(28, self.vars['cq_var'].get()))  # Clamp to H.265 range
+                cmd.extend(["-crf", str(crf_value)])
+                self.log(f"Using libx265 with CRF: {crf_value} (H.265 optimized range)")
+            
+            # H.265-specific optimizations
+            cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0"])
+        
+        # Common H.265 parameters
+        cmd.extend(["-pix_fmt", "yuv420p"])
+        cmd.extend(["-profile:v", "main"])
+        cmd.extend(["-level:v", "4.0"])
+        
+    def _apply_h264_parameters(self, cmd, encoder, target_bitrate):
+        """Apply H.264-specific encoding parameters (existing logic)"""
+        if self.vars['use_gpu'].get():
+            cmd.extend(["-preset", "p4"])
+            if target_bitrate:
+                cmd.extend(["-rc", "cbr"])
+                cmd.extend(["-b:v", f"{target_bitrate}k", "-maxrate", f"{target_bitrate}k", "-bufsize", f"{target_bitrate * 2}k"])
+            else:
+                cmd.extend(["-rc", "vbr"])
+                cmd.extend(["-cq", str(self.vars['cq_var'].get()), "-b:v", "0k"])
+        else:
+            cmd.extend(["-preset", "medium"])
+            if target_bitrate:
+                cmd.extend(["-b:v", f"{target_bitrate}k"])
+            else:
+                cmd.extend(["-crf", str(self.vars['cq_var'].get())])
+        
+        # H.264 parameters
+        cmd.extend(["-pix_fmt", "yuv420p"])
+        cmd.extend(["-profile:v", "main"])
+        cmd.extend(["-level:v", "4.0"])
+
+    def check_encoder_availability(self, encoder):
+        """Check if a specific encoder is available in the FFmpeg installation"""
+        try:
+            cmd = [self.vars['ffmpeg_path'].get(), "-encoders"]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            return encoder in result.stdout
+        except Exception as e:
+            self.log(f"Failed to check encoder availability: {e}")
+            return False
+    
+    def validate_h265_hardware_compatibility(self):
+        """Validate H.265 hardware compatibility and provide warnings/fallbacks"""
+        encoder = self.vars['encoder_var'].get()
+        
+        if encoder == "hevc_nvenc":
+            # Check if NVENC is available
+            if not self.check_encoder_availability("hevc_nvenc"):
+                result = messagebox.askyesno(
+                    "H.265 NVENC Not Available",
+                    "H.265 hardware encoding (hevc_nvenc) is not available.\n\n"
+                    "This could be due to:\n"
+                    "• Missing or outdated GPU drivers\n"
+                    "• Incompatible GPU hardware\n"
+                    "• FFmpeg built without NVENC support\n\n"
+                    "Would you like to automatically switch to CPU-based H.265 encoding (libx265)?"
+                )
+                
+                if result:
+                    self.vars['encoder_var'].set("libx265")
+                    self.log("Automatically switched to libx265 for H.265 encoding")
+                    return True
+                else:
+                    return False
+                    
+        elif encoder == "libx265":
+            # Check if libx265 is available
+            if not self.check_encoder_availability("libx265"):
+                messagebox.showerror(
+                    "libx265 Not Available",
+                    "CPU-based H.265 encoding (libx265) is not available.\n\n"
+                    "Please install FFmpeg with libx265 support:\n"
+                    "• Download FFmpeg with libx265 from https://ffmpeg.org/\n"
+                    "• Or install via package manager (e.g., 'apt install ffmpeg' on Ubuntu)\n"
+                    "• Ensure libx265 is included in your FFmpeg build"
+                )
+                return False
+        
+        return True
+    
+    def _handle_h265_encoding_exception(self, exception, encoder):
+        """Handle H.265-specific encoding exceptions"""
+        if "memory" in str(exception).lower() or "out of memory" in str(exception).lower():
+            messagebox.showerror(
+                "H.265 Memory Error",
+                f"H.265 encoding failed due to memory issues.\n\n"
+                "Suggested solutions:\n"
+                "• Reduce video resolution\n"
+                "• Lower quality settings (increase CRF/CQ value)\n"
+                "• Close other applications to free memory\n"
+                "• Use H.264 encoding for lower memory usage\n\n"
+                f"Error details: {exception}"
+            )
+        else:
+            messagebox.showerror(
+                f"H.265 Encoding Error ({encoder})",
+                f"H.265 encoding encountered an error.\n\n"
+                f"Error details: {exception}\n\n"
+                "Try switching to H.264 encoding if the problem persists."
+            )
+    
+    def validate_ffmpeg_command(self, cmd):
+        """Validate FFmpeg command for H.265-specific requirements"""
+        try:
+            # Basic command structure validation
+            if not cmd or len(cmd) < 3:
+                return False, "Command too short or empty"
+            
+            # Check for required FFmpeg executable
+            if not cmd[0] or not ("ffmpeg" in cmd[0].lower()):
+                return False, "Invalid FFmpeg executable path"
+            
+            # H.265-specific validation
+            encoder = self.vars['encoder_var'].get()
+            if encoder in ["hevc_nvenc", "libx265"]:
+                # Check if encoder is specified in command
+                if "-c:v" not in cmd or encoder not in cmd:
+                    return False, f"H.265 encoder {encoder} not found in command"
+                
+                # Validate H.265-specific parameters
+                if encoder == "libx265" and "-crf" in cmd:
+                    try:
+                        crf_index = cmd.index("-crf") + 1
+                        if crf_index < len(cmd):
+                            crf_value = int(cmd[crf_index])
+                            if not (18 <= crf_value <= 28):
+                                return False, f"libx265 CRF value {crf_value} outside recommended range (18-28)"
+                    except (ValueError, IndexError):
+                        return False, "Invalid CRF parameter for libx265"
+                
+                elif encoder == "hevc_nvenc" and "-cq" in cmd:
+                    try:
+                        cq_index = cmd.index("-cq") + 1
+                        if cq_index < len(cmd):
+                            cq_value = int(cmd[cq_index])
+                            if not (18 <= cq_value <= 30):
+                                return False, f"hevc_nvenc CQ value {cq_value} outside recommended range (18-30)"
+                    except (ValueError, IndexError):
+                        return False, "Invalid CQ parameter for hevc_nvenc"
+            
+            return True, "Command validation passed"
+            
+        except Exception as e:
+            return False, f"Validation error: {e}"
+        
+        if encoder == "hevc_nvenc":
+            if not self.check_encoder_availability("hevc_nvenc"):
+                messagebox.showwarning(
+                    "Hardware Compatibility Warning",
+                    "NVIDIA HEVC encoder (hevc_nvenc) is not available.\n"
+                    "This may be due to:\n"
+                    "• Missing NVIDIA GPU\n"
+                    "• Outdated GPU drivers\n"
+                    "• FFmpeg not compiled with NVENC support\n\n"
+                    "Recommendation: Use 'libx265' for CPU-based H.265 encoding."
+                )
+                return False
+        elif encoder == "libx265":
+            if not self.check_encoder_availability("libx265"):
+                messagebox.showerror(
+                    "Encoder Not Available",
+                    "libx265 encoder is not available in your FFmpeg installation.\n\n"
+                    "Please install FFmpeg with libx265 support:\n"
+                    "• Windows: Download FFmpeg with libx265 from https://ffmpeg.org/\n"
+                    "• Linux: Install ffmpeg with libx265 (e.g., apt install ffmpeg)\n"
+                    "• macOS: Install via Homebrew: brew install ffmpeg"
+                )
+                return False
+        
+        return True
+
+    def validate_ffmpeg_command(self, cmd):
+        """Validate FFmpeg command structure and parameters"""
+        if not cmd or len(cmd) < 3:
+            return False, "Command too short"
+        
+        # Check for required components
+        if "-i" not in cmd:
+            return False, "Missing input file parameter (-i)"
+        
+        if "-c:v" not in cmd:
+            return False, "Missing video codec parameter (-c:v)"
+        
+        encoder = self.vars['encoder_var'].get()
+        
+        # H.265-specific validation
+        if encoder in ["hevc_nvenc", "libx265"]:
+            if encoder == "libx265":
+                # Validate CRF range for libx265
+                if "-crf" in cmd:
+                    try:
+                        crf_idx = cmd.index("-crf") + 1
+                        if crf_idx < len(cmd):
+                            crf_value = int(cmd[crf_idx])
+                            if not (18 <= crf_value <= 28):
+                                return False, f"Invalid CRF value for libx265: {crf_value} (should be 18-28)"
+                    except (ValueError, IndexError):
+                        return False, "Invalid CRF parameter format"
+                
+                # Check for x265-specific parameters
+                if "-x265-params" not in cmd:
+                    self.log("Warning: No x265-specific parameters found")
+            
+            elif encoder == "hevc_nvenc":
+                # Validate NVENC-specific parameters
+                if "-preset" in cmd:
+                    try:
+                        preset_idx = cmd.index("-preset") + 1
+                        if preset_idx < len(cmd):
+                            preset = cmd[preset_idx]
+                            valid_presets = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"]
+                            if preset not in valid_presets and not preset.startswith("slow"):
+                                self.log(f"Warning: Unusual NVENC preset: {preset}")
+                    except (ValueError, IndexError):
+                        pass
+        
+        # Check for output file
+        if not cmd[-1].endswith(('.mp4', '.mkv', '.avi')):
+            return False, "Missing or invalid output file"
+        
+        return True, "Command validation passed"
+
     def validate_container_codec(self):
         """Warn if container/codec combination has issues"""
         container = self.vars['container'].get()
@@ -1279,8 +1627,23 @@ class VideoEncoderApp(tk.Tk):
         compatibility = {
             "mp4": ["h264_nvenc", "h264_amf", "libx264", "hevc_nvenc", "hevc_amf", "libx265"],
             "mkv": ["h264_nvenc", "h264_amf", "libx264", "hevc_nvenc", "hevc_amf", "libx265", "vp9", "av1"],
-            "avi": ["h264_nvenc", "h264_amf", "libx264"]  # Limited support
+            "avi": ["h264_nvenc", "h264_amf", "libx264"]  # Limited support - no H.265
         }
+        
+        # Special handling for H.265 + AVI combination
+        if codec in ["hevc_nvenc", "libx265"] and container == "avi":
+            messagebox.showwarning(
+                "H.265 Container Compatibility Warning",
+                f"Warning: H.265 ({codec}) has limited compatibility with AVI containers.\n\n"
+                "Issues you may encounter:\n"
+                "• Playback problems on older devices\n"
+                "• Compatibility issues with some media players\n"
+                "• Potential file corruption\n\n"
+                "Recommended alternatives:\n"
+                "• MP4 container (best compatibility)\n"
+                "• MKV container (full H.265 support)"
+            )
+            return
         
         if codec not in compatibility.get(container, []):
             messagebox.showwarning(
@@ -1414,6 +1777,78 @@ class VideoEncoderApp(tk.Tk):
             self.log(f"ffmpeg detection failed: {e}", "WARN")
             
         return duration
+
+    def _optimize_h265_bitrate(self, original_bitrate, input_path):
+        """Optimize bitrate for H.265 encoding based on original content and resolution"""
+        encoder = self.vars['encoder_var'].get()
+        
+        # H.265 is typically 25-50% more efficient than H.264
+        if encoder in ["hevc_nvenc", "libx265"]:
+            # Get video resolution for bitrate recommendations
+            resolution = self._get_video_resolution(input_path)
+            
+            # H.265 efficiency factor (reduce bitrate by 30-40% from H.264)
+            efficiency_factor = 0.65  # 35% reduction
+            optimized_bitrate = int(original_bitrate * efficiency_factor)
+            
+            # Apply resolution-based limits for H.265
+            min_bitrate, max_bitrate = self._get_h265_bitrate_range(resolution)
+            
+            # Clamp to reasonable range
+            optimized_bitrate = max(min_bitrate, min(max_bitrate, optimized_bitrate))
+            
+            return optimized_bitrate
+        
+        return original_bitrate
+    
+    def _validate_h265_bitrate(self, target_bitrate, input_path):
+        """Validate and adjust target bitrate for H.265 encoding"""
+        encoder = self.vars['encoder_var'].get()
+        
+        if encoder in ["hevc_nvenc", "libx265"]:
+            resolution = self._get_video_resolution(input_path)
+            min_bitrate, max_bitrate = self._get_h265_bitrate_range(resolution)
+            
+            if target_bitrate < min_bitrate:
+                self.log(f"Warning: Target bitrate {target_bitrate} kbps too low for H.265, using {min_bitrate} kbps")
+                return min_bitrate
+            elif target_bitrate > max_bitrate:
+                self.log(f"Warning: Target bitrate {target_bitrate} kbps too high for H.265, using {max_bitrate} kbps")
+                return max_bitrate
+        
+        return target_bitrate
+    
+    def _get_h265_bitrate_range(self, resolution):
+        """Get recommended bitrate range for H.265 based on resolution"""
+        # H.265 bitrate recommendations (kbps)
+        bitrate_ranges = {
+            "1920x1080": (1500, 6000),   # 1080p
+            "1280x720": (800, 3000),     # 720p
+            "720x480": (400, 1500),      # 480p
+            "640x480": (300, 1200),      # 480p (4:3)
+            "640x368": (300, 1000),      # Low res
+        }
+        
+        return bitrate_ranges.get(resolution, (500, 4000))  # Default range
+    
+    def _get_video_resolution(self, input_path):
+        """Get video resolution from input file"""
+        try:
+            cmd = [
+                self.vars['ffmpeg_path'].get(), "-i", input_path,
+                "-f", "null", "-"
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            
+            # Parse resolution from stderr
+            import re
+            match = re.search(r"(\d{3,4}x\d{3,4})", result.stderr)
+            if match:
+                return match.group(1)
+        except Exception as e:
+            self.log(f"Failed to detect resolution: {e}")
+        
+        return "1920x1080"  # Default fallback
 
 if __name__ == "__main__":
     app = VideoEncoderApp()
