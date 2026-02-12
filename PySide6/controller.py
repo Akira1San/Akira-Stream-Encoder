@@ -454,6 +454,94 @@ class VideoController:
         if self.current_process:
             self.current_process.terminate()
             self.app_state.log("Encoding cancelled by user", "INFO")
+    
+    def fast_cut_file(self, input_path: str, output_path: str,
+                     start_time: Optional[str] = None,
+                     duration: Optional[str] = None) -> bool:
+        """
+        Fast cut a video file without re-encoding (stream copy).
+        Much faster than encoding but requires keyframe alignment.
+        
+        Args:
+            input_path: Path to input video
+            output_path: Path to output video
+            start_time: Start time for trim (optional)
+            duration: Duration for trim (optional)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        cmd = [self.app_state.ffmpeg_path]
+        
+        # Seek to start position before input (faster)
+        if start_time:
+            cmd.extend(["-ss", start_time])
+        
+        cmd.extend(["-i", input_path])
+        
+        # Duration
+        if duration:
+            cmd.extend(["-t", duration])
+        
+        # Copy video and audio streams without re-encoding
+        cmd.extend(["-c:v", "copy"])
+        
+        # Map video stream
+        if self.app_state.tracks.video_selected:
+            cmd.extend(["-map", "0:v:0"])
+        
+        # Audio handling - map specific stream
+        if self.app_state.tracks.audio_selected:
+            audio_stream_idx = self.app_state.tracks.audio_stream_index
+            cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+            
+            if self.app_state.tracks.audio_copy_mode:
+                cmd.extend(["-c:a", "copy"])
+            else:
+                # Re-encode audio but keep video copy
+                cmd.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"])
+        else:
+            cmd.extend(["-an"])
+        
+        # Avoid timestamp issues
+        cmd.extend(["-avoid_negative_ts", "make_zero"])
+        
+        # Output
+        cmd.extend(["-y", output_path])
+        
+        self.app_state.log(f"Fast cutting: {os.path.basename(input_path)}", "INFO")
+        self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        
+        try:
+            self.is_encoding = True
+            self.current_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+            
+            for line in self.current_process.stdout:
+                line = line.strip()
+                if line:
+                    self.app_state.log(f"Fast cut: {line}", "DEBUG")
+            
+            self.current_process.wait()
+            
+            if self.current_process.returncode == 0:
+                self.app_state.log(f"✅ Fast cut complete: {os.path.basename(output_path)}", "SUCCESS")
+                return True
+            else:
+                self.app_state.log(f"❌ Fast cut failed with code {self.current_process.returncode}", "ERROR")
+                return False
+                
+        except Exception as e:
+            self.app_state.log(f"❌ Fast cut error: {e}", "ERROR")
+            return False
+        finally:
+            self.is_encoding = False
+            self.current_process = None
             
     def generate_output_path(self, input_path: str) -> str:
         """Generate output path based on settings"""
