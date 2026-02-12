@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QSplitter, QSizePolicy, QPushButton, QComboBox
 )
 from PySide6.QtCore import Qt, Signal, QThread, QObject, QBuffer
-from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont
+from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QPen
 
 
 def parse_srt_file(srt_path: str) -> list:
@@ -83,6 +83,162 @@ def get_subtitle_text(srt_path: str, timestamp: float) -> str:
     return ""
 
 from models import AppState
+
+
+class TimelineSlider(QSlider):
+    """Custom slider with cut point markers"""
+    
+    cut_marker_clicked = Signal(float, str)  # position, cut_id
+    
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self.cut_points = []  # List of (position_seconds, cut_id)
+        self.duration = 0.0
+        self.hovered_cut = None  # Currently hovered cut for visual feedback
+        
+    def set_cut_points(self, cut_points: list, duration: float):
+        """
+        Set cut points to display
+        Args:
+            cut_points: List of (position_seconds, cut_id) tuples
+            duration: Video duration in seconds
+        """
+        self.cut_points = cut_points
+        self.duration = duration
+        self.update()
+    
+    def clear_cut_points(self):
+        """Clear all cut markers"""
+        self.cut_points = []
+        self.update()
+    
+    def paintEvent(self, event):
+        """Override paintEvent to draw cut markers"""
+        # Call parent paintEvent first (draws slider handle and groove)
+        super().paintEvent(event)
+        
+        if not self.cut_points or self.duration <= 0:
+            return
+        
+        # Create painter
+        painter = QPainter(self)
+        
+        for cut_pos, cut_id in self.cut_points:
+            # Convert seconds to slider position (0-1000)
+            if self.duration > 0:
+                slider_val = int((cut_pos / self.duration) * 1000)
+                x = self._value_to_pixel(slider_val)
+                
+                # Check if this cut is hovered
+                is_hovered = (self.hovered_cut == cut_id)
+                
+                # Draw wider marker with border for better visibility
+                if is_hovered:
+                    # Highlighted marker when hovered
+                    painter.setPen(QPen(QColor(255, 255, 255), 3))  # White border
+                    painter.setBrush(QColor(0, 255, 0))  # Bright green
+                    marker_width = 14
+                else:
+                    # Normal marker
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QColor(0, 200, 0))  # Green
+                    marker_width = 10
+                
+                # Draw vertical line/marker - full height of slider with slight margin
+                painter.drawRect(int(x) - marker_width//2, 0, marker_width, self.height())
+        
+        painter.end()
+    
+    def _value_to_pixel(self, value: int) -> float:
+        """Convert slider value (0-1000) to pixel position"""
+        # Get slider dimensions
+        slider_width = self.width()
+        handle_width = 20  # Approximate handle width
+        
+        # Calculate available width (excluding handle)
+        available_width = slider_width - handle_width
+        
+        min_val = self.minimum()
+        max_val = self.maximum()
+        
+        if max_val == min_val:
+            return handle_width / 2
+        
+        # Calculate position
+        position = (handle_width / 2) + (value - min_val) * available_width / (max_val - min_val)
+        
+        return position
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press to detect clicks on cut markers"""
+        if not self.cut_points or self.duration <= 0:
+            super().mousePressEvent(event)
+            return
+        
+        # Check if click is near a cut marker
+        click_x = event.position().x()
+        tolerance = 25  # Large tolerance for easy clicking
+        
+        # Find the closest marker
+        closest_cut = None
+        closest_distance = float('inf')
+        
+        for cut_pos, cut_id in self.cut_points:
+            slider_val = int((cut_pos / self.duration) * 1000)
+            marker_x = self._value_to_pixel(slider_val)
+            distance = abs(click_x - marker_x)
+            
+            if distance <= tolerance and distance < closest_distance:
+                closest_distance = distance
+                closest_cut = (cut_pos, cut_id, slider_val)
+        
+        if closest_cut:
+            cut_pos, cut_id, slider_val = closest_cut
+            # Jump to this cut position
+            self.setValue(slider_val)
+            self.sliderReleased.emit()
+            # Emit signal that this cut marker was clicked
+            self.cut_marker_clicked.emit(cut_pos, cut_id)
+            return
+        
+        # If not near a marker, handle as normal slider click
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for hover effects"""
+        if not self.cut_points or self.duration <= 0:
+            super().mouseMoveEvent(event)
+            return
+        
+        # Check if hovering over a cut marker
+        mouse_x = event.position().x()
+        tolerance = 25  # Large tolerance to match click area
+        
+        hovered_cut = None
+        for cut_pos, cut_id in self.cut_points:
+            slider_val = int((cut_pos / self.duration) * 1000)
+            marker_x = self._value_to_pixel(slider_val)
+            
+            if abs(mouse_x - marker_x) <= tolerance:
+                hovered_cut = cut_id
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+                break
+        
+        if hovered_cut != self.hovered_cut:
+            self.hovered_cut = hovered_cut
+            self.update()  # Repaint to show hover effect
+        
+        if not hovered_cut:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        
+        super().mouseMoveEvent(event)
+    
+    def leaveEvent(self, event):
+        """Handle mouse leave"""
+        if self.hovered_cut:
+            self.hovered_cut = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.update()
 
 
 class FrameLoader(QObject):
@@ -235,7 +391,7 @@ class VideoPreview(QWidget):
         
         timeline_layout.addWidget(QLabel("Timeline:"))
         
-        self.timeline_slider = QSlider(Qt.Horizontal)
+        self.timeline_slider = TimelineSlider(Qt.Horizontal)
         self.timeline_slider.setRange(0, 1000)
         self.timeline_slider.valueChanged.connect(self.on_timeline_changed)
         self.timeline_slider.sliderReleased.connect(self.on_timeline_released)
@@ -359,6 +515,14 @@ class VideoPreview(QWidget):
             value = self.timeline_slider.value()
             return (value / 1000.0) * self.duration
         return 0.0
+    
+    def update_cut_markers(self, cut_points: list):
+        """
+        Update the cut point markers on the timeline
+        Args:
+            cut_points: List of (position_seconds, cut_id) tuples
+        """
+        self.timeline_slider.set_cut_points(cut_points, self.duration)
             
     def seek_preview(self, timestamp: float):
         """Seek to specific timestamp and update preview"""

@@ -112,11 +112,66 @@ class TrackSettings:
 
 
 @dataclass
+class CutPoint:
+    """Individual cut point"""
+    position: float  # timestamp in seconds
+    time_display: str  # formatted time string (MM:SS or HH:MM:SS)
+    cut_id: str  # unique identifier
+    enabled: bool = True
+
+
+@dataclass
 class CutSettings:
-    """Cut/trim settings"""
-    position: float = 0.0
-    time_display: str = "Not Set"
-    point_set: bool = False
+    """Cut/trim settings - supports multiple cut points"""
+    points: List[CutPoint] = field(default_factory=list)
+    next_id: int = 1  # Counter for generating unique IDs
+    
+    def add_point(self, position: float, time_display: str) -> CutPoint:
+        """Add a new cut point and return it"""
+        cut_id = f"cut_{self.next_id}"
+        self.next_id += 1
+        point = CutPoint(position=position, time_display=time_display, cut_id=cut_id)
+        self.points.append(point)
+        return point
+    
+    def remove_point(self, cut_id: str) -> bool:
+        """Remove a cut point by ID, return True if found and removed"""
+        for i, point in enumerate(self.points):
+            if point.cut_id == cut_id:
+                self.points.pop(i)
+                return True
+        return False
+    
+    def clear_all(self):
+        """Remove all cut points"""
+        self.points.clear()
+    
+    def get_sorted_points(self) -> List[CutPoint]:
+        """Return points sorted by position"""
+        return sorted(self.points, key=lambda p: p.position)
+    
+    def get_segments(self, total_duration: float) -> List[tuple]:
+        """
+        Generate segments from cut points.
+        Returns list of (start_time, end_time) tuples.
+        """
+        if not self.points or total_duration <= 0:
+            return [(0.0, total_duration)]
+        
+        sorted_points = self.get_sorted_points()
+        segments = []
+        start = 0.0
+        
+        for point in sorted_points:
+            if point.enabled and start < point.position <= total_duration:
+                segments.append((start, point.position))
+                start = point.position
+        
+        # Add final segment
+        if start < total_duration:
+            segments.append((start, total_duration))
+        
+        return segments
 
 
 class AppState(QObject):
