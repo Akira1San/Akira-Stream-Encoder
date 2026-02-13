@@ -412,6 +412,8 @@ class EncodingPanel(QWidget):
         
         for i, track in enumerate(tracks):
             display_text = f"Track {i+1}"
+            if track.title:
+                display_text += f" - {track.title}"
             if track.language:
                 display_text += f" [{track.language}]"
             display_text += f" ({track.codec}, {track.channels}ch)"
