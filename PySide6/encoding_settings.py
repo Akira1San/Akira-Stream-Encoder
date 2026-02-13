@@ -180,6 +180,11 @@ class EncodingPanel(QWidget):
         self.orig_br_check.setToolTip("Use the original video's bitrate if it can be detected.\nOverrides the target bitrate setting above.")
         layout.addWidget(self.orig_br_check)
         
+        # Set initial state of bitrate input based on original bitrate setting
+        if self.app_state.encoding.use_original_bitrate:
+            self.bitrate_edit.setEnabled(False)
+            self.bitrate_edit.setStyleSheet("color: gray;")
+        
         # Max Bitrate
         max_br_layout = QHBoxLayout()
         max_br_label = QLabel("Max Bitrate (kbps):")
@@ -432,6 +437,12 @@ class EncodingPanel(QWidget):
     def on_orig_br_changed(self, checked):
         """Handle original bitrate checkbox change"""
         self.app_state.encoding.use_original_bitrate = checked
+        # Disable target bitrate input when using original
+        self.bitrate_edit.setEnabled(not checked)
+        if not checked:
+            self.bitrate_edit.setStyleSheet("")
+        else:
+            self.bitrate_edit.setStyleSheet("color: gray;")
         self.settings_changed.emit()
         
     def on_max_br_changed(self, value):
