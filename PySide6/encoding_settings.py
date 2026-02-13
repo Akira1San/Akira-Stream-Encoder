@@ -257,6 +257,13 @@ class EncodingPanel(QWidget):
         scale_quality_layout.addStretch()
         layout.addLayout(scale_quality_layout)
         
+        # Set initial state of algorithm and quality based on scale mode
+        if self.app_state.encoding.scale_mode == "off":
+            self.algorithm_combo.setEnabled(False)
+            self.scale_quality_combo.setEnabled(False)
+            self.algorithm_combo.setStyleSheet("color: gray;")
+            self.scale_quality_combo.setStyleSheet("color: gray;")
+        
         # === Fast Split Section ===
         line3 = QFrame()
         line3.setFrameShape(QFrame.HLine)
@@ -458,6 +465,19 @@ class EncodingPanel(QWidget):
     def on_scale_mode_changed(self, text):
         """Handle scale mode change"""
         self.app_state.encoding.scale_mode = text
+        
+        # Enable/disable algorithm and quality based on scale mode
+        if text == "off":
+            self.algorithm_combo.setEnabled(False)
+            self.scale_quality_combo.setEnabled(False)
+            self.algorithm_combo.setStyleSheet("color: gray;")
+            self.scale_quality_combo.setStyleSheet("color: gray;")
+        else:
+            self.algorithm_combo.setEnabled(True)
+            self.scale_quality_combo.setEnabled(True)
+            self.algorithm_combo.setStyleSheet("")
+            self.scale_quality_combo.setStyleSheet("")
+        
         self.settings_changed.emit()
         
     def on_algorithm_changed(self, text):
