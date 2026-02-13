@@ -86,7 +86,7 @@ class EncodingPanel(QWidget):
         # === Quality (CQ) Slider ===
         cq_layout = QHBoxLayout()
         cq_label_widget = QLabel("Quality (CQ):")
-        cq_label_widget.setToolTip("Constant Quality (CQ) setting.\nLower values = higher quality, larger files\nHigher values = lower quality, smaller files\nRecommended: 18-23 for high quality, 23-28 for smaller files")
+        cq_label_widget.setToolTip("Constant Quality (CQ) setting.\n\nLower values = Higher quality, Larger files\nHigher values = Lower quality, Smaller files\n\nRecommended:\n• 18-20: Visually lossless (archiving)\n• 21-23: High quality (default)\n• 24-26: Good quality (smaller files)\n• 27-30: Acceptable (maximum compression)")
         cq_layout.addWidget(cq_label_widget)
         
         self.cq_slider = QSlider(Qt.Horizontal)
@@ -94,11 +94,32 @@ class EncodingPanel(QWidget):
         self.cq_slider.setValue(self.app_state.encoding.cq)
         self.cq_slider.setTickPosition(QSlider.TicksBelow)
         self.cq_slider.setTickInterval(1)
-        self.cq_slider.setToolTip("18-20: Visually lossless\n21-23: High quality\n24-26: Good quality\n27-30: Acceptable quality")
+        self.cq_slider.setToolTip(
+            "CQ Value Guide:\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "18-20: Visually Lossless\n"
+            "  → Perfect quality, large files\n"
+            "  → Use for: Archiving masters\n"
+            "\n"
+            "21-23: High Quality (Default: 23)\n"
+            "  → Great quality, moderate size\n"
+            "  → Use for: General encoding\n"
+            "\n"
+            "24-26: Good Quality\n"
+            "  → Good balance, smaller files\n"
+            "  → Use for: Streaming, web\n"
+            "\n"
+            "27-30: Acceptable Quality\n"
+            "  → Noticeable artifacts, tiny files\n"
+            "  → Use for: Mobile, previews\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "Tip: 23 is FFmpeg default"
+        )
         cq_layout.addWidget(self.cq_slider)
         
         self.cq_label = QLabel(str(self.app_state.encoding.cq))
         self.cq_label.setMinimumWidth(30)
+        self.cq_label.setToolTip("Current CQ value (see slider tooltip for details)")
         cq_layout.addWidget(self.cq_label)
         
         layout.addLayout(cq_layout)
