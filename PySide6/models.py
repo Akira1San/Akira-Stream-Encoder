@@ -58,7 +58,6 @@ class FilterSettings:
     """Video and audio filter settings"""
     deinterlace: bool = False
     denoise: bool = False
-    libplacebo: bool = False
     volume_enabled: bool = False
     volume_db: float = 0.0
     stretch_fill: bool = False
