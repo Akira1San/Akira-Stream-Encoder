@@ -573,7 +573,11 @@ class VideoController:
             audio_stream_idx = self.app_state.tracks.audio_stream_index
             cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
             
-            if self.app_state.tracks.audio_copy_mode:
+            # Check audio mode from Encoding Settings first, then fallback to Track Selection setting
+            audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
+            audio_copy = (audio_mode == 'copy') or self.app_state.tracks.audio_copy_mode
+            
+            if audio_copy:
                 cmd.extend(["-c:a", "copy"])
             else:
                 # Re-encode audio but keep video copy
