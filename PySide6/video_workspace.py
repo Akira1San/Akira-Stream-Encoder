@@ -203,6 +203,33 @@ class VideoWorkspace(QWidget):
             self.preview.set_video(video_path)
             self.trim_panel.detect_tracks(video_path)
             
+            # Detect audio tracks and populate encoding panel
+            from controller import VideoController
+            controller = VideoController(self.app_state)
+            audio_tracks = controller.get_audio_tracks(video_path)
+            
+            if audio_tracks:
+                # Convert to AudioTrackInfo objects
+                from models import AudioTrackInfo
+                track_infos = []
+                for track in audio_tracks:
+                    track_info = AudioTrackInfo(
+                        index=track['index'],
+                        codec=track['codec'],
+                        channels=track['channels'],
+                        sample_rate=track['sample_rate'],
+                        language=track['language'],
+                        title=track['title']
+                    )
+                    track_infos.append(track_info)
+                
+                self.app_state.tracks.available_audio_tracks = track_infos
+                self.enc_panel.populate_audio_tracks(track_infos)
+                self.app_state.log(f"Detected {len(track_infos)} audio track(s)", "INFO")
+            else:
+                self.app_state.tracks.available_audio_tracks = []
+                self.enc_panel.populate_audio_tracks([])
+            
     def on_cut_point_set(self, position: float):
         """Handle adding a new cut point"""
         # Format time display from position

@@ -335,6 +335,16 @@ class EncodingPanel(QWidget):
         audio_mode_layout.addStretch()
         advanced_layout.addLayout(audio_mode_layout)
         
+        # Audio Track Selection
+        audio_track_layout = QHBoxLayout()
+        audio_track_layout.addWidget(QLabel("Audio Track:"))
+        self.audio_track_combo = QComboBox()
+        self.audio_track_combo.setMinimumWidth(200)
+        self.audio_track_combo.setToolTip("Select which audio track to use from the source video.\nShows track number, codec, channels, and language if available.")
+        audio_track_layout.addWidget(self.audio_track_combo)
+        audio_track_layout.addStretch()
+        advanced_layout.addLayout(audio_track_layout)
+        
         # Audio Sample Rate
         sample_rate_layout = QHBoxLayout()
         sample_rate_layout.addWidget(QLabel("Audio Sample Rate:"))
@@ -381,6 +391,40 @@ class EncodingPanel(QWidget):
         self.scale_quality_combo.currentTextChanged.connect(self.on_scale_quality_changed)
         self.fast_split_check.toggled.connect(self.on_fast_split_changed)
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
+        self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
+        
+    def on_audio_track_changed(self, index):
+        """Handle audio track selection change"""
+        if hasattr(self.app_state.tracks, 'available_audio_tracks'):
+            tracks = self.app_state.tracks.available_audio_tracks
+            if index >= 0 and index < len(tracks):
+                self.app_state.tracks.audio_stream_index = index
+                self.settings_changed.emit()
+    
+    def populate_audio_tracks(self, tracks: list):
+        """Populate audio track combo with available tracks"""
+        self.audio_track_combo.clear()
+        
+        if not tracks:
+            self.audio_track_combo.addItem("No audio tracks detected")
+            self.audio_track_combo.setEnabled(False)
+            return
+        
+        for i, track in enumerate(tracks):
+            display_text = f"Track {i+1}"
+            if track.language:
+                display_text += f" [{track.language}]"
+            display_text += f" ({track.codec}, {track.channels}ch)"
+            if track.sample_rate:
+                display_text += f", {track.sample_rate}Hz"
+            self.audio_track_combo.addItem(display_text)
+        
+        self.audio_track_combo.setEnabled(True)
+        
+        # Default to track 2 (index 1) if available
+        default_index = min(1, len(tracks) - 1) if len(tracks) > 1 else 0
+        self.audio_track_combo.setCurrentIndex(default_index)
+        self.app_state.tracks.audio_stream_index = default_index
         
     def on_gpu_changed(self, checked):
         """Handle GPU checkbox change"""

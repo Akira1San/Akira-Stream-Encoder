@@ -80,6 +80,61 @@ class VideoController:
             self.app_state.log(f"ffmpeg detection failed: {e}", "WARN")
             
         return duration
+    
+    def get_audio_tracks(self, input_path: str) -> List[dict]:
+        """
+        Detects audio tracks in the input video using ffprobe.
+        Returns list of dicts with: index, codec, channels, sample_rate, language, title
+        """
+        audio_tracks = []
+        ffprobe_path = self.app_state.ffprobe_path
+        ffmpeg_path = self.app_state.ffmpeg_path
+        
+        # Try to find ffprobe
+        if ffmpeg_path != "ffmpeg" and os.path.exists(ffmpeg_path):
+            base_dir = os.path.dirname(ffmpeg_path)
+            candidate = os.path.join(base_dir, "ffprobe.exe" if os.name == 'nt' else "ffprobe")
+            if os.path.exists(candidate):
+                ffprobe_path = candidate
+        
+        if not ffprobe_path:
+            ffprobe_path = "ffprobe"
+        
+        try:
+            cmd = [
+                ffprobe_path,
+                "-v", "error",
+                "-show_entries", "stream=index,codec_type,codec_name,channels,sample_rate:stream_tags=language,title",
+                "-of", "json",
+                input_path
+            ]
+            
+            result = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=30
+            )
+            
+            if result.returncode == 0:
+                import json
+                data = json.loads(result.stdout)
+                
+                for stream in data.get('streams', []):
+                    if stream.get('codec_type') == 'audio':
+                        tags = stream.get('tags', {})
+                        track_info = {
+                            'index': stream.get('index', 0),
+                            'codec': stream.get('codec_name', 'unknown'),
+                            'channels': stream.get('channels', 2),
+                            'sample_rate': stream.get('sample_rate', ''),
+                            'language': tags.get('language', ''),
+                            'title': tags.get('title', '')
+                        }
+                        audio_tracks.append(track_info)
+                        
+        except Exception as e:
+            self.app_state.log(f"Audio track detection failed: {e}", "WARN")
+            
+        return audio_tracks
         
     def get_video_bitrate(self, input_path: str) -> Optional[int]:
         """
