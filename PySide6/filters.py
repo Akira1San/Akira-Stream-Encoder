@@ -45,6 +45,12 @@ class FiltersPanel(QWidget):
         audio_group = QGroupBox("Audio Filters")
         audio_layout = QVBoxLayout(audio_group)
         
+        # Audio Denoise
+        self.audio_denoise_check = QCheckBox("Audio Denoise (afftdn)")
+        self.audio_denoise_check.setChecked(self.app_state.filters.audio_denoise)
+        self.audio_denoise_check.setToolTip("Reduce background noise in audio using FFT-based denoising.\nBest for removing hiss, static, or background noise.\nUses preset settings optimized for general use.")
+        audio_layout.addWidget(self.audio_denoise_check)
+        
         vol_layout = QHBoxLayout()
         self.vol_check = QCheckBox("Enable Volume:")
         self.vol_check.setChecked(self.app_state.filters.volume_enabled)
@@ -67,6 +73,7 @@ class FiltersPanel(QWidget):
         """Connect UI signals to handlers"""
         self.deint_check.toggled.connect(self.on_deint_changed)
         self.denoise_check.toggled.connect(self.on_denoise_changed)
+        self.audio_denoise_check.toggled.connect(self.on_audio_denoise_changed)
         self.vol_check.toggled.connect(self.on_vol_enabled_changed)
         self.vol_edit.textChanged.connect(self.on_vol_changed)
         
@@ -78,6 +85,11 @@ class FiltersPanel(QWidget):
     def on_denoise_changed(self, checked):
         """Handle denoise checkbox change"""
         self.app_state.filters.denoise = checked
+        self.settings_changed.emit()
+        
+    def on_audio_denoise_changed(self, checked):
+        """Handle audio denoise checkbox change"""
+        self.app_state.filters.audio_denoise = checked
         self.settings_changed.emit()
         
     def on_vol_enabled_changed(self, checked):

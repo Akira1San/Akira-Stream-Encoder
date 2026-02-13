@@ -338,6 +338,13 @@ class VideoController:
         # Volume
         if self.app_state.filters.volume_enabled:
             filters.append(f"volume={self.app_state.filters.volume_db}dB")
+        
+        # Audio Denoise (afftdn - FFT-based denoiser)
+        if getattr(self.app_state.filters, 'audio_denoise', False):
+            # afftdn with preset settings for general noise reduction
+            # nf=-25 is a good default for typical background noise
+            filters.append("afftdn=nf=-25")
+            self.app_state.log("Audio: Applying noise reduction filter", "INFO")
             
         return ",".join(filters) if filters else ""
         
