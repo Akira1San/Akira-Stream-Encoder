@@ -28,38 +28,45 @@ class EncodingPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         
-        # === GPU & Encoder ===
-        gpu_layout = QHBoxLayout()
+        # === GPU & Encoder (Vertical Layout) ===
         
+        # GPU Checkbox
         self.gpu_check = QCheckBox("Use GPU (NVENC)")
         self.gpu_check.setChecked(self.app_state.encoding.use_gpu)
         self.gpu_check.setToolTip("Enable NVIDIA GPU acceleration for faster encoding.\nRequires NVIDIA graphics card with NVENC support.")
-        gpu_layout.addWidget(self.gpu_check)
+        layout.addWidget(self.gpu_check)
         
-        gpu_layout.addSpacing(20)
-        gpu_layout.addWidget(QLabel("Encoder:"))
-        
+        # Encoder Row
+        encoder_layout = QHBoxLayout()
+        encoder_layout.addWidget(QLabel("Encoder:"))
         self.encoder_combo = QComboBox()
         self.encoder_combo.addItems([
             "h264_nvenc", "hevc_nvenc", "libx264", "libx265"
         ])
         self.encoder_combo.setCurrentText(self.app_state.encoding.encoder)
-        self.encoder_combo.setMinimumWidth(120)
+        self.encoder_combo.setMinimumWidth(140)
         self.encoder_combo.setToolTip("Video codec to use:\nh264_nvenc: H.264 with GPU acceleration\nhevc_nvenc: H.265/HEVC with GPU (smaller files)\nlibx264: H.264 CPU encoding (compatible)\nlibx265: H.265/HEVC CPU (best compression)")
-        gpu_layout.addWidget(self.encoder_combo)
+        encoder_layout.addWidget(self.encoder_combo)
+        encoder_layout.addStretch()
+        layout.addLayout(encoder_layout)
         
-        gpu_layout.addSpacing(20)
-        gpu_layout.addWidget(QLabel("Video:"))
-        
+        # Video Mode Row
+        video_mode_layout = QHBoxLayout()
+        video_mode_layout.addWidget(QLabel("Video:"))
         self.video_mode_combo = QComboBox()
         self.video_mode_combo.addItems(["Encode", "Copy"])
         self.video_mode_combo.setCurrentText(self.app_state.encoding.video_mode.capitalize())
-        self.video_mode_combo.setMinimumWidth(80)
+        self.video_mode_combo.setMinimumWidth(100)
         self.video_mode_combo.setToolTip("Video processing mode:\nEncode: Re-encode video with selected codec\nCopy: Copy video stream without re-encoding (faster)")
-        gpu_layout.addWidget(self.video_mode_combo)
+        video_mode_layout.addWidget(self.video_mode_combo)
+        video_mode_layout.addStretch()
+        layout.addLayout(video_mode_layout)
         
-        gpu_layout.addStretch()
-        layout.addLayout(gpu_layout)
+        # Separator line
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line)
         
         # === Resolution & Framerate ===
         res_frame = QFrame()
