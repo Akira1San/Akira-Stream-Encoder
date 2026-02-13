@@ -11,6 +11,8 @@ class EncodingSettings:
     """Encoding configuration settings"""
     use_gpu: bool = True
     encoder: str = "h264_nvenc"
+    video_mode: str = "encode"  # encode / copy
+    audio_mode: str = "encode"  # encode / copy
     resolution: str = "none"
     framerate: str = "24000/1001"
     cq: int = 23

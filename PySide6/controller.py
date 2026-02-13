@@ -204,55 +204,71 @@ class VideoController:
             if duration:
                 cmd.extend(["-t", duration])
             
-        # Video codec
-        encoder = self.app_state.encoding.encoder
-        cmd.extend(["-c:v", encoder])
+        # Video codec - check if video mode is copy or encode
+        video_mode = getattr(self.app_state.encoding, 'video_mode', 'encode')
         
-        # GPU settings
-        if self.app_state.encoding.use_gpu and "nvenc" in encoder:
-            cmd.extend(["-preset", "p4"])
-            cmd.extend(["-cq", str(self.app_state.encoding.cq)])
+        if video_mode == "copy":
+            # Video copy mode - copy stream without re-encoding
+            cmd.extend(["-c:v", "copy"])
+            self.app_state.log("Video: Copy original stream (no re-encode)", "INFO")
         else:
-            cmd.extend(["-crf", str(self.app_state.encoding.cq)])
-            cmd.extend(["-preset", "medium"])
+            # Encode mode - use selected encoder
+            encoder = self.app_state.encoding.encoder
+            cmd.extend(["-c:v", encoder])
             
-        # Resolution
-        if self.app_state.encoding.resolution != "none":
-            cmd.extend(["-s", self.app_state.encoding.resolution])
+            # GPU settings
+            if self.app_state.encoding.use_gpu and "nvenc" in encoder:
+                cmd.extend(["-preset", "p4"])
+                cmd.extend(["-cq", str(self.app_state.encoding.cq)])
+            else:
+                cmd.extend(["-crf", str(self.app_state.encoding.cq)])
+                cmd.extend(["-preset", "medium"])
+                
+            # Resolution
+            if self.app_state.encoding.resolution != "none":
+                cmd.extend(["-s", self.app_state.encoding.resolution])
+                
+            # Framerate
+            cmd.extend(["-r", self.app_state.encoding.framerate])
             
-        # Framerate
-        cmd.extend(["-r", self.app_state.encoding.framerate])
-        
-        # --- STRICT STREAMER FLAGS ---
-        cmd.extend(["-g", "144"])  # GOP size
-        cmd.extend(["-bf", "0"])  # No B-frames
-        cmd.extend(["-pix_fmt", "yuv420p"])  # Pixel format
-        cmd.extend(["-profile:v", "main"])  # Profile: main
-        cmd.extend(["-level:v", "4.0"])  # Level 4.0 (compatible with level 120)
-        
-        # Bitrate
-        if self.app_state.encoding.use_original_bitrate:
-            orig_br = self.get_video_bitrate(input_path)
-            if orig_br:
-                cmd.extend(["-b:v", f"{orig_br}k"])
-        else:
-            target_br = self.app_state.encoding.target_bitrate
-            if target_br and target_br.isdigit():
-                cmd.extend(["-b:v", f"{target_br}k"])
-                cmd.extend(["-maxrate", f"{self.app_state.encoding.max_bitrate}k"])
-                cmd.extend(["-bufsize", f"{self.app_state.encoding.max_bitrate * 2}k"])
+            # --- STRICT STREAMER FLAGS ---
+            cmd.extend(["-g", "144"])  # GOP size
+            cmd.extend(["-bf", "0"])  # No B-frames
+            cmd.extend(["-pix_fmt", "yuv420p"])  # Pixel format
+            cmd.extend(["-profile:v", "main"])  # Profile: main
+            cmd.extend(["-level:v", "4.0"])  # Level 4.0 (compatible with level 120)
+            
+            # Bitrate
+            if self.app_state.encoding.use_original_bitrate:
+                orig_br = self.get_video_bitrate(input_path)
+                if orig_br:
+                    cmd.extend(["-b:v", f"{orig_br}k"])
+            else:
+                target_br = self.app_state.encoding.target_bitrate
+                if target_br and target_br.isdigit():
+                    cmd.extend(["-b:v", f"{target_br}k"])
+                    cmd.extend(["-maxrate", f"{self.app_state.encoding.max_bitrate}k"])
+                    cmd.extend(["-bufsize", f"{self.app_state.encoding.max_bitrate * 2}k"])
         
         # Map video stream
         if self.app_state.tracks.video_selected:
             cmd.extend(["-map", "0:v:0"])
         
-        # Audio handling - map specific stream and either copy or encode
+        # Audio handling - check both track panel setting and encoding panel setting
+        audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
+        
+        # Use encoding panel audio mode by default, or track panel if set
+        if audio_mode == "copy" or self.app_state.tracks.audio_copy_mode:
+            audio_copy = True
+        else:
+            audio_copy = False
+        
         if self.app_state.tracks.audio_selected:
             audio_stream_idx = self.app_state.tracks.audio_stream_index
             # Map the specific audio stream
             cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
             
-            if self.app_state.tracks.audio_copy_mode:
+            if audio_copy:
                 # Copy original audio without re-encoding
                 cmd.extend(["-c:a", "copy"])
                 self.app_state.log(f"Audio: Copy original stream (track {audio_stream_idx})", "INFO")

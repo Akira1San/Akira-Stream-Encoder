@@ -48,6 +48,16 @@ class EncodingPanel(QWidget):
         self.encoder_combo.setToolTip("Video codec to use:\nh264_nvenc: H.264 with GPU acceleration\nhevc_nvenc: H.265/HEVC with GPU (smaller files)\nlibx264: H.264 CPU encoding (compatible)\nlibx265: H.265/HEVC CPU (best compression)")
         gpu_layout.addWidget(self.encoder_combo)
         
+        gpu_layout.addSpacing(20)
+        gpu_layout.addWidget(QLabel("Video:"))
+        
+        self.video_mode_combo = QComboBox()
+        self.video_mode_combo.addItems(["Encode", "Copy"])
+        self.video_mode_combo.setCurrentText(self.app_state.encoding.video_mode.capitalize())
+        self.video_mode_combo.setMinimumWidth(80)
+        self.video_mode_combo.setToolTip("Video processing mode:\nEncode: Re-encode video with selected codec\nCopy: Copy video stream without re-encoding (faster)")
+        gpu_layout.addWidget(self.video_mode_combo)
+        
         gpu_layout.addStretch()
         layout.addLayout(gpu_layout)
         
@@ -294,6 +304,18 @@ class EncodingPanel(QWidget):
         bframes_layout.addStretch()
         advanced_layout.addLayout(bframes_layout)
         
+        # Audio Mode
+        audio_mode_layout = QHBoxLayout()
+        audio_mode_layout.addWidget(QLabel("Audio Mode:"))
+        self.audio_mode_combo = QComboBox()
+        self.audio_mode_combo.addItems(["Encode", "Copy"])
+        self.audio_mode_combo.setCurrentText(self.app_state.encoding.audio_mode.capitalize())
+        self.audio_mode_combo.setMinimumWidth(100)
+        self.audio_mode_combo.setToolTip("Audio processing mode:\nEncode: Re-encode audio to AAC (recommended)\nCopy: Copy original audio stream without re-encoding (faster)")
+        audio_mode_layout.addWidget(self.audio_mode_combo)
+        audio_mode_layout.addStretch()
+        advanced_layout.addLayout(audio_mode_layout)
+        
         # Audio Sample Rate
         sample_rate_layout = QHBoxLayout()
         sample_rate_layout.addWidget(QLabel("Audio Sample Rate:"))
@@ -326,6 +348,7 @@ class EncodingPanel(QWidget):
         """Connect UI signals to handlers"""
         self.gpu_check.toggled.connect(self.on_gpu_changed)
         self.encoder_combo.currentTextChanged.connect(self.on_encoder_changed)
+        self.video_mode_combo.currentTextChanged.connect(self.on_video_mode_changed)
         self.resolution_combo.currentTextChanged.connect(self.on_resolution_changed)
         # Framerate is fixed at 23.976 fps - no signal connection needed
         self.cq_slider.valueChanged.connect(self.on_cq_changed)
@@ -338,6 +361,7 @@ class EncodingPanel(QWidget):
         self.algorithm_combo.currentTextChanged.connect(self.on_algorithm_changed)
         self.scale_quality_combo.currentTextChanged.connect(self.on_scale_quality_changed)
         self.fast_split_check.toggled.connect(self.on_fast_split_changed)
+        self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
         
     def on_gpu_changed(self, checked):
         """Handle GPU checkbox change"""
@@ -358,6 +382,16 @@ class EncodingPanel(QWidget):
     def on_encoder_changed(self, text):
         """Handle encoder selection change"""
         self.app_state.encoding.encoder = text
+        self.settings_changed.emit()
+        
+    def on_video_mode_changed(self, text):
+        """Handle video mode change (Encode/Copy)"""
+        self.app_state.encoding.video_mode = text.lower()
+        self.settings_changed.emit()
+        
+    def on_audio_mode_changed(self, text):
+        """Handle audio mode change (Encode/Copy)"""
+        self.app_state.encoding.audio_mode = text.lower()
         self.settings_changed.emit()
         
     def on_resolution_changed(self, text):
