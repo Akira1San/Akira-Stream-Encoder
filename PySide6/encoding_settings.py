@@ -306,7 +306,7 @@ class EncodingPanel(QWidget):
         self.gpu_check.toggled.connect(self.on_gpu_changed)
         self.encoder_combo.currentTextChanged.connect(self.on_encoder_changed)
         self.resolution_combo.currentTextChanged.connect(self.on_resolution_changed)
-        self.framerate_group.buttonClicked.connect(self.on_framerate_changed)
+        # Framerate is fixed at 23.976 fps - no signal connection needed
         self.cq_slider.valueChanged.connect(self.on_cq_changed)
         self.bitrate_mode_combo.currentTextChanged.connect(self.on_bitrate_mode_changed)
         self.bitrate_edit.textChanged.connect(self.on_target_bitrate_changed)
@@ -344,11 +344,12 @@ class EncodingPanel(QWidget):
         self.app_state.encoding.resolution = text
         self.settings_changed.emit()
         
-    def on_framerate_changed(self, button):
-        """Handle framerate selection change"""
-        value = button.property("value")
-        self.app_state.encoding.framerate = value
-        self.settings_changed.emit()
+    # Framerate is fixed at 23.976 fps - method removed
+    # def on_framerate_changed(self, button):
+    #     """Handle framerate selection change"""
+    #     value = button.property("value")
+    #     self.app_state.encoding.framerate = value
+    #     self.settings_changed.emit()
         
     def on_cq_changed(self, value):
         """Handle CQ slider change"""
