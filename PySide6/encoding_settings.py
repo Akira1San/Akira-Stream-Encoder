@@ -423,8 +423,8 @@ class EncodingPanel(QWidget):
         
         self.audio_track_combo.setEnabled(True)
         
-        # Default to track 2 (index 1) if available
-        default_index = min(1, len(tracks) - 1) if len(tracks) > 1 else 0
+        # Default to track 1 (index 0) - always use first audio track by default
+        default_index = 0
         self.audio_track_combo.setCurrentIndex(default_index)
         self.app_state.tracks.audio_stream_index = default_index
         

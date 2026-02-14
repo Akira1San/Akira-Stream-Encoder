@@ -39,6 +39,9 @@ class SubtitleSettings:
     bg_color: str = "#000000"
     outline_width: int = 2
     bg_opacity: float = 0.5
+    delay_enabled: bool = False
+    delay: int = 0
+    selected_subtitle: str = ""
 
 
 @dataclass

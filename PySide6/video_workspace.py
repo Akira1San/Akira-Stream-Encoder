@@ -80,6 +80,7 @@ class VideoWorkspace(QWidget):
         subs_collapsible = CollapsibleFrame("Subtitles")
         self.subs_panel = SubtitlesPanel(self.app_state)
         self.subs_panel.settings_changed.connect(self.on_settings_changed)
+        self.subs_panel.refresh_subtitles.connect(self.on_refresh_subtitles)
         subs_collapsible.content_layout().addWidget(self.subs_panel)
         scroll_layout.addWidget(subs_collapsible)
         
@@ -454,7 +455,40 @@ class VideoWorkspace(QWidget):
         self.encode_btn.setVisible(True)
         self.cancel_btn.setVisible(False)
         
+    def on_refresh_subtitles(self):
+        """Handle refresh subtitle files button click"""
+        self._scan_and_update_subtitles()
+        
+    def _scan_and_update_subtitles(self):
+        """Scan video folder for subtitle files and update combobox"""
+        import os
+        
+        if not self.app_state.input_files:
+            self.subs_panel.set_subtitle_files([])
+            return
+        
+        video_path = self.app_state.input_files[0]
+        video_dir = os.path.dirname(video_path)
+        
+        if not video_dir:
+            self.subs_panel.set_subtitle_files([])
+            return
+        
+        # Scan for subtitle files
+        sub_files = []
+        for f in os.listdir(video_dir):
+            if f.lower().endswith(('.srt', '.ass', '.ssa')):
+                sub_files.append(os.path.join(video_dir, f))
+        
+        # Sort: .srt first, then alphabetically
+        sub_files.sort(key=lambda x: (0 if x.lower().endswith('.srt') else 1, os.path.basename(x).lower()))
+        
+        self.subs_panel.set_subtitle_files(sub_files)
+        
     def set_video(self, video_path: str):
         """Set the current video"""
         self.preview.set_video(video_path)
         self.trim_panel.detect_tracks(video_path)
+        
+        # Scan for subtitle files in video folder
+        self._scan_and_update_subtitles()

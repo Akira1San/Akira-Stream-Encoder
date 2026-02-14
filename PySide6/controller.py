@@ -244,7 +244,7 @@ class VideoController:
                 self.app_state.log("Audio: Copy original stream", "INFO")
             else:
                 # Re-encode to AAC with 2 channels (stereo)
-                cmd.extend(["-c:a", "aac", "-b:a", "192k", "-ac", "2"])
+                cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
                 self.app_state.log("Audio: Re-encode to AAC stereo", "INFO")
             cmd.extend(["-y", output_path])
             return cmd
@@ -320,6 +320,9 @@ class VideoController:
         
         if self.app_state.tracks.audio_selected:
             audio_stream_idx = self.app_state.tracks.audio_stream_index
+            # Default to first audio stream (0) if index is invalid
+            if audio_stream_idx is None or audio_stream_idx < 0:
+                audio_stream_idx = 0
             # Map the specific audio stream
             cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
             
@@ -329,7 +332,7 @@ class VideoController:
                 self.app_state.log(f"Audio: Copy original stream (track {audio_stream_idx})", "INFO")
             else:
                 # Re-encode to AAC with standard settings - force 2 channels (stereo)
-                cmd.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"])
+                cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
                 self.app_state.log(f"Audio: Re-encode to AAC stereo (track {audio_stream_idx})", "INFO")
         else:
             # No audio
@@ -407,6 +410,13 @@ class VideoController:
         """Find external subtitle file (.srt or .ass) for the video"""
         if not video_path:
             return None
+        
+        # Check if user selected a specific subtitle file
+        selected = self.app_state.subtitles.selected_subtitle
+        if selected and os.path.exists(selected):
+            return selected
+        
+        # Auto-detect: look for subtitle with same base name
         base = os.path.splitext(video_path)[0]
         for ext in [".srt", ".ass"]:
             sub_path = base + ext
@@ -418,9 +428,15 @@ class VideoController:
         """Build FFmpeg subtitle filter with styling options"""
         subs = self.app_state.subtitles
         
-        # Escape path for FFmpeg filter (Windows paths need special handling)
-        # Convert backslashes to forward slashes and escape colons
-        escaped_path = sub_path.replace("\\", "/").replace(":", "\\:")
+        # Escape path for FFmpeg filter
+        # Convert backslashes to forward slashes and escape special characters
+        escaped_path = sub_path.replace("\\", "/").replace("'", "'\\''")
+        # Escape brackets which are special in FFmpeg filter syntax
+        escaped_path = escaped_path.replace("[", "\\[").replace("]", "\\]")
+        # Escape the colon after the drive letter (Windows paths)
+        # Replace C:/ with C\:/ to escape the colon
+        import re
+        escaped_path = re.sub(r'^([A-Z]):/', r'\1\:/', escaped_path, flags=re.IGNORECASE)
         
         # Build force_style options
         style = []
@@ -449,6 +465,7 @@ class VideoController:
         
         # Build the filter string
         force_style = f":force_style='{','.join(style)}'" if style else ""
+        
         return f"subtitles='{escaped_path}'{force_style}"
     
     def hex_to_ass(self, hex_color: str, opacity: float = 1.0) -> str:
@@ -587,7 +604,7 @@ class VideoController:
                 cmd.extend(["-c:a", "copy"])
             else:
                 # Re-encode audio but keep video copy
-                cmd.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"])
+                cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
         else:
             cmd.extend(["-an"])
         
