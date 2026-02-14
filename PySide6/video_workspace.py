@@ -113,7 +113,7 @@ class VideoWorkspace(QWidget):
         trim_layout = QVBoxLayout(self.trim_tab)
         self.trim_panel = TrimPanel(self.app_state, self.preview.get_current_timestamp)
         self.trim_panel.cut_point_set.connect(self.on_cut_point_set)
-        self.trim_panel.execute_cut.connect(self.on_execute_cut)
+        self.trim_panel.execute_cuts.connect(self.on_execute_cuts)
         self.trim_panel.cut_removed.connect(self.on_cut_removed)
         self.trim_panel.clear_all_cuts.connect(self.on_clear_all_cuts)
         trim_layout.addWidget(self.trim_panel)
@@ -255,8 +255,7 @@ class VideoWorkspace(QWidget):
         self._update_timeline_markers()
         
         # Update segments info
-        segments = self.app_state.cut.get_segments(0)  # Duration will be updated when video is loaded
-        self.trim_panel.update_segments_info(segments)
+        self.trim_panel._update_segments_list()
         
         self.app_state.log(f"Added cut point at {time_str}", "INFO")
     
@@ -267,8 +266,7 @@ class VideoWorkspace(QWidget):
             self._update_timeline_markers()
             
             # Update segments info
-            segments = self.app_state.cut.get_segments(0)
-            self.trim_panel.update_segments_info(segments)
+            self.trim_panel._update_segments_list()
             
             self.app_state.log(f"Removed cut point", "INFO")
     
@@ -277,7 +275,7 @@ class VideoWorkspace(QWidget):
         self.app_state.cut.clear_all()
         self.trim_panel.clear_all_cuts_from_list()
         self._update_timeline_markers()
-        self.trim_panel.update_segments_info([])
+        self.trim_panel._update_segments_list()
         self.app_state.log("Cleared all cut points", "INFO")
     
     def _get_segment_info_for_cut(self, cut_point, sorted_cuts):
@@ -299,20 +297,22 @@ class VideoWorkspace(QWidget):
         cut_points = [(cut.position, cut.cut_id) for cut in self.app_state.cut.points]
         self.preview.update_cut_markers(cut_points)
         
-    def on_execute_cut(self):
-        """Handle execute cut - split video at all cut points"""
+    def on_execute_cuts(self, segments_data):
+        """Handle execute cuts - encode selected segments only"""
         if not self.app_state.input_files:
             self.app_state.log("No video file loaded", "ERROR")
             return
             
-        cuts = self.app_state.cut.get_sorted_points()
-        if not cuts:
-            self.app_state.log("No cut points defined", "ERROR")
+        if not segments_data:
+            self.app_state.log("No segments selected", "ERROR")
             return
             
         input_file = self.app_state.input_files[0]
         
-        self.app_state.log(f"Executing {len(cuts)} cut(s)", "INFO")
+        # segments_data is list of (start_time, end_time, segment_name) tuples
+        # end_time = -1 means "end of video"
+        
+        self.app_state.log(f"Encoding {len(segments_data)} selected segment(s)", "INFO")
         
         # Initialize controller
         from controller import VideoController
@@ -324,24 +324,7 @@ class VideoWorkspace(QWidget):
             self.app_state.log("Could not determine video duration", "ERROR")
             return
         
-        # Validate all cut positions
-        for i, cut in enumerate(cuts):
-            if cut.position < 5 or cut.position > duration - 5:
-                self.app_state.log(f"Cut {i+1} at {cut.time_display} is too close to start or end (minimum 5 seconds)", "ERROR")
-                return
-        
-        # Check gaps between cuts (minimum 5 seconds between cuts)
-        prev_pos = 0
-        for i, cut in enumerate(cuts):
-            if cut.position - prev_pos < 5:
-                self.app_state.log(f"Cut {i+1} is too close to previous cut (minimum 5 seconds gap required)", "ERROR")
-                return
-            prev_pos = cut.position
-        
-        # Check final segment
-        if duration - prev_pos < 5:
-            self.app_state.log("Final segment is too short (minimum 5 seconds)", "ERROR")
-            return
+        self.app_state.log(f"Video duration: {duration:.2f} seconds ({duration/60:.2f} minutes)", "INFO")
         
         # Check if we can do fast cut (stream copy) - only when resolution is "none"
         can_fast_cut = (
@@ -353,38 +336,42 @@ class VideoWorkspace(QWidget):
             not self.app_state.filters.volume_enabled
         )
         
-        # Generate segments
-        segments = self.app_state.cut.get_segments(duration)
-        
-        self.app_state.log(f"Will create {len(segments)} segments:", "INFO")
-        for i, (start, end) in enumerate(segments, 1):
-            start_str = self._format_time(start)
-            end_str = self._format_time(end)
-            self.app_state.log(f"  Segment {i}: {start_str} - {end_str}", "INFO")
-        
-        # Generate output paths for all segments
+        # Generate output paths
         import os
         from pathlib import Path
         base_name = Path(input_file).stem
         output_folder = self.app_state.output_folder or os.path.dirname(input_file)
         container = self.app_state.encoding.container
         
-        # Encode each segment
+        # Encode each selected segment
         all_success = True
-        for i, (seg_start, seg_end) in enumerate(segments, 1):
-            # Generate output path with part number
-            output_path = os.path.join(output_folder, f"{base_name}_part{i:02d}.{container}")
+        for i, (seg_start, seg_end, seg_name) in enumerate(segments_data, 1):
+            # Handle end = -1 (end of video)
+            if seg_end == -1:
+                seg_end = duration
             
-            # Check for existing file and append counter if needed
-            counter = 1
-            original_output = output_path
-            while os.path.exists(output_path):
-                output_path = os.path.join(output_folder, f"{base_name}_part{i:02d}_{counter}.{container}")
-                counter += 1
+            # Validate segment
+            if seg_start < 0 or seg_end <= seg_start:
+                self.app_state.log(f"Invalid segment: {seg_name} (start: {seg_start}, end: {seg_end})", "ERROR")
+                continue
             
             duration_sec = seg_end - seg_start
             
-            self.app_state.log(f"Processing segment {i}/{len(segments)}: {self._format_time(seg_start)} - {self._format_time(seg_end)}", "INFO")
+            # Skip very short segments
+            if duration_sec < 1:
+                self.app_state.log(f"Skipping {seg_name}: too short ({duration_sec:.1f}s)", "WARN")
+                continue
+            
+            # Generate output path
+            output_path = os.path.join(output_folder, f"{base_name}_{seg_name}.{container}")
+            
+            # Check for existing file and append counter if needed
+            counter = 1
+            while os.path.exists(output_path):
+                output_path = os.path.join(output_folder, f"{base_name}_{seg_name}_{counter}.{container}")
+                counter += 1
+            
+            self.app_state.log(f"Processing {seg_name}: {self._format_time(seg_start)} - {self._format_time(seg_end)} ({duration_sec:.1f}s)", "INFO")
             
             if can_fast_cut:
                 success = controller.fast_cut_file(
@@ -402,16 +389,12 @@ class VideoWorkspace(QWidget):
                 )
             
             if not success:
-                self.app_state.log(f"Failed to process segment {i}", "ERROR")
+                self.app_state.log(f"Failed to encode {seg_name}", "ERROR")
                 all_success = False
                 break
         
         if all_success:
-            self.app_state.log(f"Successfully created {len(segments)} segments!", "SUCCESS")
-            # Clear cuts after successful execution
-            self.on_clear_all_cuts()
-        else:
-            self.app_state.log("Cut execution failed", "ERROR")
+            self.app_state.log(f"Successfully encoded {len(segments_data)} segment(s)!", "SUCCESS")
     
     def _format_time(self, seconds: float) -> str:
         """Format seconds as time string"""

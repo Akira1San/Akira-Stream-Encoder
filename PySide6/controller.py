@@ -557,6 +557,12 @@ class VideoController:
         
         cmd.extend(["-i", input_path])
         
+        # Generate PTS if missing (fixes "pts has no value" warnings)
+        cmd.extend(["-fflags", "+genpts+igndts"])
+        
+        # Use -copyts to preserve original timestamps (helps with playback issues)
+        cmd.extend(["-copyts"])
+        
         # Duration
         if duration:
             cmd.extend(["-t", duration])
@@ -584,9 +590,6 @@ class VideoController:
                 cmd.extend(["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"])
         else:
             cmd.extend(["-an"])
-        
-        # Avoid timestamp issues
-        cmd.extend(["-avoid_negative_ts", "make_zero"])
         
         # Output
         cmd.extend(["-y", output_path])
