@@ -255,6 +255,12 @@ class VideoController:
             # Input and trim
             if start_time:
                 cmd.extend(["-ss", start_time])
+            
+            # Add hardware decoding for GPU encoders
+            encoder = self.app_state.encoding.encoder
+            if self.app_state.encoding.use_gpu and "nvenc" in encoder:
+                cmd.extend(["-hwaccel", "cuda"])
+            
             cmd.extend(["-i", input_path])
             if duration:
                 cmd.extend(["-t", duration])
@@ -298,12 +304,15 @@ class VideoController:
                 orig_br = self.get_video_bitrate(input_path)
                 if orig_br:
                     cmd.extend(["-b:v", f"{orig_br}k"])
+                    cmd.extend(["-maxrate", f"{orig_br}k"])
+                    cmd.extend(["-bufsize", f"{orig_br * 2}k"])
             else:
                 target_br = self.app_state.encoding.target_bitrate
                 if target_br and target_br.isdigit():
-                    cmd.extend(["-b:v", f"{target_br}k"])
-                    cmd.extend(["-maxrate", f"{self.app_state.encoding.max_bitrate}k"])
-                    cmd.extend(["-bufsize", f"{self.app_state.encoding.max_bitrate * 2}k"])
+                    target_br_int = int(target_br)
+                    cmd.extend(["-b:v", f"{target_br_int}k"])
+                    cmd.extend(["-maxrate", f"{target_br_int}k"])
+                    cmd.extend(["-bufsize", f"{target_br_int * 2}k"])
         
         # Map video stream
         if self.app_state.tracks.video_selected:

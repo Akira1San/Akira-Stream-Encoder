@@ -299,7 +299,7 @@ class VideoWorkspace(QWidget):
         self.preview.update_cut_markers(cut_points)
         
     def on_execute_cuts(self, segments_data):
-        """Handle execute cuts - encode selected segments only"""
+        """Handle execute cuts - encode selected segments only (runs in background thread)"""
         if not self.app_state.input_files:
             self.app_state.log("No video file loaded", "ERROR")
             return
@@ -307,13 +307,32 @@ class VideoWorkspace(QWidget):
         if not segments_data:
             self.app_state.log("No segments selected", "ERROR")
             return
-            
+        
+        # Show cancel button, hide encode button
+        self.encode_btn.setVisible(False)
+        self.cancel_btn.setVisible(True)
+        
+        self.app_state.log(f"Encoding {len(segments_data)} selected segment(s)", "INFO")
+        
+        # Start encoding in a separate thread to keep UI responsive
+        import threading
+        def cut_worker():
+            try:
+                self._execute_cuts_worker(segments_data)
+            finally:
+                # Re-enable encode button when done
+                self.encode_btn.setVisible(True)
+                self.cancel_btn.setVisible(False)
+        
+        self.cut_thread = threading.Thread(target=cut_worker, daemon=True)
+        self.cut_thread.start()
+    
+    def _execute_cuts_worker(self, segments_data):
+        """Worker method that does the actual encoding (runs in background thread)"""
         input_file = self.app_state.input_files[0]
         
         # segments_data is list of (start_time, end_time, segment_name) tuples
         # end_time = -1 means "end of video"
-        
-        self.app_state.log(f"Encoding {len(segments_data)} selected segment(s)", "INFO")
         
         # Initialize controller
         from controller import VideoController
