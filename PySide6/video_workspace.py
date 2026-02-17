@@ -496,7 +496,7 @@ class VideoWorkspace(QWidget):
         # Scan for subtitle files
         sub_files = []
         for f in os.listdir(video_dir):
-            if f.lower().endswith(('.srt', '.ass', '.ssa')):
+            if f.lower().endswith(('.srt', '.ass', '.ssa', '.sub')):
                 sub_files.append(os.path.join(video_dir, f))
         
         # Sort: .srt first, then alphabetically

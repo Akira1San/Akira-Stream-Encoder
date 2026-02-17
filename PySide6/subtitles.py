@@ -34,7 +34,18 @@ class SubtitlesPanel(QWidget):
         # Burn checkbox
         self.burn_check = QCheckBox("Burn Subtitles into Video")
         self.burn_check.setChecked(self.app_state.subtitles.burn_subs)
+        self.burn_check.setToolTip(
+            "Burn subtitles directly into video (permanent).\n"
+            "Supported formats: .srt, .ass, .ssa, .sub\n\n"
+            "Note: Preview only shows .srt subtitles.\n"
+            "Encoding works with all formats."
+        )
         layout.addWidget(self.burn_check)
+        
+        # Info label
+        preview_info = QLabel("Preview supports .srt only | Encoding supports all formats")
+        preview_info.setStyleSheet("color: gray; font-size: 10px; font-style: italic;")
+        layout.addWidget(preview_info)
         
         # Subtitle File Selector
         sub_file_layout = QHBoxLayout()

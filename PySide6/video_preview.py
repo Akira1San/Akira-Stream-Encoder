@@ -631,7 +631,7 @@ class VideoPreview(QWidget):
         if self.app_state.subtitles.burn_subs and self.current_video_path:
             # Look for external subtitle file
             base = os.path.splitext(self.current_video_path)[0]
-            for ext in [".srt", ".ass"]:
+            for ext in [".srt", ".ass", ".ssa", ".sub"]:
                 test_path = base + ext
                 if os.path.exists(test_path):
                     sub_path = test_path

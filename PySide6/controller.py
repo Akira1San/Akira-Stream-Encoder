@@ -236,7 +236,7 @@ class VideoController:
                         cmd.extend(["-vf", subs_filter])
                         self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
                 else:
-                    self.app_state.log("No external subtitle file found (.srt or .ass)", "WARN")
+                    self.app_state.log("No external subtitle file found (.srt, .ass, .ssa, .sub)", "WARN")
             
             # Audio codec for clip extraction - use copy or encode based on settings
             if self.app_state.tracks.audio_copy_mode:
@@ -450,7 +450,7 @@ class VideoController:
         )
         
     def find_subtitle_file(self, video_path: str) -> Optional[str]:
-        """Find external subtitle file (.srt or .ass) for the video"""
+        """Find external subtitle file (.srt, .ass, .ssa, .sub) for the video"""
         if not video_path:
             return None
         
@@ -461,7 +461,7 @@ class VideoController:
         
         # Auto-detect: look for subtitle with same base name
         base = os.path.splitext(video_path)[0]
-        for ext in [".srt", ".ass"]:
+        for ext in [".srt", ".ass", ".ssa", ".sub"]:
             sub_path = base + ext
             if os.path.exists(sub_path):
                 return sub_path
