@@ -252,16 +252,16 @@ class VideoController:
             # Normal encoding mode
             self.app_state.log("Normal Re-Encoding Mode", "INFO")
             
-            # Input and trim
-            if start_time:
-                cmd.extend(["-ss", start_time])
-            
             # Add hardware decoding for GPU encoders
             encoder = self.app_state.encoding.encoder
             if self.app_state.encoding.use_gpu and "nvenc" in encoder:
                 cmd.extend(["-hwaccel", "cuda"])
             
             cmd.extend(["-i", input_path])
+            
+            # Seek AFTER input for accurate frame-precise seeking (avoids green frames)
+            if start_time:
+                cmd.extend(["-ss", start_time])
             if duration:
                 cmd.extend(["-t", duration])
             
@@ -285,8 +285,8 @@ class VideoController:
                 cmd.extend(["-crf", str(self.app_state.encoding.cq)])
                 cmd.extend(["-preset", "medium"])
                 
-            # Resolution
-            if self.app_state.encoding.resolution != "none":
+            # Resolution - only use -s if scale_mode is off (otherwise use filter)
+            if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
                 cmd.extend(["-s", self.app_state.encoding.resolution])
                 
             # Framerate
@@ -298,6 +298,9 @@ class VideoController:
             cmd.extend(["-pix_fmt", "yuv420p"])  # Pixel format
             cmd.extend(["-profile:v", "main"])  # Profile: main
             cmd.extend(["-level:v", "4.0"])  # Level 4.0 (compatible with level 120)
+            
+            # Force keyframe at start to avoid green frames after seeking/cutting
+            cmd.extend(["-force_key_frames:v", "0"])
             
             # Bitrate
             if self.app_state.encoding.use_original_bitrate:
@@ -361,6 +364,36 @@ class VideoController:
     def build_filter_complex(self, input_path: str = "") -> str:
         """Build FFmpeg filter complex string from settings"""
         filters = []
+        
+        # Scale filter with algorithm (when scale_mode is "on")
+        if self.app_state.encoding.scale_mode == "on" and self.app_state.encoding.resolution != "none":
+            res = self.app_state.encoding.resolution
+            algorithm = self.app_state.encoding.scale_algorithm
+            quality = self.app_state.encoding.scale_quality
+            
+            # Build scale filter based on algorithm and quality
+            # Format: scale=WxH:flags=algo:interl=0|1
+            # interl=1 is for interlaced content, 0 for progressive (quality mode)
+            interl = "1" if quality == "quality" else "0"
+            
+            if algorithm == "bilinear":
+                if quality == "quality":
+                    scale_filter = f"scale={res}:flags=lanczos:interl={interl}"
+                else:
+                    scale_filter = f"scale={res}"
+            elif algorithm == "bicubic":
+                scale_filter = f"scale={res}:flags=bicubic:interl={interl}"
+            elif algorithm == "lanczos":
+                scale_filter = f"scale={res}:flags=lanczos:interl={interl}"
+            elif algorithm == "spline":
+                scale_filter = f"scale={res}:flags=spline:interl={interl}"
+            elif algorithm == "area":
+                scale_filter = f"scale={res}:flags=area:interl={interl}"
+            else:
+                scale_filter = f"scale={res}"
+            
+            filters.append(scale_filter)
+            self.app_state.log(f"Scale: {res} with {algorithm} ({quality})", "INFO")
         
         # Deinterlace
         if self.app_state.filters.deinterlace:
