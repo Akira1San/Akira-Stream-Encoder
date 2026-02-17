@@ -452,8 +452,8 @@ class VideoController:
         
         if subs.font != "Arial":
             style.append(f"Fontname={subs.font}")
-        if subs.size != 24:
-            style.append(f"Fontsize={subs.size}")
+        # Always set Fontsize to ensure consistent behavior (FFmpeg default is not 24)
+        style.append(f"Fontsize={subs.size}")
         if subs.color != "#FFFFFF":
             style.append(f"PrimaryColour={self.hex_to_ass(subs.color)}")
         if subs.outline_color != "#000000":

@@ -712,8 +712,9 @@ class VideoPreview(QWidget):
         # Get subtitle settings
         subs = self.app_state.subtitles
         
-        # Set up font
-        font = QFont(subs.font, subs.size)
+        # Set up font (use pixel size to match FFmpeg)
+        font = QFont(subs.font)
+        font.setPixelSize(subs.size)
         painter.setFont(font)
         
         # Calculate text rect
