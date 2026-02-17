@@ -506,6 +506,10 @@ class VideoController:
         if subs.position != "bottom":
             style.append(f"Alignment={pos_map.get(subs.position, 2)}")
         
+        # Vertical offset (for letterboxed videos - move subtitles into black bars)
+        if subs.vertical_offset > 0:
+            style.append(f"MarginV={subs.vertical_offset}")
+        
         # Build the filter string
         force_style = f":force_style='{','.join(style)}'" if style else ""
         

@@ -101,6 +101,25 @@ class SubtitlesPanel(QWidget):
         self.position_combo.setCurrentText(self.app_state.subtitles.position)
         pos_layout.addWidget(self.position_combo)
         
+        pos_layout.addSpacing(20)
+        pos_layout.addWidget(QLabel("V-Offset:"))
+        
+        self.v_offset_slider = QSlider(Qt.Horizontal)
+        self.v_offset_slider.setRange(0, 200)
+        self.v_offset_slider.setValue(self.app_state.subtitles.vertical_offset)
+        self.v_offset_slider.setMaximumWidth(100)
+        self.v_offset_slider.setToolTip(
+            "Vertical offset in pixels (for letterboxed videos):\n"
+            "0 = default position\n"
+            "Higher = move subtitles down into black bars\n\n"
+            "Use this when subtitles appear above black bars."
+        )
+        pos_layout.addWidget(self.v_offset_slider)
+        
+        self.v_offset_label = QLabel(str(self.app_state.subtitles.vertical_offset))
+        self.v_offset_label.setMinimumWidth(25)
+        pos_layout.addWidget(self.v_offset_label)
+        
         pos_layout.addStretch()
         layout.addLayout(pos_layout)
         
@@ -161,6 +180,7 @@ class SubtitlesPanel(QWidget):
         self.font_combo.currentTextChanged.connect(self.on_font_changed)
         self.size_slider.valueChanged.connect(self.on_size_changed)
         self.position_combo.currentTextChanged.connect(self.on_position_changed)
+        self.v_offset_slider.valueChanged.connect(self.on_v_offset_changed)
         self.text_color_btn.clicked.connect(self.on_text_color_clicked)
         self.outline_color_btn.clicked.connect(self.on_outline_color_clicked)
         self.bg_color_btn.clicked.connect(self.on_bg_color_clicked)
@@ -238,6 +258,12 @@ class SubtitlesPanel(QWidget):
     def on_position_changed(self, text):
         """Handle position change"""
         self.app_state.subtitles.position = text
+        self.settings_changed.emit()
+    
+    def on_v_offset_changed(self, value):
+        """Handle vertical offset change"""
+        self.app_state.subtitles.vertical_offset = value
+        self.v_offset_label.setText(str(value))
         self.settings_changed.emit()
         
     def on_text_color_clicked(self):

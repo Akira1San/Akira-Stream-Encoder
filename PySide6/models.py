@@ -37,6 +37,7 @@ class SubtitleSettings:
     font: str = "Arial"
     size: int = 24
     position: str = "bottom"
+    vertical_offset: int = 0  # Pixels to shift subtitles (positive = down, for black bars)
     color: str = "#FFFFFF"
     outline_color: str = "#000000"
     bg_color: str = "#000000"
