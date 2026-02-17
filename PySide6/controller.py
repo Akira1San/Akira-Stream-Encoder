@@ -279,11 +279,11 @@ class VideoController:
             
             # GPU settings
             if self.app_state.encoding.use_gpu and "nvenc" in encoder:
-                cmd.extend(["-preset", "p4"])
+                cmd.extend(["-preset", self.app_state.encoding.gpu_preset])
                 cmd.extend(["-cq", str(self.app_state.encoding.cq)])
             else:
                 cmd.extend(["-crf", str(self.app_state.encoding.cq)])
-                cmd.extend(["-preset", "medium"])
+                cmd.extend(["-preset", self.app_state.encoding.cpu_preset])
                 
             # Resolution - only use -s if scale_mode is off (otherwise use filter)
             if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":

@@ -50,6 +50,55 @@ class EncodingPanel(QWidget):
         encoder_layout.addStretch()
         layout.addLayout(encoder_layout)
         
+        # Preset Row (changes based on encoder)
+        preset_layout = QHBoxLayout()
+        self.preset_label = QLabel("Preset:")
+        preset_layout.addWidget(self.preset_label)
+        
+        # GPU Preset (for NVENC)
+        self.gpu_preset_combo = QComboBox()
+        self.gpu_preset_combo.addItems(["p1", "p2", "p3", "p4", "p5", "p6", "p7"])
+        self.gpu_preset_combo.setCurrentText(self.app_state.encoding.gpu_preset)
+        self.gpu_preset_combo.setMinimumWidth(100)
+        self.gpu_preset_combo.setToolTip(
+            "GPU Preset (NVENC):\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "p1: Fastest (lowest quality)\n"
+            "p2: Faster\n"
+            "p3: Fast\n"
+            "p4: Medium (balanced) ← Default\n"
+            "p5: Slow\n"
+            "p6: Slower\n"
+            "p7: Slowest (best quality)"
+        )
+        preset_layout.addWidget(self.gpu_preset_combo)
+        
+        # CPU Preset (for libx264/libx265)
+        self.cpu_preset_combo = QComboBox()
+        self.cpu_preset_combo.addItems([
+            "ultrafast", "superfast", "veryfast", "faster", 
+            "fast", "medium", "slow", "slower", "veryslow"
+        ])
+        self.cpu_preset_combo.setCurrentText(self.app_state.encoding.cpu_preset)
+        self.cpu_preset_combo.setMinimumWidth(100)
+        self.cpu_preset_combo.setToolTip(
+            "CPU Preset:\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "ultrafast: Fastest encoding\n"
+            "superfast: Very fast\n"
+            "veryfast: Fast\n"
+            "faster: Faster than medium\n"
+            "fast: Fast encoding\n"
+            "medium: Balanced ← Default\n"
+            "slow: Better compression\n"
+            "slower: Even better compression\n"
+            "veryslow: Best compression (slowest)"
+        )
+        preset_layout.addWidget(self.cpu_preset_combo)
+        
+        preset_layout.addStretch()
+        layout.addLayout(preset_layout)
+        
         # Video Mode Row
         video_mode_layout = QHBoxLayout()
         video_mode_layout.addWidget(QLabel("Video:"))
@@ -392,6 +441,11 @@ class EncodingPanel(QWidget):
         self.fast_split_check.toggled.connect(self.on_fast_split_changed)
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
+        self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
+        self.cpu_preset_combo.currentTextChanged.connect(self.on_cpu_preset_changed)
+        
+        # Set initial preset visibility
+        self.update_preset_visibility()
         
     def on_audio_track_changed(self, index):
         """Handle audio track selection change"""
@@ -447,6 +501,26 @@ class EncodingPanel(QWidget):
     def on_encoder_changed(self, text):
         """Handle encoder selection change"""
         self.app_state.encoding.encoder = text
+        self.update_preset_visibility()
+        self.settings_changed.emit()
+    
+    def update_preset_visibility(self):
+        """Show correct preset combo based on encoder type"""
+        encoder = self.encoder_combo.currentText()
+        is_nvenc = "nvenc" in encoder.lower()
+        
+        # Show GPU preset for NVENC, CPU preset for others
+        self.gpu_preset_combo.setVisible(is_nvenc)
+        self.cpu_preset_combo.setVisible(not is_nvenc)
+    
+    def on_gpu_preset_changed(self, text):
+        """Handle GPU preset change"""
+        self.app_state.encoding.gpu_preset = text
+        self.settings_changed.emit()
+    
+    def on_cpu_preset_changed(self, text):
+        """Handle CPU preset change"""
+        self.app_state.encoding.cpu_preset = text
         self.settings_changed.emit()
         
     def on_video_mode_changed(self, text):

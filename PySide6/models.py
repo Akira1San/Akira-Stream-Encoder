@@ -21,6 +21,9 @@ class EncodingSettings:
     bitrate_mode: str = "CBR (Constant Bitrate)"
     target_bitrate: str = "2000"
     container: str = "mp4"
+    # Preset settings
+    cpu_preset: str = "medium"  # ultrafast/superfast/veryfast/faster/fast/medium/slow/slower/veryslow
+    gpu_preset: str = "p4"  # p1-p7 for NVENC
     # Scale filter settings
     scale_mode: str = "off"  # off / on
     scale_algorithm: str = "bilinear"  # bilinear / bicubic / lanczos / spline / area
