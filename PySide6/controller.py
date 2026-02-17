@@ -351,19 +351,22 @@ class VideoController:
             cmd.extend(["-an"])
             self.app_state.log("Audio: Disabled", "INFO")
         
-        # Filters
-        filter_complex = self.build_filter_complex(input_path)
-        if filter_complex:
-            cmd.extend(["-vf", filter_complex])
+        # Filters (video and audio separated)
+        video_filters, audio_filters = self.build_filter_complex(input_path)
+        if video_filters:
+            cmd.extend(["-vf", video_filters])
+        if audio_filters:
+            cmd.extend(["-af", audio_filters])
             
         # Output
         cmd.extend(["-y", output_path])
         
         return cmd
         
-    def build_filter_complex(self, input_path: str = "") -> str:
-        """Build FFmpeg filter complex string from settings"""
-        filters = []
+    def build_filter_complex(self, input_path: str = "") -> tuple:
+        """Build FFmpeg filter strings - returns (video_filters, audio_filters)"""
+        video_filters = []
+        audio_filters = []
         
         # Scale filter with algorithm (when scale_mode is "on")
         if self.app_state.encoding.scale_mode == "on" and self.app_state.encoding.resolution != "none":
@@ -371,9 +374,6 @@ class VideoController:
             algorithm = self.app_state.encoding.scale_algorithm
             quality = self.app_state.encoding.scale_quality
             
-            # Build scale filter based on algorithm and quality
-            # Format: scale=WxH:flags=algo:interl=0|1
-            # interl=1 is for interlaced content, 0 for progressive (quality mode)
             interl = "1" if quality == "quality" else "0"
             
             if algorithm == "bilinear":
@@ -392,16 +392,16 @@ class VideoController:
             else:
                 scale_filter = f"scale={res}"
             
-            filters.append(scale_filter)
+            video_filters.append(scale_filter)
             self.app_state.log(f"Scale: {res} with {algorithm} ({quality})", "INFO")
         
         # Deinterlace
         if self.app_state.filters.deinterlace:
-            filters.append("yadif")
+            video_filters.append("yadif")
             
         # Denoise
         if self.app_state.filters.denoise:
-            filters.append("hqdn3d")
+            video_filters.append("hqdn3d")
             
         # EQ (Color Correction)
         if self.app_state.eq.enabled:
@@ -422,7 +422,7 @@ class VideoController:
                 eq_params.append(f"gamma_b={self.app_state.eq.gamma_b}")
                 
             if eq_params:
-                filters.append(f"eq={':'.join(eq_params)}")
+                video_filters.append(f"eq={':'.join(eq_params)}")
         
         # Subtitles burn-in - look for external subtitle files
         if self.app_state.subtitles.burn_subs:
@@ -430,23 +430,24 @@ class VideoController:
             if sub_path:
                 subs_filter = self.build_subtitle_filter(sub_path)
                 if subs_filter:
-                    filters.append(subs_filter)
+                    video_filters.append(subs_filter)
                     self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
             else:
                 self.app_state.log("No external subtitle file found (.srt or .ass)", "WARN")
                 
-        # Volume
+        # Volume (audio filter)
         if self.app_state.filters.volume_enabled:
-            filters.append(f"volume={self.app_state.filters.volume_db}dB")
+            audio_filters.append(f"volume={self.app_state.filters.volume_db}dB")
         
         # Audio Denoise (afftdn - FFT-based denoiser)
         if getattr(self.app_state.filters, 'audio_denoise', False):
-            # afftdn with preset settings for general noise reduction
-            # nf=-25 is a good default for typical background noise
-            filters.append("afftdn=nf=-25")
+            audio_filters.append("afftdn=nf=-25")
             self.app_state.log("Audio: Applying noise reduction filter", "INFO")
             
-        return ",".join(filters) if filters else ""
+        return (
+            ",".join(video_filters) if video_filters else "",
+            ",".join(audio_filters) if audio_filters else ""
+        )
         
     def find_subtitle_file(self, video_path: str) -> Optional[str]:
         """Find external subtitle file (.srt or .ass) for the video"""
