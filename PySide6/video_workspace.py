@@ -15,7 +15,6 @@ from color_correction import ColorCorrectionPanel
 from subtitles import SubtitlesPanel
 from filters import FiltersPanel
 from trim_panel import TrimPanel
-from scan_panel import ScanPanel
 from video_preview import VideoPreview
 
 
@@ -126,14 +125,6 @@ class VideoWorkspace(QWidget):
         self.preview.timeline_slider.cut_marker_clicked.connect(self.on_cut_marker_clicked)
         trim_layout.addStretch()
         self.tabs.addTab(self.trim_tab, "Trim/Cut")
-        
-        # Scan/Repair Tab
-        self.scan_tab = QWidget()
-        scan_layout = QVBoxLayout(self.scan_tab)
-        self.scan_panel = ScanPanel(self.app_state)
-        scan_layout.addWidget(self.scan_panel)
-        scan_layout.addStretch()
-        self.tabs.addTab(self.scan_tab, "🔍 Scan/Repair")
         
         right_splitter.addWidget(self.tabs)
         right_splitter.setSizes([500, 250])
