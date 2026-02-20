@@ -90,6 +90,26 @@ class FiltersPanel(QWidget):
         vol_info.setStyleSheet("color: gray; font-size: 10px;")
         audio_layout.addWidget(vol_info)
         
+        # Dynamic Audio Normalizer
+        self.dynnorm_check = QCheckBox("Dynamic Normalizer (dynaudnorm)")
+        self.dynnorm_check.setChecked(self.app_state.filters.audio_dynnorm)
+        self.dynnorm_check.setToolTip(
+            "Dynamically normalize audio volume.\n"
+            "Best for videos with quiet dialogue and loud music.\n"
+            "Automatically boosts quiet parts and reduces loud parts."
+        )
+        audio_layout.addWidget(self.dynnorm_check)
+        
+        # Audio Compressor
+        self.compressor_check = QCheckBox("Audio Compressor (acompressor)")
+        self.compressor_check.setChecked(self.app_state.filters.audio_compressor)
+        self.compressor_check.setToolTip(
+            "Reduce dynamic range of audio.\n"
+            "Makes quiet sounds louder and loud sounds quieter.\n"
+            "Good for dialogue clarity in movies/TV shows."
+        )
+        audio_layout.addWidget(self.compressor_check)
+        
         layout.addWidget(audio_group)
         
         layout.addStretch()
@@ -101,6 +121,8 @@ class FiltersPanel(QWidget):
         self.audio_denoise_check.toggled.connect(self.on_audio_denoise_changed)
         self.vol_check.toggled.connect(self.on_vol_enabled_changed)
         self.vol_edit.textChanged.connect(self.on_vol_changed)
+        self.dynnorm_check.toggled.connect(self.on_dynnorm_changed)
+        self.compressor_check.toggled.connect(self.on_compressor_changed)
         
     def on_deint_changed(self, checked):
         """Handle deinterlace checkbox change"""
@@ -129,4 +151,14 @@ class FiltersPanel(QWidget):
             self.app_state.filters.volume_db = float(text)
         except ValueError:
             pass
+        self.settings_changed.emit()
+    
+    def on_dynnorm_changed(self, checked):
+        """Handle dynamic normalizer checkbox change"""
+        self.app_state.filters.audio_dynnorm = checked
+        self.settings_changed.emit()
+    
+    def on_compressor_changed(self, checked):
+        """Handle audio compressor checkbox change"""
+        self.app_state.filters.audio_compressor = checked
         self.settings_changed.emit()

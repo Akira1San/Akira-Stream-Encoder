@@ -71,6 +71,8 @@ class FilterSettings:
     volume_enabled: bool = False
     volume_db: float = 0.0
     stretch_fill: bool = False
+    audio_dynnorm: bool = False
+    audio_compressor: bool = False
 
 
 @dataclass

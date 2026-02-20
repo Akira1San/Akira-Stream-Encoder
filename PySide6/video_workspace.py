@@ -102,9 +102,12 @@ class VideoWorkspace(QWidget):
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
+        # Use splitter between preview and tabs for adjustable sizing
+        right_splitter = QSplitter(Qt.Vertical)
+        
         # Video Preview
         self.preview = VideoPreview(self.app_state)
-        right_layout.addWidget(self.preview)
+        right_splitter.addWidget(self.preview)
         
         # Tabs for Trim/Cut and Scan
         self.tabs = QTabWidget()
@@ -132,10 +135,13 @@ class VideoWorkspace(QWidget):
         scan_layout.addStretch()
         self.tabs.addTab(self.scan_tab, "🔍 Scan/Repair")
         
-        right_layout.addWidget(self.tabs)
+        right_splitter.addWidget(self.tabs)
+        right_splitter.setSizes([500, 250])
+        
+        right_layout.addWidget(right_splitter)
         
         main_splitter.addWidget(right_widget)
-        main_splitter.setSizes([400, 800])
+        main_splitter.setSizes([350, 900])
         
         layout.addWidget(main_splitter)
         

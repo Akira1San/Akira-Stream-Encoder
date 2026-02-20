@@ -443,6 +443,16 @@ class VideoController:
         if getattr(self.app_state.filters, 'audio_denoise', False):
             audio_filters.append("afftdn=nf=-25")
             self.app_state.log("Audio: Applying noise reduction filter", "INFO")
+        
+        # Dynamic Audio Normalizer
+        if getattr(self.app_state.filters, 'audio_dynnorm', False):
+            audio_filters.append("dynaudnorm=f=150:g=15:r=0.95")
+            self.app_state.log("Audio: Applying dynamic normalizer", "INFO")
+        
+        # Audio Compressor
+        if getattr(self.app_state.filters, 'audio_compressor', False):
+            audio_filters.append("acompressor=threshold=0.15:ratio=3:attack=20:release=250")
+            self.app_state.log("Audio: Applying audio compressor", "INFO")
             
         return (
             ",".join(video_filters) if video_filters else "",

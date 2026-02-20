@@ -322,36 +322,48 @@ class VideoPreview(QWidget):
         layout.setSpacing(10)
         
         # Split view: Original | Processed
-        split = QSplitter(Qt.Horizontal)
+        self.split = QSplitter(Qt.Horizontal)
+        
+        # Default preview size
+        self.preview_width = 320
+        self.preview_height = 180
         
         # Original frame
-        original_group = QGroupBox("Original")
-        original_layout = QVBoxLayout(original_group)
+        self.original_group = QGroupBox("Original")
+        original_layout = QVBoxLayout(self.original_group)
+        original_layout.setContentsMargins(5, 5, 5, 5)
         
         self.original_label = QLabel("No Video")
         self.original_label.setAlignment(Qt.AlignCenter)
-        self.original_label.setMinimumSize(320, 180)
+        self.original_label.setMinimumSize(self.preview_width, self.preview_height)
         self.original_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
-        self.original_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.original_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         original_layout.addWidget(self.original_label)
         
-        split.addWidget(original_group)
+        self.split.addWidget(self.original_group)
         
         # Processed frame
-        processed_group = QGroupBox("Processed Preview")
-        processed_layout = QVBoxLayout(processed_group)
+        self.processed_group = QGroupBox("Processed Preview")
+        processed_layout = QVBoxLayout(self.processed_group)
+        processed_layout.setContentsMargins(5, 5, 5, 5)
         
         self.processed_label = QLabel("No Video")
         self.processed_label.setAlignment(Qt.AlignCenter)
-        self.processed_label.setMinimumSize(320, 180)
+        self.processed_label.setMinimumSize(self.preview_width, self.preview_height)
         self.processed_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
-        self.processed_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.processed_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         processed_layout.addWidget(self.processed_label)
         
-        split.addWidget(processed_group)
-        split.setSizes([400, 400])
+        self.split.addWidget(self.processed_group)
+        self.split.setSizes([400, 400])
         
-        layout.addWidget(split)
+        self.original_group.setMinimumHeight(self.preview_height + 30)
+        self.processed_group.setMinimumHeight(self.preview_height + 30)
+        self.split.setMinimumHeight(self.preview_height + 40)
+        
+        self.setMinimumHeight(self.preview_height + 180)
+        
+        layout.addWidget(self.split)
         
         # Playback controls
         playback_layout = QHBoxLayout()
@@ -382,6 +394,17 @@ class VideoPreview(QWidget):
         self.speed_combo.currentTextChanged.connect(self.on_speed_changed)
         self.speed_combo.setMaximumWidth(70)
         playback_layout.addWidget(self.speed_combo)
+        
+        playback_layout.addSpacing(15)
+        
+        # Preview size dropdown
+        playback_layout.addWidget(QLabel("Preview:"))
+        self.size_combo = QComboBox()
+        self.size_combo.addItems(["Small", "Medium"])
+        self.size_combo.setCurrentText("Small")
+        self.size_combo.currentTextChanged.connect(self.on_size_changed)
+        self.size_combo.setMaximumWidth(80)
+        playback_layout.addWidget(self.size_combo)
         
         playback_layout.addStretch()
         layout.addLayout(playback_layout)
@@ -816,6 +839,25 @@ class VideoPreview(QWidget):
             interval = int(1000 / actual_fps)
             self.playback_timer = self.startTimer(interval)
             self.app_state.log(f"Playback speed changed to {self.playback_speed}x", "INFO")
+    
+    def on_size_changed(self, size_text):
+        """Handle preview size change"""
+        sizes = {
+            "Small": (320, 180),
+            "Medium": (480, 270)
+        }
+        w, h = sizes.get(size_text, (320, 180))
+        self.preview_width = w
+        self.preview_height = h
+        
+        self.original_label.setMinimumSize(w, h)
+        self.processed_label.setMinimumSize(w, h)
+        
+        self.original_group.setMinimumHeight(h + 30)
+        self.processed_group.setMinimumHeight(h + 30)
+        self.split.setMinimumHeight(h + 40)
+        
+        self.setMinimumHeight(h + 180)
         
     def on_pause_clicked(self):
         """Handle pause button click"""
