@@ -35,14 +35,6 @@ class PlaceholderPanel(QFrame):
         layout.addWidget(self.label)
 
 
-class SourceBinPanel(PlaceholderPanel):
-    """Source Bin Panel - for managing source files"""
-    
-    def __init__(self, parent=None):
-        super().__init__("Source Bin\n\nDrag video files here\nor use 'Add Source' button", "#252525", parent)
-        self.setMinimumWidth(200)
-
-
 class PreviewPanel(PlaceholderPanel):
     """Preview Panel - for video preview"""
     
