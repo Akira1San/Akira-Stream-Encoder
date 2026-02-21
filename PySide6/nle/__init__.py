@@ -18,6 +18,7 @@ from nle.nle_tab import NLETab
 from nle.nle_timeline import NLETimeline
 from nle.nle_track import NLETrackWidget, TrackHeader, ClipContainer
 from nle.nle_clip import NLEClipWidget
+from nle.nle_source_bin import SourceBinPanel, SourceMetadata, SourceBinItem
 
 __all__ = [
     # Models
@@ -27,6 +28,7 @@ __all__ = [
     'Effect',
     'TrackType',
     'EffectType',
+    'SourceMetadata',
     # Widgets
     'NLETab',
     'NLETimeline',
@@ -34,4 +36,6 @@ __all__ = [
     'TrackHeader',
     'ClipContainer',
     'NLEClipWidget',
+    'SourceBinPanel',
+    'SourceBinItem',
 ]

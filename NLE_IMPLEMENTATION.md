@@ -135,17 +135,17 @@ Add clip programmatically:
 
 ---
 
-## Phase 3: Source Management
+## Phase 3: Source Management ✅ DONE
 
-### Task 3.1: Create Source Bin Panel
+### Task 3.1: Create Source Bin Panel ✅
 **File:** `PySide6/nle/nle_source_bin.py`
 
 Create source file manager:
-- [ ] List widget for source files
-- [ ] "Add Source" button with file dialog
-- [ ] Show filename and duration
-- [ ] Double-click to preview source
-- [ ] Store list of source paths with metadata
+- [x] List widget for source files
+- [x] "Add Source" button with file dialog
+- [x] Show filename and duration
+- [x] Double-click to preview source
+- [x] Store list of source paths with metadata
 
 **Acceptance:**
 - Can add multiple video files
@@ -154,15 +154,15 @@ Create source file manager:
 
 ---
 
-### Task 3.2: Detect Source Properties
+### Task 3.2: Detect Source Properties ✅
 **File:** `PySide6/nle/nle_source_bin.py`
 
 Use FFprobe to detect:
-- [ ] Duration
-- [ ] Resolution
-- [ ] Frame rate
-- [ ] Has audio flag
-- [ ] Store in source metadata dict
+- [x] Duration
+- [x] Resolution
+- [x] Frame rate
+- [x] Has audio flag
+- [x] Store in source metadata dict
 
 **Acceptance:**
 - Adding source extracts metadata
@@ -170,14 +170,14 @@ Use FFprobe to detect:
 
 ---
 
-### Task 3.3: Drag Source to Timeline
+### Task 3.3: Drag Source to Timeline ✅
 **File:** `PySide6/nle/nle_source_bin.py`, `PySide6/nle/nle_timeline.py`
 
 Implement drag & drop:
-- [ ] Source item is draggable
-- [ ] Timeline accepts drop
-- [ ] Drop creates new clip at drop position
-- [ ] Clip spans full source duration initially
+- [x] Source item is draggable
+- [x] Timeline accepts drop
+- [x] Drop creates new clip at drop position
+- [x] Clip spans full source duration initially
 
 **Acceptance:**
 - Drag source file to timeline creates clip

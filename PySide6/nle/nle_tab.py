@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 from models import AppState
-from nle.nle_models import NLEProject, TrackType
+from nle.nle_models import NLEProject, TrackType, NLEClip
+from nle.nle_source_bin import SourceBinPanel
 
 
 class PlaceholderPanel(QFrame):
@@ -279,6 +280,10 @@ class NLETab(QWidget):
     def connect_signals(self):
         """Connect internal signals"""
         self.project_changed.connect(self.on_project_changed)
+        
+        # Connect source bin signals
+        self.source_bin.preview_requested.connect(self._on_preview_source)
+        self.source_bin.clip_create_requested.connect(self._on_create_clip_from_source)
     
     # === Toolbar Actions ===
     
@@ -349,8 +354,41 @@ class NLETab(QWidget):
         )
         if file_paths:
             for path in file_paths:
+                self.source_bin.add_source(path)
                 self.app_state.log(f"Added source: {path}", "INFO")
-            # TODO: Store sources in project and update source bin UI
+                
+    def _on_preview_source(self, source_path: str):
+        """Handle preview request for source"""
+        self.app_state.log(f"Preview requested for: {source_path}", "INFO")
+        # TODO: Implement preview in preview panel
+        
+    def _on_create_clip_from_source(self, source_path: str, timeline_position: float):
+        """Handle creating a clip from source"""
+        # Get source metadata
+        metadata = self.source_bin.get_source(source_path)
+        if not metadata or not metadata.valid:
+            self.app_state.log(f"Cannot create clip: source not valid", "WARN")
+            return
+            
+        # Find or create appropriate track
+        video_tracks = self.project.get_video_tracks()
+        if not video_tracks:
+            track = self.project.add_track(TrackType.VIDEO)
+        else:
+            track = video_tracks[0]
+            
+        # Create clip
+        clip = NLEClip(
+            source_path=source_path,
+            source_start=0.0,
+            source_end=metadata.duration,
+            timeline_start=timeline_position
+        )
+        
+        # Add to track
+        track.add_clip(clip)
+        self.project_changed.emit()
+        self.app_state.log(f"Created clip from {metadata.filename}", "INFO")
     
     def on_render(self):
         """Render the project"""
