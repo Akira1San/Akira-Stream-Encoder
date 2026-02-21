@@ -184,3 +184,53 @@ if self.app_state.filters.audio_compressor:
 3. Enable "Audio Compressor" - verify dynamic range is reduced
 4. Test both together - they can be combined
 5. Verify encoding completes without errors
+
+---
+
+# Task: Code Review - Uncommitted Changes ✅ DONE
+
+## Overview
+Review uncommitted changes (staged and unstaged) on the `master` branch.
+
+**Note:** The project has two codebases:
+- **Root folder** - OLD tkinter-based code (legacy)
+- **PySide6 folder** - NEW PySide6-based code (active development)
+
+## Files Reviewed
+
+### NEW PySide6 Code (PySide6 folder)
+- `PySide6/video_preview.py` - Audio player integration
+- `PySide6/video_workspace.py` - NLE tab addition
+- `PySide6/audio_player.py` - New audio player component
+- `PySide6/nle/` - New NLE module
+- `PySide6/video_validator.py` - Video validation
+
+### OLD Legacy Code (root folder)
+- `main.py` - OLD tkinter application (has syntax error)
+- `video_validator.py` - Audio validation methods added
+- `video_tab.py` - Backward compatibility module
+- `zve5.py` - VOB file support added
+
+## Issues Found
+
+### CRITICAL (OLD Code - Legacy)
+| File | Line | Issue |
+|------|------|-------|
+| main.py | 145 | Duplicate docstring causing SyntaxError (OLD tkinter code) |
+
+### WARNINGS (NEW PySide6 Code)
+| File | Line | Issue |
+|------|------|-------|
+| PySide6/video_preview.py | 18 | Use relative import for audio_player |
+
+### WARNINGS (OLD Legacy Code)
+| File | Line | Issue |
+|------|------|-------|
+| video_validator.py | 287 | Import datetime at module level |
+| video_validator.py | 236 | Import json at module level |
+
+## Recommendation
+The critical syntax error is in the OLD legacy tkinter code (`main.py`), not the new PySide6 code. The new PySide6 application in the `PySide6/` folder should work correctly. The legacy code issue can be ignored if only the PySide6 version is being used.
+
+## Status
+Review completed. User will fix issues manually.

@@ -1,3 +1,4 @@
+import os
 import subprocess
 import re
 
@@ -118,3 +119,206 @@ class VideoValidator:
             self.log(f"Video analysis failed: {e}")
         
         return {}
+
+    def check_audio_dts_detailed(self, video_path, scan_mode='fast'):
+        """Detailed DTS analysis for audio streams"""
+        cmd = [self.ffmpeg_path, "-v", "error", "-i", video_path, "-f", "null", "-"]
+        
+        try:
+            timeout_val = 60 if scan_mode == 'thorough' else 30
+            result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True, timeout=timeout_val)
+            stderr = result.stderr
+            
+            dts_pattern = r"Non-monotonic DTS"
+            dts_matches = re.findall(dts_pattern, stderr)
+            
+            dts_count = len(dts_matches)
+            if dts_count == 0:
+                severity = 'none'
+            elif dts_count < 5:
+                severity = 'mild'
+            elif dts_count < 20:
+                severity = 'moderate'
+            else:
+                severity = 'severe'
+            
+            return {
+                'detected': dts_count > 0,
+                'count': dts_count,
+                'severity': severity,
+                'stderr_preview': stderr[:500] if stderr else ""
+            }
+        
+        except Exception as e:
+            error_msg = str(e)
+            error_type = 'dts_check_failed'
+            
+            if "TimeoutExpired" in error_msg or "timed out" in error_msg:
+                error_type = 'dts_check_timeout'
+            
+            return {
+                'detected': False,
+                'error': error_msg,
+                'error_type': error_type,
+                'severity': 'N/A',
+                'stderr_preview': ''
+            }
+
+    def check_audio_sync(self, video_path):
+        """Detect audio sync issues using ffprobe"""
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "a:0",
+            "-show_entries", "packet=pts_time,dts_time",
+            "-of", "csv=p=0",
+            video_path
+        ]
+        
+        try:
+            result = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, 
+                                 text=True, timeout=30)
+            
+            if result.returncode == 0 and result.stdout:
+                packets = result.stdout.strip().split('\n')[:100]
+                
+                offsets = []
+                for packet in packets:
+                    try:
+                        pts, dts = packet.split(',')
+                        offset = abs(float(pts) - float(dts))
+                        offsets.append(offset)
+                    except (ValueError, IndexError):
+                        continue
+                
+                if offsets:
+                    avg_offset = sum(offsets) / len(offsets)
+                    if avg_offset > 0.05:
+                        return {
+                            'detected': True,
+                            'offset_ms': int(avg_offset * 1000),
+                            'severity': 'moderate' if avg_offset < 0.2 else 'severe'
+                        }
+            
+            return {'detected': False}
+        
+        except Exception as e:
+            error_msg = str(e)
+            error_type = 'sync_check_failed'
+            
+            if "TimeoutExpired" in error_msg or "timed out" in error_msg:
+                error_type = 'sync_check_timeout'
+            
+            return {
+                'detected': False,
+                'error': error_msg,
+                'error_type': error_type,
+                'offset_ms': 0,
+                'severity': 'N/A'
+            }
+
+    def check_audio_codec_health(self, video_path):
+        """Check audio codec compatibility and health"""
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "a:0",
+            "-show_entries", "stream=codec_name,sample_rate,channels,bit_rate",
+            "-of", "json",
+            video_path
+        ]
+        
+        try:
+            result = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 text=True, timeout=15)
+            
+            if result.returncode == 0:
+                import json
+                data = json.loads(result.stdout)
+                streams = data.get('streams', [])
+                
+                if streams:
+                    stream = streams[0]
+                    codec = stream.get('codec_name', '')
+                    sample_rate = int(stream.get('sample_rate', 0))
+                    channels = stream.get('channels', 0)
+                    
+                    issues = []
+                    
+                    if codec.lower() in ['ac3', 'dts', 'eac3']:
+                        issues.append('Surround codec may need conversion')
+                    
+                    if sample_rate not in [44100, 48000]:
+                        issues.append(f'Non-standard sample rate: {sample_rate}Hz')
+                    
+                    if channels > 2:
+                        issues.append(f'Multi-channel audio: {channels}ch')
+                    
+                    return {
+                        'detected': len(issues) > 0,
+                        'codec': codec,
+                        'sample_rate': sample_rate,
+                        'channels': channels,
+                        'issues': issues
+                    }
+        
+        except Exception as e:
+            error_msg = str(e)
+            error_type = 'codec_check_failed'
+            
+            if "TimeoutExpired" in error_msg or "timed out" in error_msg:
+                error_type = 'codec_check_timeout'
+            
+            return {
+                'detected': False,
+                'error': error_msg,
+                'error_type': error_type,
+                'codec': 'unknown',
+                'sample_rate': 0,
+                'channels': 0,
+                'issues': [],
+                'severity': 'N/A'
+            }
+        
+        return {'detected': False}
+
+    def quick_audio_scan(self, video_path, scan_mode='fast'):
+        """Fast/thorough audio health check (all-in-one)"""
+        import datetime
+        
+        results = {
+            'filename': os.path.basename(video_path),
+            'file_path': video_path,
+            'has_issues': False,
+            'scan_mode': scan_mode,
+            'issues': {
+                'audio_dts': {},
+                'audio_sync': {},
+                'codec_health': {}
+            },
+            'can_fix': True,
+            'scan_time': datetime.datetime.now().isoformat()
+        }
+        
+        results['issues']['audio_dts'] = self.check_audio_dts_detailed(video_path, scan_mode)
+        results['issues']['audio_sync'] = self.check_audio_sync(video_path)
+        results['issues']['codec_health'] = self.check_audio_codec_health(video_path)
+        
+        for issue_type, issue_data in results['issues'].items():
+            if 'error' in issue_data:
+                results['has_issues'] = True
+                results['can_fix'] = False
+                
+                if 'errors' not in results:
+                    results['errors'] = []
+                
+                results['errors'].append({
+                    'type': issue_type,
+                    'error': issue_data.get('error', 'Unknown error'),
+                    'error_type': issue_data.get('error_type', 'unknown')
+                })
+            elif issue_data.get('detected', False):
+                results['has_issues'] = True
+                results['can_fix'] = results['can_fix'] and issue_data.get('detected', True)
+        
+        return results

@@ -16,6 +16,7 @@ from subtitles import SubtitlesPanel
 from filters import FiltersPanel
 from trim_panel import TrimPanel
 from video_preview import VideoPreview
+from nle import NLETab
 
 
 class VideoWorkspace(QWidget):
@@ -125,6 +126,10 @@ class VideoWorkspace(QWidget):
         self.preview.timeline_slider.cut_marker_clicked.connect(self.on_cut_marker_clicked)
         trim_layout.addStretch()
         self.tabs.addTab(self.trim_tab, "Trim/Cut")
+        
+        # NLE Tab (Non-Linear Editor)
+        self.nle_tab = NLETab(self.app_state)
+        self.tabs.addTab(self.nle_tab, "NLE Editor")
         
         right_splitter.addWidget(self.tabs)
         right_splitter.setSizes([500, 250])

@@ -4,6 +4,12 @@ import os
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+try:
+    from tkinterdnd2 import TkinterDnD
+    HAS_DND = True
+except ImportError:
+    HAS_DND = False
+
 from controller import VideoController
 from video_tab import ConfigTab, VideoTab
 from trim_controller import TrimController
@@ -129,8 +135,14 @@ class SharedState:
         return getattr(self, key, default)
 
 
-class VideoEncoderApp(tk.Tk):
-    """Main application orchestrator"""
+# Dynamically choose base class for drag and drop support
+if HAS_DND:
+    _BaseApp = TkinterDnD.Tk
+else:
+    _BaseApp = tk.Tk
+
+class VideoEncoderApp(_BaseApp):
+    """Main application orchestrator""""""Main application orchestrator"""
     
     def __init__(self):
         super().__init__()

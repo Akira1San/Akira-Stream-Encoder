@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QThread, QObject, QBuffer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QPen
 
+from audio_player import AudioPlayer
+
 
 def parse_srt_file(srt_path: str) -> list:
     """Parse SRT file and return list of subtitle entries"""
@@ -309,10 +311,17 @@ class VideoPreview(QWidget):
         self.current_frame: Optional[QImage] = None
         self.is_playing: bool = False
         self.playback_speed: float = 1.0  # 1.0 = normal speed
+        self._playback_time: float = 0.0  # Current playback position in seconds
         
         # Frame loader thread
         self._loader_thread: Optional[QThread] = None
         self._frame_loader: Optional[FrameLoader] = None
+        
+        # Audio player
+        self._audio_player = AudioPlayer(self)
+        self._audio_player.error_occurred.connect(self._on_audio_error)
+        self._audio_volume: float = 0.8  # Default volume 80%
+        self._audio_position_sync_enabled: bool = True  # Flag to prevent feedback loops
         
         self.setup_ui()
         
@@ -406,6 +415,24 @@ class VideoPreview(QWidget):
         self.size_combo.setMaximumWidth(80)
         playback_layout.addWidget(self.size_combo)
         
+        playback_layout.addSpacing(15)
+        
+        # Volume control
+        playback_layout.addWidget(QLabel("Vol:"))
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(int(self._audio_volume * 100))
+        self.volume_slider.setMaximumWidth(80)
+        self.volume_slider.setToolTip("Audio volume")
+        self.volume_slider.valueChanged.connect(self.on_volume_changed)
+        playback_layout.addWidget(self.volume_slider)
+        
+        self.mute_btn = QPushButton("🔊")
+        self.mute_btn.setMaximumWidth(40)
+        self.mute_btn.setToolTip("Mute/Unmute audio")
+        self.mute_btn.clicked.connect(self.on_mute_clicked)
+        playback_layout.addWidget(self.mute_btn)
+        
         playback_layout.addStretch()
         layout.addLayout(playback_layout)
         
@@ -437,13 +464,25 @@ class VideoPreview(QWidget):
         
     def set_video(self, video_path: str):
         """Set the current video for preview"""
+        # Stop any current playback
+        if self.is_playing:
+            self.on_stop_clicked()
+        
         self.current_video_path = video_path
         
         # Get video duration
         self.load_video_metadata(video_path)
         
+        # Load audio for playback
+        self._audio_player.load_file(video_path)
+        self._audio_player.set_volume(self._audio_volume)
+        
         # Load initial frame
         self.seek_preview(0)
+        
+    def _on_audio_error(self, error_msg: str):
+        """Handle audio player errors"""
+        self.app_state.log(error_msg, "WARN")
         
     def load_video_metadata(self, video_path: str):
         """Load video metadata using ffprobe"""
@@ -526,11 +565,18 @@ class VideoPreview(QWidget):
             self.app_state.log(f"Invalid time format: {text}. Use MM:SS or seconds", "WARN")
             
     def on_timeline_released(self):
-        """Handle timeline slider release - load frame"""
+        """Handle timeline slider release - load frame and sync audio"""
         if self.current_video_path and self.duration > 0:
             value = self.timeline_slider.value()
             timestamp = (value / 1000.0) * self.duration
             self.seek_preview(timestamp)
+            
+            # Sync playback time (for when playing)
+            self._playback_time = timestamp
+            
+            # Sync audio position
+            if self._audio_player.is_ready():
+                self._audio_player.seek(timestamp)
             
     def get_current_timestamp(self):
         """Get the current timeline position in seconds"""
@@ -806,6 +852,10 @@ class VideoPreview(QWidget):
         if not self.current_video_path or self.duration <= 0:
             return
         
+        # Initialize playback time from current slider position
+        value = self.timeline_slider.value()
+        self._playback_time = (value / 1000.0) * self.duration
+        
         self.is_playing = True
         self.play_btn.setEnabled(False)
         self.pause_btn.setEnabled(True)
@@ -818,6 +868,11 @@ class VideoPreview(QWidget):
         
         # Start playback timer
         self.playback_timer = self.startTimer(interval)
+        
+        # Start audio playback
+        if self._audio_player.is_ready():
+            self._audio_player.play()
+        
         self.app_state.log(f"Playback started at {self.playback_speed}x speed", "INFO")
         
     def on_speed_changed(self, speed_text):
@@ -859,6 +914,10 @@ class VideoPreview(QWidget):
         self.is_playing = False
         if hasattr(self, 'playback_timer'):
             self.killTimer(self.playback_timer)
+        
+        # Pause audio
+        self._audio_player.pause()
+        
         self.play_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
         self.app_state.log("Playback paused", "INFO")
@@ -869,7 +928,11 @@ class VideoPreview(QWidget):
         if hasattr(self, 'playback_timer'):
             self.killTimer(self.playback_timer)
         
+        # Stop audio and reset position
+        self._audio_player.stop()
+        
         # Reset to beginning
+        self._playback_time = 0.0
         self.timeline_slider.setValue(0)
         self.seek_preview(0)
         
@@ -882,18 +945,42 @@ class VideoPreview(QWidget):
         if not self.is_playing or self.duration <= 0:
             return
             
-        # Advance timeline based on playback speed
-        current_value = self.timeline_slider.value()
-        # Advance by speed factor (1.0 = 1 step, 2.0 = 2 steps, etc.)
-        new_value = current_value + max(1, int(self.playback_speed))
+        # Calculate time advancement per tick (1/30 second for 30fps base)
+        # The timer interval already accounts for playback_speed
+        time_per_tick = 1.0 / 30.0  # seconds of video per tick
         
-        if new_value > 1000:
-            # Reached end
+        # Advance playback time
+        self._playback_time += time_per_tick
+        
+        # Check if reached end
+        if self._playback_time >= self.duration:
             self.on_stop_clicked()
             return
             
-        self.timeline_slider.setValue(new_value)
+        # Update slider position (slider range is 0-1000)
+        slider_value = int((self._playback_time / self.duration) * 1000)
+        self.timeline_slider.setValue(slider_value)
         
         # Load frame at new position
-        timestamp = (new_value / 1000.0) * self.duration
-        self.seek_preview(timestamp)
+        self.seek_preview(self._playback_time)
+        
+    def on_volume_changed(self, value: int):
+        """Handle volume slider change"""
+        self._audio_volume = value / 100.0
+        self._audio_player.set_volume(self._audio_volume)
+        
+        # Update mute button icon
+        if value == 0:
+            self.mute_btn.setText("🔇")
+        else:
+            self.mute_btn.setText("🔊")
+            
+    def on_mute_clicked(self):
+        """Handle mute button click"""
+        is_muted = self._audio_player.is_muted()
+        self._audio_player.set_muted(not is_muted)
+        
+        if not is_muted:
+            self.mute_btn.setText("🔇")
+        else:
+            self.mute_btn.setText("🔊")

@@ -185,7 +185,7 @@ class ConfigTab(ttk.Frame):
     def browse_input(self):
         filenames = filedialog.askopenfilenames(
             title="Select Video",
-            filetypes=[("Video", "*.mp4 *.mkv *.avi *.mov"), ("All", "*.*")],
+            filetypes=[("Video", "*.mp4 *.mkv *.avi *.mov *.vob"), ("All", "*.*")],
         )
         if filenames:
             for f in filenames:
