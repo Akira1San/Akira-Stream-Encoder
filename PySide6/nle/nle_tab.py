@@ -266,15 +266,13 @@ class NLETab(QWidget):
         
         layout.addWidget(header)
         
-        # Timeline placeholder (will be replaced with actual timeline widget)
-        self.timeline_placeholder = PlaceholderPanel(
-            "Timeline\n\n"
-            "Add tracks to start editing\n"
-            "Use toolbar buttons above",
-            "#252525"
-        )
-        self.timeline_placeholder.setMinimumHeight(150)
-        layout.addWidget(self.timeline_placeholder)
+        # Timeline widget (actual NLE timeline)
+        from nle.nle_timeline import NLETimeline
+        self.timeline = NLETimeline()
+        self.timeline.playhead_moved.connect(self._on_playhead_moved)
+        self.timeline.zoom_changed.connect(self._on_zoom_changed)
+        self.timeline.setMinimumHeight(150)
+        layout.addWidget(self.timeline)
         
         return timeline_widget
     
@@ -360,29 +358,34 @@ class NLETab(QWidget):
     
     def on_zoom_in(self):
         """Zoom in timeline"""
-        self.app_state.log("Zoom in (not yet implemented)", "INFO")
+        self.timeline.zoom_in()
     
     def on_zoom_out(self):
         """Zoom out timeline"""
-        self.app_state.log("Zoom out (not yet implemented)", "INFO")
+        self.timeline.zoom_out()
+    
+    def _on_playhead_moved(self, position: float):
+        """Handle playhead position change"""
+        self._update_time_display(position)
+    
+    def _on_zoom_changed(self, pixels_per_second: float):
+        """Handle zoom change"""
+        percentage = int((pixels_per_second / 20.0) * 100)
+        self.zoom_label.setText(f"{percentage}%")
+    
+    def _update_time_display(self, current_time: float = 0.0):
+        """Update the time display label"""
+        current_str = self._format_time(current_time)
+        duration_str = self._format_time(self.project.duration)
+        self.time_label.setText(f"{current_str} / {duration_str}")
     
     def on_project_changed(self):
         """Handle project changes"""
-        # Update time display
-        duration_str = self._format_time(self.project.duration)
-        self.time_label.setText(f"00:00:00 / {duration_str}")
+        # Update timeline with project
+        self.timeline.set_project(self.project)
         
-        # Update timeline placeholder text based on tracks
-        track_count = len(self.project.tracks)
-        if track_count > 0:
-            video_count = len(self.project.get_video_tracks())
-            audio_count = len(self.project.get_audio_tracks())
-            self.timeline_placeholder.label.setText(
-                f"Timeline\n\n"
-                f"{video_count} video track(s)\n"
-                f"{audio_count} audio track(s)\n\n"
-                f"Drag clips from Source Bin"
-            )
+        # Update time display
+        self._update_time_display()
     
     def _format_time(self, seconds: float) -> str:
         """Format seconds as HH:MM:SS"""

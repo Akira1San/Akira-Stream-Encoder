@@ -69,16 +69,16 @@ Create timeline widget with:
 
 ---
 
-## Phase 2: Track & Clip Management
+## Phase 2: Track & Clip Management ✅ DONE
 
-### Task 2.1: Create Track Widget
+### Task 2.1: Create Track Widget ✅
 **File:** `PySide6/nle/nle_track.py`
 
 Create track row widget:
-- [ ] Track header (name, mute button, lock button)
-- [ ] Clip container area (QWidget for clips)
-- [ ] Visual track background
-- [ ] Signal: clip_clicked(clip_id), clip_moved(clip_id, new_start)
+- [x] Track header (name, mute button, lock button)
+- [x] Clip container area (QWidget for clips)
+- [x] Visual track background
+- [x] Signal: clip_clicked(clip_id), clip_moved(clip_id, new_start)
 
 **Acceptance:**
 - Track displays with header
@@ -86,16 +86,16 @@ Create track row widget:
 
 ---
 
-### Task 2.2: Create Clip Widget
+### Task 2.2: Create Clip Widget ✅
 **File:** `PySide6/nle/nle_clip.py`
 
 Create clip block widget:
-- [ ] Colored rectangle with rounded corners
-- [ ] Display: source filename + time range
-- [ ] Resize handles on left/right edges
-- [ ] Drag handle for moving
-- [ ] Selected state visual (border highlight)
-- [ ] Signals: clicked, moved, trimmed
+- [x] Colored rectangle with rounded corners
+- [x] Display: source filename + time range
+- [x] Resize handles on left/right edges
+- [x] Drag handle for moving
+- [x] Selected state visual (border highlight)
+- [x] Signals: clicked, moved, trimmed
 
 **Acceptance:**
 - Clip displays with source info
@@ -104,14 +104,14 @@ Create clip block widget:
 
 ---
 
-### Task 2.3: Implement Track Management
+### Task 2.3: Implement Track Management ✅
 **File:** `PySide6/nle/nle_tab.py`
 
 Add track management:
-- [ ] "Add Video Track" button
-- [ ] "Add Audio Track" button  
-- [ ] Track appears in timeline
-- [ ] Tracks stored in NLEProject model
+- [x] "Add Video Track" button
+- [x] "Add Audio Track" button  
+- [x] Track appears in timeline
+- [x] Tracks stored in NLEProject model
 
 **Acceptance:**
 - Can add unlimited video tracks
@@ -120,14 +120,14 @@ Add track management:
 
 ---
 
-### Task 2.4: Implement Basic Clip Adding
+### Task 2.4: Implement Basic Clip Adding ✅
 **File:** `PySide6/nle/nle_tab.py`, `PySide6/nle/nle_timeline.py`
 
 Add clip programmatically:
-- [ ] Method to add clip to track
-- [ ] Clip widget created and positioned
-- [ ] Clip position calculated from timeline_start
-- [ ] Clip width calculated from duration
+- [x] Method to add clip to track
+- [x] Clip widget created and positioned
+- [x] Clip position calculated from timeline_start
+- [x] Clip width calculated from duration
 
 **Acceptance:**
 - Calling add_clip() shows clip on timeline

@@ -16,6 +16,8 @@ from nle.nle_models import (
 
 from nle.nle_tab import NLETab
 from nle.nle_timeline import NLETimeline
+from nle.nle_track import NLETrackWidget, TrackHeader, ClipContainer
+from nle.nle_clip import NLEClipWidget
 
 __all__ = [
     # Models
@@ -28,4 +30,8 @@ __all__ = [
     # Widgets
     'NLETab',
     'NLETimeline',
+    'NLETrackWidget',
+    'TrackHeader',
+    'ClipContainer',
+    'NLEClipWidget',
 ]
