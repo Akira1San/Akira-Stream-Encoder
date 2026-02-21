@@ -6,16 +6,16 @@ clip management, effects, and rendering to single output file.
 
 ---
 
-## Phase 1: Core Infrastructure
+## Phase 1: Core Infrastructure ✅ DONE
 
-### Task 1.1: Create NLE Data Models
+### Task 1.1: Create NLE Data Models ✅
 **File:** `PySide6/nle/nle_models.py`
 
 Create dataclasses for:
-- [ ] `NLEClip` - source_path, source_start, source_end, timeline_start, track_id, effects
-- [ ] `NLETrack` - id, name, type (video/audio), clips list, effects, muted, locked
-- [ ] `Effect` - id, type, params dict
-- [ ] `NLEProject` - tracks list, duration, fps, resolution, methods for add/remove/move clips
+- [x] `NLEClip` - source_path, source_start, source_end, timeline_start, track_id, effects
+- [x] `NLETrack` - id, name, type (video/audio), clips list, effects, muted, locked
+- [x] `Effect` - id, type, params dict
+- [x] `NLEProject` - tracks list, duration, fps, resolution, methods for add/remove/move clips
 
 **Acceptance:** 
 - All dataclasses defined with type hints
@@ -23,14 +23,14 @@ Create dataclasses for:
 
 ---
 
-### Task 1.2: Create NLE Tab Skeleton
+### Task 1.2: Create NLE Tab Skeleton ✅
 **File:** `PySide6/nle/nle_tab.py`
 
 Create empty NLE tab with layout structure:
-- [ ] QHBoxLayout for toolbar
-- [ ] QSplitter for: Source Bin | Preview | Properties
-- [ ] QSplitter for: Above | Timeline
-- [ ] Add placeholder widgets for each section
+- [x] QHBoxLayout for toolbar
+- [x] QSplitter for: Source Bin | Preview | Properties
+- [x] QSplitter for: Above | Timeline
+- [x] Add placeholder widgets for each section
 
 **Acceptance:**
 - Tab visible in VideoWorkspace
@@ -38,15 +38,15 @@ Create empty NLE tab with layout structure:
 
 ---
 
-### Task 1.3: Create Basic Timeline Widget
+### Task 1.3: Create Basic Timeline Widget ✅
 **File:** `PySide6/nle/nle_timeline.py`
 
 Create timeline widget with:
-- [ ] Time ruler (horizontal scale showing 00:00, 00:30, 01:00, etc.)
-- [ ] Playhead (vertical draggable line)
-- [ ] Zoom controls (+/- buttons)
-- [ ] Track container (vertical layout for tracks)
-- [ ] Signals: playhead_moved(float), zoom_changed(float)
+- [x] Time ruler (horizontal scale showing 00:00, 00:30, 01:00, etc.)
+- [x] Playhead (vertical draggable line)
+- [x] Zoom controls (+/- buttons)
+- [x] Track container (vertical layout for tracks)
+- [x] Signals: playhead_moved(float), zoom_changed(float)
 
 **Acceptance:**
 - Timeline shows time ruler
@@ -55,13 +55,13 @@ Create timeline widget with:
 
 ---
 
-### Task 1.4: Integrate NLE Tab into VideoWorkspace
+### Task 1.4: Integrate NLE Tab into VideoWorkspace ✅
 **File:** `PySide6/nle/__init__.py`, `PySide6/video_workspace.py`
 
-- [ ] Create `PySide6/nle/` directory structure
-- [ ] Create `__init__.py` with exports
-- [ ] Add NLE tab to VideoWorkspace tabs
-- [ ] Pass app_state to NLE tab
+- [x] Create `PySide6/nle/` directory structure
+- [x] Create `__init__.py` with exports
+- [x] Add NLE tab to VideoWorkspace tabs
+- [x] Pass app_state to NLE tab
 
 **Acceptance:**
 - NLE tab appears next to Trim/Cut tab
