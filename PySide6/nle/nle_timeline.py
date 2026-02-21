@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QScrollArea, QSizePolicy, QStylePainter
 )
-from PySide6.QtCore import Qt, Signal, QTimer, QRect, QRectF, QPointF
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QPainterPath
+from PySide6.QtCore import Qt, Signal, QTimer, QRect, QRectF, QPointF, QMimeData
+from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QPainterPath, QDragEnterEvent, QDropEvent
 
 from nle.nle_models import NLEProject, TrackType
 from nle.nle_track import NLETrackWidget
@@ -297,6 +297,7 @@ class NLETimeline(QWidget):
     # Signals
     playhead_moved = Signal(float)  # Position in seconds
     zoom_changed = Signal(float)  # Pixels per second
+    source_dropped = Signal(str, float)  # source_path, timeline_position
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -304,6 +305,9 @@ class NLETimeline(QWidget):
         self._project = None
         self._pixels_per_second = 20.0  # Zoom level
         self._scroll_offset = 0.0
+        
+        # Enable drop for drag-and-drop from source bin
+        self.setAcceptDrops(True)
         
         self._setup_ui()
     
@@ -476,3 +480,44 @@ class NLETimeline(QWidget):
                 if clip.id == clip_id:
                     clip.selected = True
                     break
+    
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle drag enter - accept if it's a source file"""
+        if event.mimeData().hasData("application/x-nle-source"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def dragMoveEvent(self, event):
+        """Handle drag move - show drop position"""
+        if event.mimeData().hasData("application/x-nle-source"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def dropEvent(self, event: QDropEvent):
+        """Handle drop - create clip from source"""
+        mime_data = event.mimeData()
+        if not mime_data.hasData("application/x-nle-source"):
+            event.ignore()
+            return
+            
+        # Get source path
+        source_path = bytes(mime_data.data("application/x-nle-source")).decode('utf-8')
+        
+        # Calculate timeline position from drop position
+        drop_x = event.position().x() if hasattr(event, 'position') else event.pos().x()
+        
+        # Account for track header width (150px)
+        header_width = 150
+        timeline_x = drop_x - header_width
+        
+        # Convert to time
+        timeline_position = max(0, timeline_x / self._pixels_per_second)
+        
+        # Snap to 0.1 second
+        timeline_position = round(timeline_position * 10) / 10
+        
+        # Emit signal to create clip
+        self.source_dropped.emit(source_path, timeline_position)
+        event.acceptProposedAction()

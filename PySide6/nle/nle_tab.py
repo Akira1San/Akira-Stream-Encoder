@@ -264,6 +264,7 @@ class NLETab(QWidget):
         self.timeline = NLETimeline()
         self.timeline.playhead_moved.connect(self._on_playhead_moved)
         self.timeline.zoom_changed.connect(self._on_zoom_changed)
+        self.timeline.source_dropped.connect(self._on_create_clip_from_source)
         self.timeline.setMinimumHeight(150)
         layout.addWidget(self.timeline)
         

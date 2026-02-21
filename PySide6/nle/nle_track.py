@@ -150,6 +150,7 @@ class ClipContainer(QWidget):
         widget.trimmed.connect(self._on_clip_trimmed)
         
         self._clips_widgets[clip.id] = widget
+        widget.show()  # Make sure widget is visible
         self._update_clip_positions()
         
     def remove_clip_widget(self, clip_id: str):

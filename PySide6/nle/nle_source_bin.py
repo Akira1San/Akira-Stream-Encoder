@@ -273,6 +273,13 @@ class SourceBinPanel(QWidget):
         
         layout.addLayout(btn_layout)
         
+        # Add to Timeline button
+        self.add_to_timeline_btn = QPushButton("➕ Add to Timeline")
+        self.add_to_timeline_btn.setToolTip("Add selected source to timeline at playhead position")
+        self.add_to_timeline_btn.clicked.connect(self._on_add_to_timeline)
+        self.add_to_timeline_btn.setEnabled(False)
+        layout.addWidget(self.add_to_timeline_btn)
+        
         # Progress bar (hidden by default)
         self.progress = QProgressBar()
         self.progress.setVisible(False)
@@ -384,12 +391,22 @@ class SourceBinPanel(QWidget):
             
     def _on_selection_changed(self):
         """Handle selection change"""
-        self.remove_btn.setEnabled(self.source_list.currentItem() is not None)
+        has_selection = self.source_list.currentItem() is not None
+        self.remove_btn.setEnabled(has_selection)
+        self.add_to_timeline_btn.setEnabled(has_selection)
         
     def _on_item_double_clicked(self, item: QListWidgetItem):
         """Handle double-click on item"""
         if isinstance(item, SourceBinItem):
             self.preview_requested.emit(item.metadata.path)
+    
+    def _on_add_to_timeline(self):
+        """Handle add to timeline button - emit signal with position 0"""
+        item = self.source_list.currentItem()
+        if isinstance(item, SourceBinItem):
+            # Add at position 0 (beginning of timeline)
+            # The parent tab can override this to use playhead position
+            self.clip_create_requested.emit(item.metadata.path, 0.0)
             
     def _start_drag(self, supportedActions):
         """Start drag operation"""
