@@ -752,15 +752,10 @@ class VideoPreview(QWidget):
         
         x = (img_width - max_width) // 2  # Center horizontally
         
-        # Scale offset for preview (preview might be smaller than actual video)
-        # Use a reasonable scaling factor
-        scale_factor = img_height / 480.0  # Assume 480p as reference
-        scaled_offset = int(subs.vertical_offset * scale_factor)
-        
         if subs.position == "bottom":
-            y = img_height - 20 - total_height + scaled_offset
+            y = img_height - 20 - total_height + subs.vertical_offset
         elif subs.position == "top":
-            y = 20 + metrics.height() - scaled_offset  # Negative offset moves down
+            y = 20 + metrics.height() - subs.vertical_offset
         else:  # center
             y = (img_height - total_height) // 2
         

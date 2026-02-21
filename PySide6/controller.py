@@ -223,27 +223,32 @@ class VideoController:
             duration_min = self.app_state.split.extract_duration_min
             start_time = f"{start_min}:00"
             duration = f"{duration_min}:00"
-            cmd.extend(["-ss", start_time])
-            cmd.extend(["-i", input_path])
-            cmd.extend(["-t", duration])
             
-            # Burn subtitles for clip extraction if enabled
-            if self.app_state.subtitles.burn_subs:
-                sub_path = self.find_subtitle_file(input_path)
-                if sub_path:
-                    subs_filter = self.build_subtitle_filter(sub_path)
-                    if subs_filter:
-                        cmd.extend(["-vf", subs_filter])
-                        self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
-                else:
+            burn_subs = self.app_state.subtitles.burn_subs
+            sub_path = self.find_subtitle_file(input_path) if burn_subs else None
+            
+            if burn_subs and sub_path:
+                cmd.extend(["-i", input_path])
+                cmd.extend(["-ss", start_time])
+                cmd.extend(["-t", duration])
+                
+                subs_filter = self.build_subtitle_filter(sub_path)
+                if subs_filter:
+                    vf_chain = f"{subs_filter},setpts=PTS-STARTPTS"
+                    cmd.extend(["-vf", vf_chain])
+                    cmd.extend(["-af", "asetpts=PTS-STARTPTS"])
+                    self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
+            else:
+                cmd.extend(["-ss", start_time])
+                cmd.extend(["-i", input_path])
+                cmd.extend(["-t", duration])
+                if burn_subs:
                     self.app_state.log("No external subtitle file found (.srt, .ass, .ssa, .sub)", "WARN")
             
-            # Audio codec for clip extraction - use copy or encode based on settings
             if self.app_state.tracks.audio_copy_mode:
                 cmd.extend(["-c:a", "copy"])
                 self.app_state.log("Audio: Copy original stream", "INFO")
             else:
-                # Re-encode to AAC with 2 channels (stereo)
                 cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
                 self.app_state.log("Audio: Re-encode to AAC stereo", "INFO")
             cmd.extend(["-y", output_path])
@@ -517,8 +522,14 @@ class VideoController:
             style.append(f"Alignment={pos_map.get(subs.position, 2)}")
         
         # Vertical offset (for letterboxed videos - move subtitles into black bars)
+        # For bottom alignment: MarginV is distance FROM bottom, so higher value = higher subtitle
+        # To move DOWN, we decrease the margin (base 20px from preview logic)
         if subs.vertical_offset > 0:
-            style.append(f"MarginV={subs.vertical_offset}")
+            if subs.position == "bottom":
+                margin_v = max(0, 20 - subs.vertical_offset)
+                style.append(f"MarginV={margin_v}")
+            else:
+                style.append(f"MarginV={subs.vertical_offset}")
         
         # Build the filter string
         force_style = f":force_style='{','.join(style)}'" if style else ""
