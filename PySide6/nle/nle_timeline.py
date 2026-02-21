@@ -483,14 +483,14 @@ class NLETimeline(QWidget):
     
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Handle drag enter - accept if it's a source file"""
-        if event.mimeData().hasData("application/x-nle-source"):
+        if event.mimeData().hasFormat("application/x-nle-source"):
             event.acceptProposedAction()
         else:
             event.ignore()
     
     def dragMoveEvent(self, event):
         """Handle drag move - show drop position"""
-        if event.mimeData().hasData("application/x-nle-source"):
+        if event.mimeData().hasFormat("application/x-nle-source"):
             event.acceptProposedAction()
         else:
             event.ignore()
@@ -498,7 +498,7 @@ class NLETimeline(QWidget):
     def dropEvent(self, event: QDropEvent):
         """Handle drop - create clip from source"""
         mime_data = event.mimeData()
-        if not mime_data.hasData("application/x-nle-source"):
+        if not mime_data.hasFormat("application/x-nle-source"):
             event.ignore()
             return
             
