@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, Signal, QTimer, QRect, QRectF, QPointF
 from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QPainterPath
 
 from nle.nle_models import NLEProject, TrackType
+from nle.nle_track import NLETrackWidget
 
 
 class TimeRuler(QWidget):
@@ -286,112 +287,6 @@ class TrackContainer(QWidget):
             self.remove_track_widget(track)
 
 
-class TrackRowWidget(QFrame):
-    """
-    Widget representing a single track row.
-    
-    Contains track header (name, controls) and clip area.
-    """
-    
-    def __init__(self, track, parent=None):
-        super().__init__(parent)
-        self.track = track
-        
-        self.setFrameStyle(QFrame.StyledPanel)
-        self.setMinimumHeight(60)
-        self.setMaximumHeight(80)
-        
-        self._setup_ui()
-    
-    def _setup_ui(self):
-        """Setup track row UI"""
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        
-        # Track header
-        header = QFrame()
-        header.setFixedWidth(150)
-        header.setStyleSheet("""
-            QFrame {
-                background-color: #2d2d2d;
-                border-right: 1px solid #3d3d3d;
-            }
-        """)
-        
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(5, 5, 5, 5)
-        
-        # Track name
-        name_label = QLabel(self.track.name)
-        name_label.setStyleSheet("color: white; font-weight: bold; font-size: 11px;")
-        header_layout.addWidget(name_label)
-        
-        # Track type indicator
-        type_color = "#4CAF50" if self.track.track_type == TrackType.VIDEO else "#2196F3"
-        type_label = QLabel("Video" if self.track.track_type == TrackType.VIDEO else "Audio")
-        type_label.setStyleSheet(f"color: {type_color}; font-size: 10px;")
-        header_layout.addWidget(type_label)
-        
-        # Mute/Lock buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(2)
-        
-        self.mute_btn = QPushButton("M")
-        self.mute_btn.setFixedSize(24, 20)
-        self.mute_btn.setCheckable(True)
-        self.mute_btn.setChecked(self.track.muted)
-        self.mute_btn.setToolTip("Mute track")
-        self.mute_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3a3a3a;
-                color: #888;
-                border: none;
-                border-radius: 2px;
-                font-size: 9px;
-            }
-            QPushButton:checked {
-                background-color: #f44336;
-                color: white;
-            }
-        """)
-        btn_layout.addWidget(self.mute_btn)
-        
-        self.lock_btn = QPushButton("L")
-        self.lock_btn.setFixedSize(24, 20)
-        self.lock_btn.setCheckable(True)
-        self.lock_btn.setChecked(self.track.locked)
-        self.lock_btn.setToolTip("Lock track")
-        self.lock_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3a3a3a;
-                color: #888;
-                border: none;
-                border-radius: 2px;
-                font-size: 9px;
-            }
-            QPushButton:checked {
-                background-color: #ff9800;
-                color: white;
-            }
-        """)
-        btn_layout.addWidget(self.lock_btn)
-        
-        header_layout.addLayout(btn_layout)
-        layout.addWidget(header)
-        
-        # Clip area
-        self.clip_area = QFrame()
-        self.clip_area.setStyleSheet("""
-            QFrame {
-                background-color: #252525;
-                border: none;
-            }
-        """)
-        self.clip_area.setMinimumHeight(50)
-        layout.addWidget(self.clip_area, 1)
-
-
 class NLETimeline(QWidget):
     """
     Main NLE Timeline widget.
@@ -468,8 +363,19 @@ class NLETimeline(QWidget):
         
         if self._project:
             for track in self._project.tracks:
-                track_widget = TrackRowWidget(track)
+                # Use NLETrackWidget instead of TrackRowWidget
+                track_widget = NLETrackWidget(track, self)
+                track_widget.clip_clicked.connect(self._on_clip_clicked)
+                track_widget.set_zoom(self._pixels_per_second)
                 self.track_container.add_track_widget(track_widget)
+                
+                # Add clip widgets for existing clips
+                for clip in track.clips:
+                    track_widget.add_clip(clip)
+                    
+    def _on_clip_clicked(self, clip_id: str):
+        """Handle clip click - select the clip"""
+        self.select_clip(clip_id)
     
     def _update_duration(self):
         """Update duration from project"""
@@ -493,7 +399,10 @@ class NLETimeline(QWidget):
         """Handle zoom change"""
         self.time_ruler.set_zoom(pixels_per_second)
         self.playhead.set_zoom(pixels_per_second)
-        # TODO: Update track clip positions
+        
+        # Update track clip positions
+        for track_widget in self.track_container.tracks:
+            track_widget.set_zoom(pixels_per_second)
     
     def _on_playhead_moved(self, position: float):
         """Handle playhead position change"""
