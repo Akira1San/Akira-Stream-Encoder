@@ -185,16 +185,16 @@ Implement drag & drop:
 
 ---
 
-## Phase 4: Timeline Interactions
+## Phase 4: Timeline Interactions ✅ DONE
 
-### Task 4.1: Move Clips
+### Task 4.1: Move Clips ✅
 **File:** `PySide6/nle/nle_clip.py`, `PySide6/nle/nle_timeline.py`
 
 Implement clip dragging:
-- [ ] Clip can be dragged horizontally
-- [ ] Snap to other clip edges (with snap toggle)
-- [ ] Update model on drag end
-- [ ] Prevent clips from overlapping on same track
+- [x] Clip can be dragged horizontally
+- [x] Snap to other clip edges (with snap toggle)
+- [x] Update model on drag end
+- [x] Prevent clips from overlapping on same track
 
 **Acceptance:**
 - Clip moves smoothly during drag
@@ -203,14 +203,14 @@ Implement clip dragging:
 
 ---
 
-### Task 4.2: Trim Clips
+### Task 4.2: Trim Clips ✅
 **File:** `PySide6/nle/nle_clip.py`
 
 Implement edge trimming:
-- [ ] Left edge drag = adjust source_start
-- [ ] Right edge drag = adjust source_end
-- [ ] Minimum clip duration (0.1s)
-- [ ] Update model on trim end
+- [x] Left edge drag = adjust source_start
+- [x] Right edge drag = adjust source_end
+- [x] Minimum clip duration (0.1s)
+- [x] Update model on trim end
 
 **Acceptance:**
 - Dragging edges changes clip duration
@@ -218,14 +218,14 @@ Implement edge trimming:
 
 ---
 
-### Task 4.3: Split Clip at Playhead
+### Task 4.3: Split Clip at Playhead ✅
 **File:** `PySide6/nle/nle_timeline.py`
 
 Implement clip splitting:
-- [ ] "Split at Playhead" button
-- [ ] Find clip under playhead
-- [ ] Create two clips from split point
-- [ ] Maintain source in/out points correctly
+- [x] "Split at Playhead" button
+- [x] Find clip under playhead
+- [x] Create two clips from split point
+- [x] Maintain source in/out points correctly
 
 **Acceptance:**
 - Split creates two clips
@@ -234,14 +234,14 @@ Implement clip splitting:
 
 ---
 
-### Task 4.4: Delete Clips
+### Task 4.4: Delete Clips ✅
 **File:** `PySide6/nle/nle_timeline.py`
 
 Implement clip deletion:
-- [ ] Delete key or context menu
-- [ ] Remove clip from model
-- [ ] Remove clip widget from UI
-- [ ] Optional: ripple delete (close gap)
+- [x] Delete key or context menu
+- [x] Remove clip from model
+- [x] Remove clip widget from UI
+- [x] Optional: ripple delete (close gap)
 
 **Acceptance:**
 - Selected clip deleted
@@ -249,14 +249,14 @@ Implement clip deletion:
 
 ---
 
-### Task 4.5: Context Menu
+### Task 4.5: Context Menu ✅
 **File:** `PySide6/nle/nle_clip.py`, `PySide6/nle/nle_timeline.py`
 
 Add right-click menu:
-- [ ] Delete
-- [ ] Split
-- [ ] Properties/Effects
-- [ ] Mute (for tracks)
+- [x] Delete
+- [x] Split
+- [x] Properties/Effects
+- [x] Mute (for tracks)
 
 **Acceptance:**
 - Right-click on clip shows menu

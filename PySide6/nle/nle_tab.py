@@ -276,6 +276,41 @@ class NLETab(QWidget):
         # Connect source bin signals
         self.source_bin.preview_requested.connect(self._on_preview_source)
         self.source_bin.clip_create_requested.connect(self._on_create_clip_from_source)
+        
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts"""
+        from PySide6.QtCore import Qt
+        
+        if event.key() == Qt.Key_Delete:
+            # Delete selected clips
+            self.timeline.delete_selected_clips()
+            self.project_changed.emit()
+            self.app_state.log("Deleted selected clips", "INFO")
+            
+        elif event.key() == Qt.Key_S and event.modifiers() == Qt.ControlModifier:
+            # Save project
+            self.on_save_project()
+            
+        elif event.key() == Qt.Key_Space:
+            # Toggle play/pause (future implementation)
+            self.app_state.log("Play/Pause not yet implemented", "INFO")
+            
+        elif event.key() == Qt.Key_S and event.modifiers() == Qt.NoModifier:
+            # Split at playhead
+            if self.timeline.split_clip_at_playhead():
+                self.project_changed.emit()
+                self.app_state.log("Split clip at playhead", "INFO")
+                
+        elif event.key() == Qt.Key_Plus or event.key() == Qt.Key_Equal:
+            # Zoom in
+            self.timeline.zoom_in()
+            
+        elif event.key() == Qt.Key_Minus:
+            # Zoom out
+            self.timeline.zoom_out()
+            
+        else:
+            super().keyPressEvent(event)
     
     # === Toolbar Actions ===
     
@@ -385,6 +420,14 @@ class NLETab(QWidget):
     def on_render(self):
         """Render the project"""
         self.app_state.log("Render not yet implemented", "WARN")
+        
+    def on_split_at_playhead(self):
+        """Split clip at playhead position"""
+        if self.timeline.split_clip_at_playhead():
+            self.project_changed.emit()
+            self.app_state.log("Split clip at playhead", "INFO")
+        else:
+            self.app_state.log("No clip under playhead to split", "WARN")
     
     def on_zoom_in(self):
         """Zoom in timeline"""

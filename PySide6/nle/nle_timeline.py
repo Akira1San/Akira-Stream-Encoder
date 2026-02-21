@@ -513,3 +513,57 @@ class NLETimeline(QWidget):
     def set_zoom_percentage(self, percentage: int):
         """Set zoom level as percentage"""
         self.set_zoom(20.0 * (percentage / 100.0))
+    
+    def get_playhead_position(self) -> float:
+        """Get current playhead position in seconds"""
+        return self.playhead._position
+    
+    def split_clip_at_playhead(self):
+        """Split the clip under the playhead"""
+        if not self._project:
+            return False
+            
+        playhead_pos = self.get_playhead_position()
+        
+        # Find clip under playhead
+        for track in self._project.tracks:
+            clip = track.get_clip_at_time(playhead_pos)
+            if clip:
+                result = self._project.split_clip(clip.id, playhead_pos)
+                if result:
+                    self._refresh_tracks()
+                    return True
+        return False
+    
+    def delete_selected_clips(self):
+        """Delete all selected clips"""
+        if not self._project:
+            return
+            
+        deleted = False
+        for track in self._project.tracks:
+            for clip in track.clips[:]:  # Copy list to avoid modification during iteration
+                if clip.selected:
+                    track.remove_clip(clip.id)
+                    deleted = True
+                    
+        if deleted:
+            self._refresh_tracks()
+            
+    def select_clip(self, clip_id: str, exclusive: bool = True):
+        """Select a clip by ID"""
+        if not self._project:
+            return
+            
+        if exclusive:
+            # Deselect all first
+            for track in self._project.tracks:
+                for clip in track.clips:
+                    clip.selected = False
+                    
+        # Select the target clip
+        for track in self._project.tracks:
+            for clip in track.clips:
+                if clip.id == clip_id:
+                    clip.selected = True
+                    break
