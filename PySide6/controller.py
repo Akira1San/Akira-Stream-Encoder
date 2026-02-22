@@ -22,10 +22,14 @@ class VideoController:
     def get_video_duration(self, input_path: str) -> float:
         """
         Detects video duration using ffprobe or ffmpeg.
+        Handles both regular video files and DVD concat files.
         """
         duration = 0.0
         ffprobe_path = self.app_state.ffprobe_path
         ffmpeg_path = self.app_state.ffmpeg_path
+        
+        # Check if this is a DVD concat file
+        is_dvd_concat = input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
         
         # Try to find ffprobe
         if ffmpeg_path != "ffmpeg" and os.path.exists(ffmpeg_path):
@@ -37,20 +41,21 @@ class VideoController:
         # Attempt 1: Use FFprobe
         if ffprobe_path:
             try:
-                cmd = [
-                    ffprobe_path,
-                    "-v", "error",
-                    "-select_streams", "v:0",
+                # Build command - add concat demuxer for DVD sources
+                cmd = [ffprobe_path, "-v", "error"]
+                if is_dvd_concat:
+                    cmd.extend(["-f", "concat", "-safe", "0"])
+                cmd.extend(["-i", input_path])
+                cmd.extend([
                     "-show_entries", "format=duration",
-                    "-of", "default=noprint_wrappers=1:nokey=1",
-                    input_path
-                ]
+                    "-of", "default=noprint_wrappers=1:nokey=1"
+                ])
                 result = subprocess.run(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, timeout=60
                 )
                 
-                if result.returncode == 0 and result.stdout.strip():
+                if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
                     duration = float(result.stdout.strip())
                     self.app_state.log(f"Duration detected via ffprobe: {duration} sec", "INFO")
                     return duration
@@ -58,10 +63,21 @@ class VideoController:
                 self.app_state.log(f"ffprobe timed out for {os.path.basename(input_path)}. Trying ffmpeg...", "WARN")
             except Exception as e:
                 self.app_state.log(f"ffprobe failed: {e}", "WARN")
+        
+        # Attempt 1.5: For DVD sources, use pre-calculated duration from title scan
+        if is_dvd_concat and self.app_state.dvd.available_titles:
+            for title in self.app_state.dvd.available_titles:
+                if title.title_number == self.app_state.dvd.selected_title_number:
+                    duration = title.duration
+                    self.app_state.log(f"Using pre-scanned DVD duration: {duration} sec", "INFO")
+                    return duration
                 
         # Attempt 2: Fallback to ffmpeg
         try:
-            cmd = [ffmpeg_path, "-i", input_path]
+            cmd = [ffmpeg_path]
+            if is_dvd_concat:
+                cmd.extend(["-f", "concat", "-safe", "0"])
+            cmd.extend(["-i", input_path])
             result = subprocess.run(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, timeout=60
@@ -204,6 +220,9 @@ class VideoController:
         
         cmd = [self.app_state.ffmpeg_path]
         
+        # Check if this is a DVD concat source
+        is_dvd_source = self.app_state.dvd.is_dvd_source and input_path.endswith('.txt')
+        
         # Check fast split mode
         if self.app_state.split.enabled:
             self.app_state.log("Using Fast Split (Stream Copy)", "INFO")
@@ -262,7 +281,22 @@ class VideoController:
             if self.app_state.encoding.use_gpu and "nvenc" in encoder:
                 cmd.extend(["-hwaccel", "cuda"])
             
+            # Handle DVD concat source
+            if is_dvd_source:
+                self.app_state.log("DVD Source: Using concat demuxer", "INFO")
+                # Add extended analysis for DVD subtitle detection
+                cmd.extend(["-analyzeduration", "100M", "-probesize", "100M"])
+                cmd.extend(["-f", "concat", "-safe", "0"])
+            
             cmd.extend(["-i", input_path])
+            
+            # DVD subtitle burning - map subtitle stream for overlay
+            # DVD subtitles (dvd_subtitle codec) need to be overlaid
+            if is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0:
+                sub_idx = self.app_state.dvd.selected_subtitle_index
+                # Map the subtitle stream for overlay filter
+                # Note: DVD subtitles are bitmap-based and need special handling
+                self.app_state.log(f"DVD: Mapping subtitle stream {sub_idx} for burning", "INFO")
             
             # Seek AFTER input for accurate frame-precise seeking (avoids green frames)
             if start_time:
@@ -358,8 +392,27 @@ class VideoController:
         
         # Filters (video and audio separated)
         video_filters, audio_filters = self.build_filter_complex(input_path)
-        if video_filters:
-            cmd.extend(["-vf", video_filters])
+        
+        # DVD subtitle overlay using filter_complex
+        # DVD subtitles (dvd_subtitle) are bitmap-based and need overlay filter
+        if is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0 and self.app_state.subtitles.burn_subs:
+            sub_idx = self.app_state.dvd.selected_subtitle_index
+            self.app_state.log(f"DVD: Using filter_complex to overlay subtitle stream {sub_idx}", "INFO")
+            
+            # Build filter_complex for subtitle overlay
+            # [0:v] is video stream, [0:s:X] is subtitle stream X
+            if video_filters:
+                # Apply video filters first, then overlay subtitle
+                filter_complex = f"[0:v]{video_filters}[v];[v][0:s:{sub_idx}]overlay"
+                cmd.extend(["-filter_complex", filter_complex])
+            else:
+                # Just overlay subtitle
+                filter_complex = f"[0:v][0:s:{sub_idx}]overlay"
+                cmd.extend(["-filter_complex", filter_complex])
+        else:
+            # Normal video filter handling
+            if video_filters:
+                cmd.extend(["-vf", video_filters])
         if audio_filters:
             cmd.extend(["-af", audio_filters])
             
@@ -429,16 +482,35 @@ class VideoController:
             if eq_params:
                 video_filters.append(f"eq={':'.join(eq_params)}")
         
-        # Subtitles burn-in - look for external subtitle files
+        # Subtitles burn-in - look for external subtitle files or DVD extracted subtitles
         if self.app_state.subtitles.burn_subs:
-            sub_path = self.find_subtitle_file(input_path)
-            if sub_path:
-                subs_filter = self.build_subtitle_filter(sub_path)
-                if subs_filter:
-                    video_filters.append(subs_filter)
-                    self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
+            # First check for DVD subtitle burning directly from stream
+            if self.app_state.dvd.is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0:
+                # DVD subtitles are burned directly from the stream using overlay filter
+                # The subtitle stream index is stored in selected_subtitle_index
+                sub_idx = self.app_state.dvd.selected_subtitle_index
+                self.app_state.log(f"DVD: Will burn subtitle stream {sub_idx} directly from VOB", "INFO")
+                # Note: DVD subtitle overlay is handled separately in build_ffmpeg_cmd via filter_complex
+            # Check for DVD extracted subtitle file
+            elif self.app_state.dvd.is_dvd_source and self.app_state.dvd.extracted_subtitle_path:
+                sub_path = self.app_state.dvd.extracted_subtitle_path
+                if os.path.exists(sub_path):
+                    subs_filter = self.build_subtitle_filter(sub_path)
+                    if subs_filter:
+                        video_filters.append(subs_filter)
+                        self.app_state.log(f"Burning DVD subtitles from: {os.path.basename(sub_path)}", "INFO")
+                else:
+                    self.app_state.log(f"Extracted subtitle file not found: {sub_path}", "WARN")
             else:
-                self.app_state.log("No external subtitle file found (.srt or .ass)", "WARN")
+                # Look for external subtitle file
+                sub_path = self.find_subtitle_file(input_path)
+                if sub_path:
+                    subs_filter = self.build_subtitle_filter(sub_path)
+                    if subs_filter:
+                        video_filters.append(subs_filter)
+                        self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
+                else:
+                    self.app_state.log("No external subtitle file found (.srt or .ass)", "WARN")
                 
         # Volume (audio filter)
         if self.app_state.filters.volume_enabled:
@@ -486,6 +558,9 @@ class VideoController:
         """Build FFmpeg subtitle filter with styling options"""
         subs = self.app_state.subtitles
         
+        # Check if this is a VobSub (.sub) file - these are bitmap-based
+        is_vobsub = sub_path.lower().endswith('.sub')
+        
         # Escape path for FFmpeg filter
         # Convert backslashes to forward slashes and escape special characters
         escaped_path = sub_path.replace("\\", "/").replace("'", "'\\''")
@@ -496,7 +571,13 @@ class VideoController:
         import re
         escaped_path = re.sub(r'^([A-Z]):/', r'\1\:/', escaped_path, flags=re.IGNORECASE)
         
-        # Build force_style options
+        # For VobSub files, use simpler filter (no force_style supported for bitmap subs)
+        if is_vobsub:
+            # VobSub subtitles are bitmap-based, so no styling options apply
+            # Just overlay them as-is
+            return f"subtitles='{escaped_path}'"
+        
+        # Build force_style options for text-based subtitles
         style = []
         
         if subs.font != "Arial":

@@ -136,6 +136,19 @@ class CutSettings:
     """Cut/trim settings - supports multiple cut points"""
     points: List[CutPoint] = field(default_factory=list)
     next_id: int = 1  # Counter for generating unique IDs
+
+
+@dataclass
+class DVDSettings:
+    """DVD (VIDEO_TS) source settings"""
+    is_dvd_source: bool = False
+    dvd_folder_path: str = ""  # Path to VIDEO_TS folder
+    available_titles: List = field(default_factory=list)  # List of DVDTitle objects
+    selected_title_index: int = 0  # Index of selected title in available_titles
+    concat_file_path: str = ""  # Path to temporary concat file
+    selected_title_number: int = 1  # The actual DVD title number (1, 2, 3...)
+    selected_subtitle_index: int = -1  # Subtitle stream index to burn (-1 = none)
+    extracted_subtitle_path: str = ""  # Path to extracted .sub file for burning
     
     def add_point(self, position: float, time_display: str) -> CutPoint:
         """Add a new cut point and return it"""
@@ -199,6 +212,7 @@ class AppState(QObject):
     encoding_finished = Signal(bool, str)  # success, message
     log_message = Signal(str, str)  # message, level
     preview_refresh_needed = Signal()
+    dvd_titles_changed = Signal(list)  # List of DVD titles detected
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -223,6 +237,7 @@ class AppState(QObject):
         self.split = SplitSettings()
         self.tracks = TrackSettings()
         self.cut = CutSettings()
+        self.dvd = DVDSettings()
         
         # UI State
         self._is_encoding: bool = False

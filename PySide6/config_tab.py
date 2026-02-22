@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QListWidget, QListWidgetItem, QFileDialog,
     QGroupBox, QCheckBox, QMessageBox, QAbstractItemView,
-    QDialog, QDialogButtonBox, QScrollArea, QFrame
+    QDialog, QDialogButtonBox, QScrollArea, QFrame, QComboBox,
+    QSpinBox, QGridLayout
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
@@ -136,6 +137,124 @@ class CleanNamesDialog(QDialog):
         return f"{base}{ext}"
 
 
+class DVDTitleDialog(QDialog):
+    """Dialog for selecting DVD title to import"""
+    
+    def __init__(self, titles, dvd_folder, parent=None):
+        super().__init__(parent)
+        self.titles = titles
+        self.dvd_folder = dvd_folder
+        self.selected_title = None
+        self.selected_subtitle_index = -1  # -1 = no subtitle
+        
+        self.setWindowTitle("Select DVD Title")
+        self.setMinimumSize(550, 450)
+        
+        layout = QVBoxLayout(self)
+        
+        # Info label
+        layout.addWidget(QLabel(f"<b>DVD Folder:</b> {dvd_folder}"))
+        layout.addWidget(QLabel(f"<b>Titles Found:</b> {len(titles)}"))
+        layout.addWidget(QLabel(""))
+        
+        # Title list
+        layout.addWidget(QLabel("<b>Select a title to import:</b>"))
+        
+        self.title_list = QListWidget()
+        self.title_list.setAlternatingRowColors(True)
+        self.title_list.itemDoubleClicked.connect(self.accept)
+        
+        for title in titles:
+            main_marker = " [MAIN]" if title.is_main else ""
+            item_text = f"Title {title.title_number}{main_marker} - {title.duration_display} ({title.size_display})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, title)
+            if title.is_main:
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+            self.title_list.addItem(item)
+        
+        # Select main title by default
+        for i in range(self.title_list.count()):
+            item = self.title_list.item(i)
+            title = item.data(Qt.UserRole)
+            if title.is_main:
+                self.title_list.setCurrentItem(item)
+                break
+        
+        layout.addWidget(self.title_list)
+        
+        # Audio track info
+        self.audio_label = QLabel("")
+        self.audio_label.setStyleSheet("color: gray; font-size: 9pt;")
+        layout.addWidget(self.audio_label)
+        
+        # Subtitle selection
+        subtitle_group = QGroupBox("Subtitle Track (for burning into video)")
+        subtitle_layout = QHBoxLayout(subtitle_group)
+        
+        self.subtitle_combo = QComboBox()
+        self.subtitle_combo.addItem("None (no subtitles)", -1)
+        subtitle_layout.addWidget(QLabel("Subtitle:"))
+        subtitle_layout.addWidget(self.subtitle_combo)
+        
+        layout.addWidget(subtitle_group)
+        
+        self.title_list.currentItemChanged.connect(self.on_title_changed)
+        
+        # Update info for initial selection
+        if self.title_list.currentItem():
+            self.on_title_changed(self.title_list.currentItem())
+        
+        # Buttons
+        btn_box = QDialogButtonBox()
+        btn_box.addButton("Import Title", QDialogButtonBox.AcceptRole)
+        btn_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+    
+    def on_title_changed(self, current):
+        """Update audio and subtitle track info when selection changes"""
+        if current:
+            title = current.data(Qt.UserRole)
+            
+            # Update audio info
+            if title.audio_tracks:
+                audio_info = [f"Track {t['index']}: {t['codec'].upper()} {t['channels']}ch" 
+                             for t in title.audio_tracks[:3]]  # Show first 3
+                if len(title.audio_tracks) > 3:
+                    audio_info.append(f"... and {len(title.audio_tracks) - 3} more")
+                self.audio_label.setText("Audio: " + ", ".join(audio_info))
+            else:
+                self.audio_label.setText("Audio: No track info available")
+            
+            # Update subtitle combo
+            self.subtitle_combo.clear()
+            self.subtitle_combo.addItem("None (no subtitles)", -1)
+            
+            if title.subtitles:
+                for sub in title.subtitles:
+                    lang = sub.get('language', 'unknown')
+                    sub_title = sub.get('title', '')
+                    display = f"Track {sub['index']}: {lang}"
+                    if sub_title:
+                        display += f" ({sub_title})"
+                    self.subtitle_combo.addItem(display, sub['index'])
+    
+    def get_selected_title(self):
+        """Return the selected DVDTitle object"""
+        current = self.title_list.currentItem()
+        if current:
+            return current.data(Qt.UserRole)
+        return None
+    
+    def get_selected_subtitle_index(self) -> int:
+        """Return the selected subtitle stream index (-1 for none)"""
+        return self.subtitle_combo.currentData()
+
+
 class ConfigTab(QWidget):
     """Configuration tab for system paths and file management"""
     
@@ -257,6 +376,15 @@ class ConfigTab(QWidget):
         add_folder_btn = QPushButton("📁 Add Folder")
         add_folder_btn.clicked.connect(self.add_folder)
         btn_layout.addWidget(add_folder_btn)
+        
+        add_dvd_btn = QPushButton("📀 Open DVD")
+        add_dvd_btn.clicked.connect(self.add_dvd_folder)
+        btn_layout.addWidget(add_dvd_btn)
+        
+        extract_subs_btn = QPushButton("📝 Extract Subs")
+        extract_subs_btn.setToolTip("Extract all subtitles from video or DVD folder")
+        extract_subs_btn.clicked.connect(self.extract_subtitles)
+        btn_layout.addWidget(extract_subs_btn)
         
         clear_btn = QPushButton("🗑️ Clear All")
         clear_btn.clicked.connect(self.clear_files)
@@ -400,6 +528,116 @@ class ConfigTab(QWidget):
             if files:
                 self.add_files_to_list(files)
                 
+    def add_dvd_folder(self):
+        """Open a DVD folder (VIDEO_TS) and select title to import"""
+        from dvd_handler import DVDHandler
+        
+        folder = QFileDialog.getExistingDirectory(self, "Select DVD Folder (VIDEO_TS parent folder)")
+        if not folder:
+            return
+            
+        # Initialize DVD handler
+        handler = DVDHandler(
+            self.app_state.ffmpeg_path,
+            self.app_state.ffprobe_path,
+            self.app_state.log
+        )
+        
+        # Check if it's a valid DVD folder
+        video_ts_path = handler.find_video_ts_folder(folder)
+        if not video_ts_path:
+            QMessageBox.warning(
+                self, "Invalid DVD Folder",
+                f"No VIDEO_TS folder found in:\n{folder}\n\nPlease select a DVD-Video folder containing VIDEO_TS directory."
+            )
+            return
+        
+        # Scan for titles
+        self.app_state.log(f"Scanning DVD: {video_ts_path}", "INFO")
+        titles = handler.get_dvd_titles(video_ts_path)
+        
+        if not titles:
+            QMessageBox.warning(
+                self, "No Titles Found",
+                "No DVD titles found in the selected folder."
+            )
+            return
+        
+        # Show title selection dialog
+        dialog = DVDTitleDialog(titles, video_ts_path, self)
+        if dialog.exec() == QDialog.Accepted:
+            selected_title = dialog.get_selected_title()
+            if selected_title:
+                subtitle_index = dialog.get_selected_subtitle_index()
+                self._import_dvd_title(handler, selected_title, video_ts_path, subtitle_index)
+    
+    def _import_dvd_title(self, handler, title, video_ts_path, subtitle_index=-1):
+        """Import a DVD title into the encoding queue"""
+        import tempfile
+        import os
+        
+        # Create concat file for the selected title
+        concat_file = handler.create_concat_file(title.vob_files)
+        
+        # Store DVD info in app state
+        self.app_state.dvd.is_dvd_source = True
+        self.app_state.dvd.dvd_folder_path = video_ts_path
+        self.app_state.dvd.available_titles = handler.get_dvd_titles(video_ts_path)
+        self.app_state.dvd.selected_title_number = title.title_number
+        self.app_state.dvd.concat_file_path = concat_file
+        self.app_state.dvd.selected_subtitle_index = subtitle_index
+        self.app_state.dvd.extracted_subtitle_path = ""  # Reset (not used for DVD subtitles)
+        
+        # DVD subtitles are burned directly during encoding using filter_complex
+        # No need to extract - the overlay filter handles it
+        if subtitle_index >= 0:
+            self.app_state.log(f"DVD subtitle track {subtitle_index} will be burned during encoding", "INFO")
+            # Enable subtitle burning
+            self.app_state.subtitles.burn_subs = True
+        
+        # Add to file list as a special DVD entry
+        # Clear existing files first (DVD replaces queue)
+        self.clear_files()
+        
+        # Add the concat file as the input
+        # We use a special display name for DVD sources
+        display_name = f"[DVD] Title {title.title_number} - {title.duration_display}"
+        
+        item = QListWidgetItem(display_name)
+        item.setData(Qt.UserRole, concat_file)  # Actual path is concat file
+        item.setData(Qt.UserRole + 1, "dvd")  # Mark as DVD source
+        
+        # Build tooltip with subtitle info
+        tooltip = f"DVD Title {title.title_number}\nDuration: {title.duration_display}\nSize: {title.size_display}\nSource: {video_ts_path}"
+        if subtitle_index >= 0:
+            # Find subtitle info
+            for sub in title.subtitles:
+                if sub.get('sub_index', sub.get('index', 0)) == subtitle_index:
+                    lang = sub.get('language', 'unknown')
+                    tooltip += f"\nSubtitle: Track {subtitle_index} ({lang}) - will be burned during encoding"
+                    break
+        item.setToolTip(tooltip)
+        
+        # Set a special icon/color for DVD entries
+        item.setForeground(Qt.darkMagenta)
+        
+        self.files_list.addItem(item)
+        self.app_state.add_input_file(concat_file)
+        
+        # Update the current video path
+        self.app_state.current_video_path = concat_file
+        
+        self.update_count_label()
+        
+        subtitle_msg = f" with subtitle track {subtitle_index}" if subtitle_index >= 0 else ""
+        self.app_state.log(
+            f"Imported DVD Title {title.title_number}: {title.duration_display}, {len(title.vob_files)} VOB files{subtitle_msg}",
+            "SUCCESS"
+        )
+        
+        # Emit file selected signal
+        self.file_selected.emit(concat_file)
+                
     def add_files_to_list(self, files):
         """Add files to the list widget and app state"""
         for file_path in files:
@@ -513,6 +751,164 @@ class ConfigTab(QWidget):
         
         file_path = selected[0].data(Qt.UserRole)
         self.run_validation(file_path)
+        
+    def extract_subtitles(self):
+        """Extract all subtitles from video or DVD folder"""
+        # Let user choose between video file or DVD folder
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Extract Subtitles")
+        msg.setText("Choose source type:")
+        msg.setInformativeText("Select a video file or DVD folder to extract subtitles from.")
+        
+        btn_video = msg.addButton("Video File", QMessageBox.AcceptRole)
+        btn_dvd = msg.addButton("DVD Folder", QMessageBox.ActionRole)
+        btn_cancel = msg.addButton("Cancel", QMessageBox.RejectRole)
+        
+        msg.exec()
+        
+        if msg.clickedButton() == btn_video:
+            # Select video file
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Select Video File",
+                "",
+                "Video Files (*.mp4 *.mkv *.avi *.mov *.mpg *.mpeg);;All Files (*)"
+            )
+            if file_path:
+                self._extract_subs_from_video(file_path)
+        elif msg.clickedButton() == btn_dvd:
+            # Select DVD folder
+            folder_path = QFileDialog.getExistingDirectoryUrl(
+                self, "Select DVD Folder (VIDEO_TS)"
+            )
+            if folder_path:
+                self._extract_subs_from_dvd(folder_path.toLocalFile())
+    
+    def _extract_subs_from_video(self, video_path):
+        """Extract subtitles from a video file"""
+        import tempfile
+        
+        self.app_state.log(f"Extracting subtitles from: {os.path.basename(video_path)}", "INFO")
+        
+        # Get subtitle streams using ffprobe
+        cmd = [
+            self.app_state.ffprobe_path,
+            "-v", "error",
+            "-show_entries", "stream=index,codec_type,codec_name:stream_tags=language",
+            "-of", "json",
+            video_path
+        ]
+        
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            import json
+            data = json.loads(result.stdout)
+            
+            subtitle_streams = [s for s in data.get('streams', []) if s.get('codec_type') == 'subtitle']
+            
+            if not subtitle_streams:
+                self.app_state.log("No subtitle streams found in video file", "WARN")
+                QMessageBox.information(self, "Extract Subtitles", "No subtitle streams found in the video file.")
+                return
+            
+            self.app_state.log(f"Found {len(subtitle_streams)} subtitle stream(s)", "INFO")
+            
+            # Create output directory
+            output_dir = tempfile.mkdtemp(prefix='extracted_subs_')[1]
+            output_dir = output_dir if isinstance(output_dir, str) else output_dir
+            
+            extracted_files = []
+            
+            for i, stream in enumerate(subtitle_streams):
+                stream_idx = stream.get('index', i)
+                lang = stream.get('tags', {}).get('language', f'track{i}')
+                codec = stream.get('codec_name', 'unknown')
+                
+                output_file = os.path.join(output_dir, f"sub_{i}_{lang}.srt")
+                
+                # Extract subtitle
+                cmd = [
+                    self.app_state.ffmpeg_path,
+                    "-y", "-i", video_path,
+                    "-map", f"0:s:{stream_idx}",
+                    "-c:s", "srt",
+                    output_file
+                ]
+                
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+                
+                if result.returncode == 0 and os.path.exists(output_file):
+                    extracted_files.append(output_file)
+                    self.app_state.log(f"Extracted: {os.path.basename(output_file)}", "SUCCESS")
+            
+            if extracted_files:
+                msg = f"Extracted {len(extracted_files)} subtitle(s) to:\n{output_dir}"
+                self.app_state.log(msg, "SUCCESS")
+                QMessageBox.information(self, "Extract Subtitles", msg)
+            else:
+                self.app_state.log("Failed to extract subtitles", "WARN")
+                QMessageBox.warning(self, "Extract Subtitles", "Failed to extract subtitles from video file.")
+                
+        except Exception as e:
+            self.app_state.log(f"Error extracting subtitles: {e}", "ERROR")
+            QMessageBox.warning(self, "Extract Subtitles", f"Error: {e}")
+    
+    def _extract_subs_from_dvd(self, folder_path):
+        """Extract subtitles from DVD folder"""
+        from dvd_handler import DVDHandler
+        import tempfile
+        
+        self.app_state.log(f"Scanning DVD folder: {folder_path}", "INFO")
+        
+        handler = DVDHandler(
+            ffmpeg_path=self.app_state.ffmpeg_path,
+            ffprobe_path=self.app_state.ffprobe_path,
+            log_callback=self.app_state.log
+        )
+        
+        # Check if it's a VIDEO_TS folder
+        if not handler.is_video_ts_folder(folder_path):
+            # Try VIDEO_TS subfolder
+            video_ts = os.path.join(folder_path, 'VIDEO_TS')
+            if os.path.isdir(video_ts):
+                folder_path = video_ts
+            else:
+                self.app_state.log("Not a valid VIDEO_TS folder", "WARN")
+                QMessageBox.warning(self, "Extract Subtitles", "Selected folder is not a valid VIDEO_TS folder.")
+                return
+        
+        # Get DVD titles
+        titles = handler.get_dvd_titles(folder_path)
+        
+        if not titles:
+            self.app_state.log("No DVD titles found", "WARN")
+            QMessageBox.warning(self, "Extract Subtitles", "No DVD titles found in the folder.")
+            return
+        
+        # Find main title (longest)
+        main_title = max(titles, key=lambda t: t.duration)
+        
+        self.app_state.log(f"Found {len(titles)} title(s), extracting from main Title {main_title.title_number}", "INFO")
+        
+        # Create output directory
+        output_dir = tempfile.mkdtemp(prefix='dvd_subs_')[1]
+        output_dir = output_dir if isinstance(output_dir, str) else output_dir
+        
+        # Get subtitles for main title
+        if not main_title.subtitles:
+            self.app_state.log("No subtitles found in main title", "WARN")
+            QMessageBox.warning(self, "Extract Subtitles", "No subtitles found in the main DVD title.")
+            return
+        
+        self.app_state.log(f"Found {len(main_title.subtitles)} subtitle track(s)", "INFO")
+        
+        # Note: DVD subtitles cannot be extracted to external files by FFmpeg
+        # They need to be burned directly during encoding
+        msg = f"Found {len(main_title.subtitles)} subtitle track(s) in DVD:\n\n"
+        msg += "\n".join([f"  Track {s.get('index', i)}: {s.get('language', 'unknown')}" for s in main_title.subtitles])
+        msg += "\n\nNote: DVD subtitles are burned directly during encoding using the overlay filter.\nThey cannot be extracted to external files."
+        
+        self.app_state.log(msg, "INFO")
+        QMessageBox.information(self, "DVD Subtitles", msg)
         
     def run_validation(self, filepath):
         """Run video validation and show results"""

@@ -252,21 +252,47 @@ class FrameLoader(QObject):
     def __init__(self):
         super().__init__()
         self._cancelled = False
+        self._is_dvd_source = False
         
-    def load_frame(self, video_path: str, timestamp: float, ffmpeg_path: str):
-        """Load a frame from video at specified timestamp"""
+    def load_frame(self, video_path: str, timestamp: float, ffmpeg_path: str, is_dvd_source: bool = False, first_vob_path: str = None):
+        """Load a frame from video at specified timestamp
+        
+        Args:
+            video_path: Path to video file or concat file
+            timestamp: Seek position in seconds
+            ffmpeg_path: Path to ffmpeg executable
+            is_dvd_source: True if this is a DVD concat source
+            first_vob_path: Path to first VOB file for DVD preview fallback
+        """
         self._cancelled = False
+        self._is_dvd_source = is_dvd_source
         
-        cmd = [
-            ffmpeg_path, "-ss", str(timestamp),
-            "-i", video_path, "-vframes", "1", "-q:v", "2",
-            "-f", "image2pipe", "-vcodec", "png", "-"
-        ]
+        # For DVD sources, try the first VOB file directly for preview
+        # This is more reliable than concat demuxer for frame extraction
+        if is_dvd_source and first_vob_path and os.path.exists(first_vob_path):
+            # Use first VOB for preview (limited to first ~1GB but much faster)
+            # Limit timestamp to reasonable range for first VOB
+            preview_timestamp = min(timestamp, 600.0)  # Cap at 10 minutes
+            cmd = [ffmpeg_path, "-ss", str(preview_timestamp)]
+            cmd.extend(["-i", first_vob_path])
+            cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
+        elif is_dvd_source:
+            # Fallback to concat demuxer
+            cmd = [ffmpeg_path, "-ss", str(timestamp)]
+            cmd.extend(["-f", "concat", "-safe", "0"])
+            cmd.extend(["-i", video_path])
+            cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
+        else:
+            # Standard seeking for regular video files
+            cmd = [ffmpeg_path, "-ss", str(timestamp)]
+            cmd.extend(["-i", video_path, "-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
         
         try:
+            # Use longer timeout for DVD sources (VOB files can be slow)
+            timeout = 30 if is_dvd_source else 10
             result = subprocess.run(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=10
+                timeout=timeout
             )
             
             if self._cancelled:
@@ -282,7 +308,9 @@ class FrameLoader(QObject):
                 else:
                     self.error_occurred.emit("Failed to decode image")
             else:
-                self.error_occurred.emit("FFmpeg failed to extract frame")
+                # Log the error for debugging
+                error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
+                self.error_occurred.emit(f"FFmpeg failed: {error_msg[:200]}")
                 
         except subprocess.TimeoutExpired:
             self.error_occurred.emit("Frame extraction timed out")
@@ -488,21 +516,40 @@ class VideoPreview(QWidget):
         """Load video metadata using ffprobe"""
         ffprobe_path = self.app_state.ffprobe_path
         
-        cmd = [
-            ffprobe_path, "-v", "error",
+        # Check if this is a DVD concat source
+        is_dvd_source = self.app_state.dvd.is_dvd_source and video_path.endswith('.txt')
+        
+        cmd = [ffprobe_path, "-v", "error"]
+        
+        # Add concat demuxer for DVD sources (must come before -i)
+        if is_dvd_source:
+            cmd.extend(["-f", "concat", "-safe", "0"])
+        
+        # Add input file
+        cmd.extend(["-i", video_path])
+        
+        cmd.extend([
             "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            video_path
-        ]
+            "-of", "default=noprint_wrappers=1:nokey=1"
+        ])
         
         try:
             result = subprocess.run(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, timeout=5
+                text=True, timeout=30  # Increased timeout for DVD
             )
-            if result.returncode == 0:
+            if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
                 self.duration = float(result.stdout.strip())
                 self.app_state.log(f"Video duration: {self.duration:.2f}s", "INFO")
+            else:
+                # Fallback: try to get duration from DVD state if available
+                if is_dvd_source and self.app_state.dvd.available_titles:
+                    for title in self.app_state.dvd.available_titles:
+                        if title.title_number == self.app_state.dvd.selected_title_number:
+                            self.duration = title.duration
+                            self.app_state.log(f"Using DVD title duration: {self.duration:.2f}s", "INFO")
+                            return
+                self.app_state.log(f"Could not determine video duration", "WARN")
         except Exception as e:
             self.app_state.log(f"Failed to get video duration: {e}", "WARN")
             self.duration = 0.0
@@ -600,6 +647,18 @@ class VideoPreview(QWidget):
             
         # Cancel any pending load and clean up previous thread
         self._cleanup_thread()
+        
+        # Check if this is a DVD source
+        is_dvd_source = self.app_state.dvd.is_dvd_source and self.current_video_path.endswith('.txt')
+        
+        # Get first VOB path for DVD preview fallback
+        first_vob_path = None
+        if is_dvd_source and self.app_state.dvd.available_titles:
+            for title in self.app_state.dvd.available_titles:
+                if title.title_number == self.app_state.dvd.selected_title_number:
+                    if title.vob_files:
+                        first_vob_path = title.vob_files[0]
+                    break
             
         # Create new loader thread
         self._loader_thread = QThread()
@@ -611,7 +670,7 @@ class VideoPreview(QWidget):
         self._frame_loader.error_occurred.connect(self.on_frame_error)
         self._loader_thread.started.connect(
             lambda: self._frame_loader.load_frame(
-                self.current_video_path, timestamp, self.app_state.ffmpeg_path
+                self.current_video_path, timestamp, self.app_state.ffmpeg_path, is_dvd_source, first_vob_path
             )
         )
         
