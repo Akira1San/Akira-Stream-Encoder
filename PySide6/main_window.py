@@ -17,6 +17,7 @@ from models import AppState
 from config import SETTINGS_FILE
 from config_tab import ConfigTab
 from video_workspace import VideoWorkspace
+from composition import CompositionTab
 
 
 class LogWidget(QTextEdit):
@@ -98,6 +99,10 @@ class MainWindow(QMainWindow):
         # Video Tab
         self.video_tab = VideoWorkspace(self.app_state)
         self.tab_widget.addTab(self.video_tab, "🎬 Video")
+        
+        # Composition tab
+        self.composition_tab = CompositionTab(self.app_state)
+        self.tab_widget.addTab(self.composition_tab, "🎨 Composition")
         
         # === BOTTOM SECTION: Log Output ===
         log_frame = QWidget()

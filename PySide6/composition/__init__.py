@@ -19,9 +19,14 @@ from composition.models import (
     BlendMode,
     ShapeType,
     LayerType,
+    create_layer,
 )
 
+from composition.layer_stack import LayerStackWidget, LayerItemWidget
+from composition.composition_tab import CompositionTab
+
 __all__ = [
+    # Models
     'Composition',
     'Layer',
     'ColorLayer',
@@ -34,4 +39,9 @@ __all__ = [
     'BlendMode',
     'ShapeType',
     'LayerType',
+    'create_layer',
+    # Widgets
+    'LayerStackWidget',
+    'LayerItemWidget',
+    'CompositionTab',
 ]
