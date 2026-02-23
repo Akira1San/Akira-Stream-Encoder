@@ -23,7 +23,18 @@ from composition.models import (
 )
 
 from composition.layer_stack import LayerStackWidget, LayerItemWidget
+from composition.properties_panel import PropertiesPanel
+from composition.timeline import CompositionTimeline
+from composition.preview import CompositionPreview
 from composition.composition_tab import CompositionTab
+from composition.renderer import (
+    CompositionRenderer,
+    RenderSettings,
+    RenderQuality,
+    RenderCodec,
+    RenderDialog,
+    FrameRenderer,
+)
 
 __all__ = [
     # Models
@@ -43,5 +54,15 @@ __all__ = [
     # Widgets
     'LayerStackWidget',
     'LayerItemWidget',
+    'PropertiesPanel',
+    'CompositionTimeline',
+    'CompositionPreview',
     'CompositionTab',
+    # Rendering
+    'CompositionRenderer',
+    'RenderSettings',
+    'RenderQuality',
+    'RenderCodec',
+    'RenderDialog',
+    'FrameRenderer',
 ]

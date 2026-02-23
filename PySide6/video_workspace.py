@@ -513,3 +513,6 @@ class VideoWorkspace(QWidget):
         
         # Scan for subtitle files in video folder
         self._scan_and_update_subtitles()
+        
+        # Update DVD subtitle selector (will hide if not a DVD source)
+        self.subs_panel.update_dvd_subtitles()

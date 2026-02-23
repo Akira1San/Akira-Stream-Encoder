@@ -18,6 +18,7 @@ class SubtitlesPanel(QWidget):
     
     settings_changed = Signal()
     refresh_subtitles = Signal()  # Signal to request subtitle folder scan
+    dvd_subtitle_changed = Signal()  # Signal when DVD subtitle selection changes
     
     def __init__(self, app_state: AppState, parent=None):
         super().__init__(parent)
@@ -41,6 +42,33 @@ class SubtitlesPanel(QWidget):
             "Encoding works with all formats."
         )
         layout.addWidget(self.burn_check)
+        
+        # DVD Subtitle Track Selection (shown only for DVD sources)
+        self.dvd_subtitle_group = QWidget()
+        dvd_layout = QVBoxLayout(self.dvd_subtitle_group)
+        dvd_layout.setContentsMargins(0, 0, 0, 0)
+        
+        dvd_sub_layout = QHBoxLayout()
+        dvd_sub_layout.addWidget(QLabel("DVD Subtitle Track:"))
+        
+        self.dvd_subtitle_combo = QComboBox()
+        self.dvd_subtitle_combo.setMinimumWidth(200)
+        self.dvd_subtitle_combo.setToolTip("Select which DVD subtitle track to burn into video")
+        dvd_sub_layout.addWidget(self.dvd_subtitle_combo)
+        
+        dvd_sub_layout.addStretch()
+        dvd_layout.addLayout(dvd_sub_layout)
+        
+        # DVD subtitle info label
+        self.dvd_info_label = QLabel("")
+        self.dvd_info_label.setStyleSheet("color: gray; font-size: 10px; font-style: italic;")
+        dvd_layout.addWidget(self.dvd_info_label)
+        
+        self.dvd_subtitle_group.setLayout(dvd_layout)
+        layout.addWidget(self.dvd_subtitle_group)
+        
+        # Initially hide DVD subtitle selector
+        self.dvd_subtitle_group.hide()
         
         # Info label
         preview_info = QLabel("Preview supports .srt only | Encoding supports all formats")
@@ -177,6 +205,7 @@ class SubtitlesPanel(QWidget):
         """Connect UI signals to handlers"""
         self.burn_check.toggled.connect(self.on_burn_changed)
         self.subtitle_combo.currentTextChanged.connect(self.on_subtitle_changed)
+        self.dvd_subtitle_combo.currentIndexChanged.connect(self.on_dvd_subtitle_changed)
         self.font_combo.currentTextChanged.connect(self.on_font_changed)
         self.size_slider.valueChanged.connect(self.on_size_changed)
         self.position_combo.currentTextChanged.connect(self.on_position_changed)
@@ -191,7 +220,53 @@ class SubtitlesPanel(QWidget):
         """Handle burn checkbox change"""
         self.app_state.subtitles.burn_subs = checked
         self.settings_changed.emit()
-        
+    
+    def on_dvd_subtitle_changed(self, index):
+        """Handle DVD subtitle track selection change"""
+        sub_idx = self.dvd_subtitle_combo.currentData()
+        if sub_idx is not None:
+            self.app_state.dvd.selected_subtitle_index = sub_idx
+            # Auto-enable burn subtitles when a DVD subtitle is selected
+            if sub_idx >= 0:
+                self.burn_check.setChecked(True)
+            self.dvd_subtitle_changed.emit()
+            self.settings_changed.emit()
+    
+    def update_dvd_subtitles(self):
+        """Update DVD subtitle combobox based on current DVD source"""
+        if self.app_state.dvd.is_dvd_source and self.app_state.dvd.subtitle_tracks:
+            # Show DVD subtitle selector
+            self.dvd_subtitle_group.show()
+            
+            # Populate combobox
+            self.dvd_subtitle_combo.blockSignals(True)
+            self.dvd_subtitle_combo.clear()
+            self.dvd_subtitle_combo.addItem("None (no subtitles)", -1)
+            
+            for sub in self.app_state.dvd.subtitle_tracks:
+                lang = sub.get('language', 'unknown')
+                sub_idx = sub.get('sub_index', sub.get('index', 0))
+                display = f"Track {sub_idx}: {lang}"
+                self.dvd_subtitle_combo.addItem(display, sub_idx)
+            
+            # Restore selection
+            current_idx = self.app_state.dvd.selected_subtitle_index
+            for i in range(self.dvd_subtitle_combo.count()):
+                if self.dvd_subtitle_combo.itemData(i) == current_idx:
+                    self.dvd_subtitle_combo.setCurrentIndex(i)
+                    break
+            
+            self.dvd_subtitle_combo.blockSignals(False)
+            
+            # Update info label
+            self.dvd_info_label.setText(
+                f"DVD subtitles are bitmap-based and will be burned into the video. "
+                f"{len(self.app_state.dvd.subtitle_tracks)} track(s) available."
+            )
+        else:
+            # Hide DVD subtitle selector for non-DVD sources
+            self.dvd_subtitle_group.hide()
+    
     def on_subtitle_changed(self, text):
         """Handle subtitle file selection change"""
         # Get the file path from the combo box data (stored at index 0)

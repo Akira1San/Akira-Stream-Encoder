@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
         # Config Tab
         self.config_tab = ConfigTab(self.app_state)
         self.config_tab.file_selected.connect(self.on_file_selected)
+        self.config_tab.dvd_imported.connect(self.on_dvd_imported)
         self.tab_widget.addTab(self.config_tab, "⚙️ Config")
         
         # Video Tab
@@ -190,6 +191,11 @@ class MainWindow(QMainWindow):
         self.tab_widget.setCurrentWidget(self.video_tab)
         # Load video in workspace
         self.video_tab.set_video(file_path)
+    
+    def on_dvd_imported(self):
+        """Handle DVD import - update subtitles panel with DVD subtitle tracks"""
+        # Update the subtitles panel to show DVD subtitle selector
+        self.video_tab.subs_panel.update_dvd_subtitles()
         
     def closeEvent(self, event):
         """Handle window close event"""

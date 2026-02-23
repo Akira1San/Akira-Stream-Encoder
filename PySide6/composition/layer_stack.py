@@ -152,6 +152,10 @@ class LayerItemWidget(QFrame):
         elif event.button() == Qt.RightButton:
             self._show_context_menu(event.pos())
             
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release - reset drag state"""
+        self._drag_start_pos = None
+            
     def mouseMoveEvent(self, event):
         """Handle drag start"""
         if self._drag_start_pos is None:
@@ -167,7 +171,12 @@ class LayerItemWidget(QFrame):
         mime_data.setData("application/x-layer-id", self.layer.id.encode())
         mime_data.setText(self.layer.id)
         drag.setMimeData(mime_data)
-        drag.exec_(Qt.MoveAction)
+        
+        # Reset drag start position
+        self._drag_start_pos = None
+        
+        # Execute drag
+        result = drag.exec_(Qt.MoveAction)
         
     def _show_context_menu(self, pos):
         """Show context menu"""
@@ -274,8 +283,12 @@ class LayerStackWidget(QWidget):
         scroll.setWidget(self.layer_container)
         main_layout.addWidget(scroll, 1)
         
-        # Enable drop for reordering
+        # Store scroll reference for coordinate mapping
+        self._scroll = scroll
+        
+        # Enable drop for reordering on both the container and this widget
         self.setAcceptDrops(True)
+        self.layer_container.setAcceptDrops(True)
         
     def _show_add_menu(self):
         """Show menu to add new layer"""
@@ -397,27 +410,76 @@ class LayerStackWidget(QWidget):
         else:
             event.ignore()
             
+    def dragMoveEvent(self, event):
+        """Handle drag move - provide visual feedback"""
+        if event.mimeData().hasFormat("application/x-layer-id"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+            
     def dropEvent(self, event: QDropEvent):
         """Handle drop for layer reordering"""
+        if not event.mimeData().hasFormat("application/x-layer-id"):
+            event.ignore()
+            return
+            
         layer_id = bytes(event.mimeData().data("application/x-layer-id")).decode('utf-8')
         
-        # Calculate new index based on drop position
+        # Get drop position in layer container coordinates
         drop_pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
         
+        # Map to layer container coordinates
+        drop_pos_in_container = self.layer_container.mapFromGlobal(self.mapToGlobal(drop_pos))
+        
+        # Count actual layer widgets (excluding stretch)
+        layer_count = sum(1 for i in range(self.layer_layout.count()) 
+                         if self.layer_layout.itemAt(i) and self.layer_layout.itemAt(i).widget())
+        
         # Find the widget under the drop position
+        ui_index = 0
+        found = False
+        
         for i in range(self.layer_layout.count()):
             item = self.layer_layout.itemAt(i)
             if item and item.widget():
                 widget = item.widget()
-                if widget.geometry().contains(drop_pos):
+                widget_rect = widget.geometry()
+                
+                if widget_rect.contains(drop_pos_in_container):
                     # Calculate if dropping above or below
-                    if drop_pos.y() < widget.geometry().center().y():
-                        new_index = i
+                    if drop_pos_in_container.y() < widget_rect.center().y():
+                        ui_index = i
                     else:
-                        new_index = i + 1
-                    self.layer_moved.emit(layer_id, new_index)
+                        ui_index = i + 1
+                    found = True
                     break
-                    
+        
+        # If not found over a widget, determine position based on Y coordinate
+        if not found:
+            # Find closest position
+            for i in range(self.layer_layout.count()):
+                item = self.layer_layout.itemAt(i)
+                if item and item.widget():
+                    widget = item.widget()
+                    if drop_pos_in_container.y() < widget.geometry().top():
+                        ui_index = i
+                        found = True
+                        break
+            
+            if not found:
+                # Drop at the end
+                ui_index = layer_count
+        
+        # Clamp index to valid range
+        ui_index = max(0, min(ui_index, layer_count))
+        
+        # Convert UI index to composition index
+        # UI displays layers reversed (top layer at index 0)
+        # Composition stores layers bottom-to-top (bottom layer at index 0)
+        # So: composition_index = layer_count - ui_index
+        composition_index = layer_count - ui_index
+        
+        self.layer_moved.emit(layer_id, composition_index)
         event.acceptProposedAction()
         
     def update_layer(self, layer: Layer):
