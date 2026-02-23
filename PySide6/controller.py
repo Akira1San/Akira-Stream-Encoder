@@ -240,11 +240,16 @@ class VideoController:
             self.app_state.log("Extracting clip segment", "INFO")
             start_min = self.app_state.split.extract_start_min
             duration_min = self.app_state.split.extract_duration_min
-            start_time = f"{start_min}:00"
-            duration = f"{duration_min}:00"
+            # Convert minutes to seconds for FFmpeg (avoids HH:MM vs MM:SS confusion)
+            start_time = str(int(start_min * 60))
+            duration = str(int(duration_min * 60))
             
             burn_subs = self.app_state.subtitles.burn_subs
             sub_path = self.find_subtitle_file(input_path) if burn_subs else None
+            
+            # Add concat demuxer flags for DVD sources
+            if is_dvd_source:
+                cmd.extend(["-f", "concat", "-safe", "0"])
             
             if burn_subs and sub_path:
                 cmd.extend(["-i", input_path])
@@ -263,6 +268,31 @@ class VideoController:
                 cmd.extend(["-t", duration])
                 if burn_subs:
                     self.app_state.log("No external subtitle file found (.srt, .ass, .ssa, .sub)", "WARN")
+            
+            # Video codec handling for extract clip mode
+            video_mode = getattr(self.app_state.encoding, 'video_mode', 'encode')
+            if video_mode == "copy":
+                cmd.extend(["-c:v", "copy"])
+                self.app_state.log("Video: Copy original stream (no re-encode)", "INFO")
+            else:
+                encoder = self.app_state.encoding.encoder
+                cmd.extend(["-c:v", encoder])
+                self.app_state.log(f"Video: Encoding with {encoder}", "INFO")
+                
+                # GPU settings
+                if self.app_state.encoding.use_gpu and "nvenc" in encoder:
+                    cmd.extend(["-preset", self.app_state.encoding.gpu_preset])
+                    cmd.extend(["-cq", str(self.app_state.encoding.cq)])
+                else:
+                    cmd.extend(["-crf", str(self.app_state.encoding.cq)])
+                    cmd.extend(["-preset", self.app_state.encoding.cpu_preset])
+                
+                # Resolution
+                if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
+                    cmd.extend(["-s", self.app_state.encoding.resolution])
+                
+                # Pixel format for compatibility
+                cmd.extend(["-pix_fmt", "yuv420p"])
             
             if self.app_state.tracks.audio_copy_mode:
                 cmd.extend(["-c:a", "copy"])
