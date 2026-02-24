@@ -348,14 +348,17 @@ class VideoWorkspace(QWidget):
         
         self.app_state.log(f"Video duration: {duration:.2f} seconds ({duration/60:.2f} minutes)", "INFO")
         
-        # Check if we can do fast cut (stream copy) - only when resolution is "none"
+        # Check if we can do fast cut (stream copy) - only when no filters or re-encoding needed
         can_fast_cut = (
             self.app_state.encoding.resolution == "none" and
             not self.app_state.filters.deinterlace and
             not self.app_state.filters.denoise and
             not self.app_state.eq.enabled and
             not self.app_state.subtitles.burn_subs and
-            not self.app_state.filters.volume_enabled
+            not self.app_state.filters.volume_enabled and
+            not getattr(self.app_state.filters, 'audio_denoise', False) and
+            not getattr(self.app_state.filters, 'audio_dynnorm', False) and
+            not getattr(self.app_state.filters, 'audio_compressor', False)
         )
         
         # Generate output paths
