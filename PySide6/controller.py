@@ -223,18 +223,6 @@ class VideoController:
         # Check if this is a DVD concat source
         is_dvd_source = self.app_state.dvd.is_dvd_source and input_path.endswith('.txt')
         
-        # Check fast split mode
-        if self.app_state.split.enabled:
-            self.app_state.log("Using Fast Split (Stream Copy)", "INFO")
-            if start_time:
-                cmd.extend(["-ss", start_time])
-            if duration:
-                cmd.extend(["-t", duration])
-            cmd.extend(["-i", input_path])
-            cmd.extend(["-c", "copy"])
-            cmd.extend(["-y", output_path])
-            return cmd
-            
         # Check extract clip mode
         if self.app_state.split.extract_clip_enabled:
             self.app_state.log("Extracting clip segment", "INFO")
@@ -834,10 +822,6 @@ class VideoController:
         container = self.app_state.encoding.container
         output_folder = self.app_state.output_folder or os.path.dirname(input_path)
         
-        # Add suffix if split mode
-        if self.app_state.split.enabled:
-            base_name += "_part1"
-            
         output_path = os.path.join(output_folder, f"{base_name}.{container}")
         
         # Handle duplicates

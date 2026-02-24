@@ -313,18 +313,6 @@ class EncodingPanel(QWidget):
             self.algorithm_combo.setStyleSheet("color: gray;")
             self.scale_quality_combo.setStyleSheet("color: gray;")
         
-        # === Fast Split Section ===
-        line3 = QFrame()
-        line3.setFrameShape(QFrame.HLine)
-        line3.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line3)
-        
-        # Fast Split checkbox
-        self.fast_split_check = QCheckBox("Fast Split (No Re-encoding)\nKeeps original format/quality")
-        self.fast_split_check.setChecked(self.app_state.split.enabled)
-        self.fast_split_check.setToolTip("Split video without re-encoding. Much faster but requires keyframe alignment.")
-        layout.addWidget(self.fast_split_check)
-        
         # === Advanced Encoding Settings (Collapsible) ===
         line4 = QFrame()
         line4.setFrameShape(QFrame.HLine)
@@ -438,7 +426,6 @@ class EncodingPanel(QWidget):
         self.scale_mode_combo.currentTextChanged.connect(self.on_scale_mode_changed)
         self.algorithm_combo.currentTextChanged.connect(self.on_algorithm_changed)
         self.scale_quality_combo.currentTextChanged.connect(self.on_scale_quality_changed)
-        self.fast_split_check.toggled.connect(self.on_fast_split_changed)
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
@@ -608,9 +595,4 @@ class EncodingPanel(QWidget):
     def on_scale_quality_changed(self, text):
         """Handle scale quality change"""
         self.app_state.encoding.scale_quality = text
-        self.settings_changed.emit()
-        
-    def on_fast_split_changed(self, checked):
-        """Handle fast split checkbox change"""
-        self.app_state.split.enabled = checked
         self.settings_changed.emit()
