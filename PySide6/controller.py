@@ -247,18 +247,36 @@ class VideoController:
             burn_subs = self.app_state.subtitles.burn_subs
             sub_path = self.find_subtitle_file(input_path) if burn_subs else None
             
+            # Check for DVD subtitle burning - NOT SUPPORTED (dvd_subtitle is bitmap format)
+            # FFmpeg cannot convert dvd_subtitle to text format or overlay bitmap subtitles
+            burning_dvd_subs = is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0
+            if burning_dvd_subs:
+                self.app_state.log("DVD subtitle burning is not supported (bitmap format). Skipping subtitle burn.", "WARN")
+                self.app_state.log("Tip: Use HandBrake or mencoder for DVD subtitle burning.", "INFO")
+            
             # Add concat demuxer flags for DVD sources
             if is_dvd_source:
                 cmd.extend(["-f", "concat", "-safe", "0"])
             
-            if burn_subs and sub_path:
+            # External subtitle burning (non-DVD sources)
+            if burn_subs and sub_path and not is_dvd_source:
                 cmd.extend(["-i", input_path])
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-t", duration])
                 
                 subs_filter = self.build_subtitle_filter(sub_path)
                 if subs_filter:
-                    vf_chain = f"{subs_filter},setpts=PTS-STARTPTS"
+                    # Build filter chain - include scale if needed
+                    filter_parts = [subs_filter]
+                    
+                    # Add scale to filter chain if resolution is set
+                    if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
+                        filter_parts.append(f"scale={self.app_state.encoding.resolution}")
+                        self.app_state.log(f"Including scale {self.app_state.encoding.resolution} in filter chain", "INFO")
+                    
+                    filter_parts.append("setpts=PTS-STARTPTS")
+                    vf_chain = ",".join(filter_parts)
+                    
                     cmd.extend(["-vf", vf_chain])
                     cmd.extend(["-af", "asetpts=PTS-STARTPTS"])
                     self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
@@ -266,7 +284,7 @@ class VideoController:
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", input_path])
                 cmd.extend(["-t", duration])
-                if burn_subs:
+                if burn_subs and not is_dvd_source:
                     self.app_state.log("No external subtitle file found (.srt, .ass, .ssa, .sub)", "WARN")
             
             # Video codec handling for extract clip mode
@@ -294,44 +312,45 @@ class VideoController:
                 # Pixel format for compatibility
                 cmd.extend(["-pix_fmt", "yuv420p"])
             
+            # Build audio filters for extract clip mode
+            _, audio_filters = self.build_filter_complex(input_path)
+            
             if self.app_state.tracks.audio_copy_mode:
+                # Cannot apply audio filters in copy mode - warn user
+                if audio_filters:
+                    self.app_state.log("Audio: Copy mode - audio filters (volume, denoise, etc.) will not be applied", "WARN")
                 cmd.extend(["-c:a", "copy"])
                 self.app_state.log("Audio: Copy original stream", "INFO")
             else:
                 cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
                 self.app_state.log("Audio: Re-encode to AAC stereo", "INFO")
+                # Apply audio filters when re-encoding
+                if audio_filters:
+                    cmd.extend(["-af", audio_filters])
+                    self.app_state.log(f"Audio filters: {audio_filters}", "INFO")
             cmd.extend(["-y", output_path])
             return cmd
         else:
             # Normal encoding mode
             self.app_state.log("Normal Re-Encoding Mode", "INFO")
             
-            # Add hardware decoding for GPU encoders
-            # NOTE: Disable hwaccel when burning DVD subtitles - overlay filter needs CPU access
-            # DVD subtitles are ALWAYS burned when selected (they can't be extracted to external files)
-            encoder = self.app_state.encoding.encoder
+            # Check for DVD subtitle burning - NOT SUPPORTED (dvd_subtitle is bitmap format)
             burning_dvd_subs = is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0
-            if self.app_state.encoding.use_gpu and "nvenc" in encoder and not burning_dvd_subs:
+            if burning_dvd_subs:
+                self.app_state.log("DVD subtitle burning is not supported (bitmap format). Skipping subtitle burn.", "WARN")
+                self.app_state.log("Tip: Use HandBrake or mencoder for DVD subtitle burning.", "INFO")
+            
+            # Add hardware decoding for GPU encoders
+            encoder = self.app_state.encoding.encoder
+            if self.app_state.encoding.use_gpu and "nvenc" in encoder:
                 cmd.extend(["-hwaccel", "cuda"])
             
             # Handle DVD concat source
             if is_dvd_source:
                 self.app_state.log("DVD Source: Using concat demuxer", "INFO")
-                # Add extended analysis for DVD subtitle detection
-                cmd.extend(["-analyzeduration", "100M", "-probesize", "100M"])
                 cmd.extend(["-f", "concat", "-safe", "0"])
             
             cmd.extend(["-i", input_path])
-            
-            # DVD subtitle burning - map subtitle stream for overlay
-            # DVD subtitles (dvd_subtitle codec) need to be overlaid
-            if is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0:
-                sub_idx = self.app_state.dvd.selected_subtitle_index
-                # Map the subtitle stream for overlay filter
-                # Note: DVD subtitles are bitmap-based and need special handling
-                self.app_state.log(f"DVD: Mapping subtitle stream {sub_idx} for burning", "INFO")
-                if self.app_state.subtitles.burn_subs:
-                    self.app_state.log("DVD: Hardware acceleration disabled for subtitle overlay compatibility", "INFO")
             
             # Seek AFTER input for accurate frame-precise seeking (avoids green frames)
             if start_time:
@@ -360,9 +379,7 @@ class VideoController:
                 cmd.extend(["-preset", self.app_state.encoding.cpu_preset])
                 
             # Resolution - only use -s if scale_mode is off (otherwise use filter)
-            # NOTE: When using filter_complex for DVD subtitles, scaling must be in the filter chain
-            burning_dvd_subs = is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0
-            if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off" and not burning_dvd_subs:
+            if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
                 cmd.extend(["-s", self.app_state.encoding.resolution])
                 
             # Framerate
@@ -430,41 +447,9 @@ class VideoController:
         # Filters (video and audio separated)
         video_filters, audio_filters = self.build_filter_complex(input_path)
         
-        # DVD subtitle overlay using filter_complex
-        # DVD subtitles (dvd_subtitle) are bitmap-based and need overlay filter
-        # They are ALWAYS burned when selected (can't be extracted to external files)
-        if is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0:
-            sub_idx = self.app_state.dvd.selected_subtitle_index
-            self.app_state.log(f"DVD: Using filter_complex to overlay subtitle stream {sub_idx}", "INFO")
-            
-            # Build filter_complex for subtitle overlay
-            # Include scale if resolution is set and scale_mode is "off"
-            scale_filter = ""
-            if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
-                scale_filter = f"scale={self.app_state.encoding.resolution}"
-                self.app_state.log(f"DVD: Including scale {self.app_state.encoding.resolution} in filter_complex", "INFO")
-            
-            # Build the filter chain
-            # [0:v] is video stream, [0:s:X] is subtitle stream X
-            if video_filters:
-                # Apply video filters first, then scale, then overlay subtitle
-                if scale_filter:
-                    filter_complex = f"[0:v]{video_filters},scale={self.app_state.encoding.resolution}[v];[v][0:s:{sub_idx}]overlay"
-                else:
-                    filter_complex = f"[0:v]{video_filters}[v];[v][0:s:{sub_idx}]overlay"
-                cmd.extend(["-filter_complex", filter_complex])
-            elif scale_filter:
-                # Scale then overlay subtitle
-                filter_complex = f"[0:v]scale={self.app_state.encoding.resolution}[v];[v][0:s:{sub_idx}]overlay"
-                cmd.extend(["-filter_complex", filter_complex])
-            else:
-                # Just overlay subtitle
-                filter_complex = f"[0:v][0:s:{sub_idx}]overlay"
-                cmd.extend(["-filter_complex", filter_complex])
-        else:
-            # Normal video filter handling
-            if video_filters:
-                cmd.extend(["-vf", video_filters])
+        # Apply video filters
+        if video_filters:
+            cmd.extend(["-vf", video_filters])
         if audio_filters:
             cmd.extend(["-af", audio_filters])
             
@@ -534,34 +519,19 @@ class VideoController:
             if eq_params:
                 video_filters.append(f"eq={':'.join(eq_params)}")
         
-        # Subtitles burn-in - look for external subtitle files or DVD extracted subtitles
-        # DVD subtitles are ALWAYS burned when selected (they can't be extracted to external files)
-        if self.app_state.dvd.is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0:
-            # DVD subtitles are burned directly from the stream using overlay filter
-            # The subtitle stream index is stored in selected_subtitle_index
-            sub_idx = self.app_state.dvd.selected_subtitle_index
-            self.app_state.log(f"DVD: Will burn subtitle stream {sub_idx} directly from VOB", "INFO")
-            # Note: DVD subtitle overlay is handled separately in build_ffmpeg_cmd via filter_complex
-        elif self.app_state.subtitles.burn_subs:
-            # Check for DVD extracted subtitle file
-            if self.app_state.dvd.is_dvd_source and self.app_state.dvd.extracted_subtitle_path:
-                sub_path = self.app_state.dvd.extracted_subtitle_path
-                if os.path.exists(sub_path):
-                    subs_filter = self.build_subtitle_filter(sub_path)
-                    if subs_filter:
-                        video_filters.append(subs_filter)
-                        self.app_state.log(f"Burning DVD subtitles from: {os.path.basename(sub_path)}", "INFO")
-                else:
-                    self.app_state.log(f"Extracted subtitle file not found: {sub_path}", "WARN")
+        # Subtitles burn-in - look for external subtitle files
+        # DVD subtitles are handled separately in build_ffmpeg_command after extraction
+        if self.app_state.subtitles.burn_subs:
+            # Look for external subtitle file
+            sub_path = self.find_subtitle_file(input_path)
+            if sub_path:
+                subs_filter = self.build_subtitle_filter(sub_path)
+                if subs_filter:
+                    video_filters.append(subs_filter)
+                    self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
             else:
-                # Look for external subtitle file
-                sub_path = self.find_subtitle_file(input_path)
-                if sub_path:
-                    subs_filter = self.build_subtitle_filter(sub_path)
-                    if subs_filter:
-                        video_filters.append(subs_filter)
-                        self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
-                else:
+                # Don't warn here for DVD sources - they're handled separately
+                if not self.app_state.dvd.is_dvd_source:
                     self.app_state.log("No external subtitle file found (.srt or .ass)", "WARN")
                 
         # Volume (audio filter)
@@ -695,6 +665,14 @@ class VideoController:
         Returns:
             True if successful, False otherwise
         """
+        # Check for DVD subtitle burning - NOT SUPPORTED (dvd_subtitle is bitmap format)
+        is_dvd_source = self.app_state.dvd.is_dvd_source and input_path.endswith('.txt')
+        if is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0:
+            self.app_state.log("DVD subtitle burning is not supported (bitmap format). Skipping subtitle burn.", "WARN")
+            self.app_state.log("Tip: Use HandBrake or mencoder for DVD subtitle burning.", "INFO")
+            # Disable subtitle selection to prevent confusion
+            self.app_state.dvd.selected_subtitle_index = -1
+        
         cmd = self.build_ffmpeg_command(input_path, output_path, start_time, duration)
         
         self.app_state.log(f"Starting encode: {os.path.basename(input_path)}", "INFO")
