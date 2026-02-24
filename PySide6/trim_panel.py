@@ -103,9 +103,9 @@ class TrimPanel(QGroupBox):
         segment_btn_layout.addStretch()
         layout.addLayout(segment_btn_layout)
         
-        # Start Encoding Button
-        self.execute_btn = QPushButton("Start Encoding")
-        self.execute_btn.setToolTip("Encode selected parts")
+        # Export Button
+        self.execute_btn = QPushButton("Export Cut Parts")
+        self.execute_btn.setToolTip("Export selected parts as separate files")
         self.execute_btn.setEnabled(False)
         self.execute_btn.clicked.connect(self.on_execute_clicked)
         layout.addWidget(self.execute_btn)
