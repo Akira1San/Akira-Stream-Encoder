@@ -88,15 +88,49 @@ from models import AppState
 
 
 class TimelineSlider(QSlider):
-    """Custom slider with cut point markers"""
+    """Custom slider with cut point markers and dynamic range for precise positioning"""
     
     cut_marker_clicked = Signal(float, str)  # position, cut_id
+    
+    # Constants for dynamic range
+    STEPS_PER_SECOND = 30  # ~frame-accurate at 30fps
+    MAX_STEPS = 100000     # Cap to prevent performance issues
     
     def __init__(self, orientation, parent=None):
         super().__init__(orientation, parent)
         self.cut_points = []  # List of (position_seconds, cut_id)
         self.duration = 0.0
         self.hovered_cut = None  # Currently hovered cut for visual feedback
+        self._slider_max = 1000  # Current slider maximum
+        
+        # Enable keyboard focus for navigation shortcuts
+        self.setFocusPolicy(Qt.StrongFocus)
+        
+    def set_duration(self, duration: float):
+        """
+        Set duration and update slider range dynamically.
+        Provides ~frame-accurate precision (30 steps per second).
+        """
+        self.duration = max(0.0, duration)
+        if self.duration > 0:
+            # Calculate steps: 30 per second, capped at MAX_STEPS
+            steps = min(int(self.duration * self.STEPS_PER_SECOND), self.MAX_STEPS)
+            self._slider_max = max(steps, 1000)  # Minimum 1000 for short videos
+        else:
+            self._slider_max = 1000
+        self.setRange(0, self._slider_max)
+        
+    def time_to_value(self, time_seconds: float) -> int:
+        """Convert time in seconds to slider value"""
+        if self.duration <= 0:
+            return 0
+        return int((time_seconds / self.duration) * self._slider_max)
+    
+    def value_to_time(self, value: int) -> float:
+        """Convert slider value to time in seconds"""
+        if self._slider_max <= 0:
+            return 0.0
+        return (value / self._slider_max) * self.duration
         
     def set_cut_points(self, cut_points: list, duration: float):
         """
@@ -106,7 +140,8 @@ class TimelineSlider(QSlider):
             duration: Video duration in seconds
         """
         self.cut_points = cut_points
-        self.duration = duration
+        if duration != self.duration:
+            self.set_duration(duration)
         self.update()
     
     def clear_cut_points(self):
@@ -126,9 +161,9 @@ class TimelineSlider(QSlider):
         painter = QPainter(self)
         
         for cut_pos, cut_id in self.cut_points:
-            # Convert seconds to slider position (0-1000)
+            # Convert seconds to slider position using dynamic range
             if self.duration > 0:
-                slider_val = int((cut_pos / self.duration) * 1000)
+                slider_val = self.time_to_value(cut_pos)
                 x = self._value_to_pixel(slider_val)
                 
                 # Check if this cut is hovered
@@ -152,7 +187,7 @@ class TimelineSlider(QSlider):
         painter.end()
     
     def _value_to_pixel(self, value: int) -> float:
-        """Convert slider value (0-1000) to pixel position"""
+        """Convert slider value to pixel position"""
         # Get slider dimensions
         slider_width = self.width()
         handle_width = 20  # Approximate handle width
@@ -186,7 +221,7 @@ class TimelineSlider(QSlider):
         closest_distance = float('inf')
         
         for cut_pos, cut_id in self.cut_points:
-            slider_val = int((cut_pos / self.duration) * 1000)
+            slider_val = self.time_to_value(cut_pos)
             marker_x = self._value_to_pixel(slider_val)
             distance = abs(click_x - marker_x)
             
@@ -218,7 +253,7 @@ class TimelineSlider(QSlider):
         
         hovered_cut = None
         for cut_pos, cut_id in self.cut_points:
-            slider_val = int((cut_pos / self.duration) * 1000)
+            slider_val = self.time_to_value(cut_pos)
             marker_x = self._value_to_pixel(slider_val)
             
             if abs(mouse_x - marker_x) <= tolerance:
@@ -241,6 +276,84 @@ class TimelineSlider(QSlider):
             self.hovered_cut = None
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self.update()
+    
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for precise navigation"""
+        if self.duration <= 0:
+            super().keyPressEvent(event)
+            return
+        
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # Calculate step sizes based on current range
+        frame_step = max(1, self._slider_max // (int(self.duration * 30)))  # 1 frame at 30fps
+        second_step = max(1, self._slider_max // int(self.duration))  # 1 second
+        five_second_step = max(1, self._slider_max * 5 // int(self.duration))  # 5 seconds
+        
+        handled = False
+        
+        if key == Qt.Key_Left:
+            if modifiers & Qt.ShiftModifier:
+                # Shift+Left: Jump back 1 second
+                new_value = max(0, self.value() - second_step)
+            elif modifiers & Qt.ControlModifier:
+                # Ctrl+Left: Jump back 5 seconds
+                new_value = max(0, self.value() - five_second_step)
+            else:
+                # Left: Step back 1 frame
+                new_value = max(0, self.value() - frame_step)
+            handled = True
+            
+        elif key == Qt.Key_Right:
+            if modifiers & Qt.ShiftModifier:
+                # Shift+Right: Jump forward 1 second
+                new_value = min(self._slider_max, self.value() + second_step)
+            elif modifiers & Qt.ControlModifier:
+                # Ctrl+Right: Jump forward 5 seconds
+                new_value = min(self._slider_max, self.value() + five_second_step)
+            else:
+                # Right: Step forward 1 frame
+                new_value = min(self._slider_max, self.value() + frame_step)
+            handled = True
+            
+        elif key == Qt.Key_J:
+            # J: Jump back 5 seconds
+            new_value = max(0, self.value() - five_second_step)
+            handled = True
+            
+        elif key == Qt.Key_L:
+            # L: Jump forward 5 seconds
+            new_value = min(self._slider_max, self.value() + five_second_step)
+            handled = True
+            
+        elif key == Qt.Key_Home:
+            # Home: Go to start
+            new_value = 0
+            handled = True
+            
+        elif key == Qt.Key_End:
+            # End: Go to end
+            new_value = self._slider_max
+            handled = True
+        
+        if handled:
+            self.setValue(new_value)
+            self.sliderReleased.emit()
+        else:
+            super().keyPressEvent(event)
+    
+    def stepBy(self, steps: int):
+        """Override stepBy for finer stepping with mouse wheel/page keys"""
+        if self.duration <= 0:
+            super().stepBy(steps)
+            return
+        
+        # Use frame-sized steps instead of default large steps
+        frame_step = max(1, self._slider_max // (int(self.duration * 30)))
+        new_value = self.value() + steps * frame_step
+        new_value = max(0, min(self._slider_max, new_value))
+        self.setValue(new_value)
 
 
 class FrameLoader(QObject):
@@ -470,7 +583,7 @@ class VideoPreview(QWidget):
         timeline_layout.addWidget(QLabel("Timeline:"))
         
         self.timeline_slider = TimelineSlider(Qt.Horizontal)
-        self.timeline_slider.setRange(0, 1000)
+        self.timeline_slider.setRange(0, 1000)  # Will be updated dynamically when duration is set
         self.timeline_slider.valueChanged.connect(self.on_timeline_changed)
         self.timeline_slider.sliderReleased.connect(self.on_timeline_released)
         timeline_layout.addWidget(self.timeline_slider)
@@ -541,6 +654,8 @@ class VideoPreview(QWidget):
             if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
                 self.duration = float(result.stdout.strip())
                 self.app_state.log(f"Video duration: {self.duration:.2f}s", "INFO")
+                # Update slider range for precise positioning
+                self.timeline_slider.set_duration(self.duration)
             else:
                 # Fallback: try to get duration from DVD state if available
                 if is_dvd_source and self.app_state.dvd.available_titles:
@@ -548,6 +663,8 @@ class VideoPreview(QWidget):
                         if title.title_number == self.app_state.dvd.selected_title_number:
                             self.duration = title.duration
                             self.app_state.log(f"Using DVD title duration: {self.duration:.2f}s", "INFO")
+                            # Update slider range for precise positioning
+                            self.timeline_slider.set_duration(self.duration)
                             return
                 self.app_state.log(f"Could not determine video duration", "WARN")
         except Exception as e:
@@ -557,7 +674,7 @@ class VideoPreview(QWidget):
     def on_timeline_changed(self, value):
         """Handle timeline slider change"""
         if self.duration > 0:
-            timestamp = (value / 1000.0) * self.duration
+            timestamp = self.timeline_slider.value_to_time(value)
             mins, secs = divmod(int(timestamp), 60)
             hours = mins // 60
             mins = mins % 60
@@ -601,8 +718,8 @@ class VideoPreview(QWidget):
             # Clamp to valid range
             seconds = max(0, min(seconds, self.duration))
             
-            # Update slider position
-            slider_value = int((seconds / self.duration) * 1000)
+            # Update slider position using dynamic range
+            slider_value = self.timeline_slider.time_to_value(seconds)
             self.timeline_slider.setValue(slider_value)
             
             # Seek to that position
@@ -615,7 +732,7 @@ class VideoPreview(QWidget):
         """Handle timeline slider release - load frame and sync audio"""
         if self.current_video_path and self.duration > 0:
             value = self.timeline_slider.value()
-            timestamp = (value / 1000.0) * self.duration
+            timestamp = self.timeline_slider.value_to_time(value)
             self.seek_preview(timestamp)
             
             # Sync playback time (for when playing)
@@ -629,7 +746,7 @@ class VideoPreview(QWidget):
         """Get the current timeline position in seconds"""
         if self.duration > 0:
             value = self.timeline_slider.value()
-            return (value / 1000.0) * self.duration
+            return self.timeline_slider.value_to_time(value)
         return 0.0
     
     def update_cut_markers(self, cut_points: list):
@@ -769,7 +886,7 @@ class VideoPreview(QWidget):
             # No FFmpeg filters to apply, just draw subtitles if needed
             if sub_path and self.app_state.subtitles.burn_subs and self.duration > 0:
                 value = self.timeline_slider.value()
-                timestamp = (value / 1000.0) * self.duration
+                timestamp = self.timeline_slider.value_to_time(value)
                 sub_text = get_subtitle_text(sub_path, timestamp)
                 if sub_text:
                     self.app_state.log(f"Preview: Drawing subtitle at {timestamp:.1f}s: {sub_text[:50]}...", "DEBUG")
@@ -823,7 +940,7 @@ class VideoPreview(QWidget):
         # Get subtitle text for current timestamp and draw it
         if sub_path and self.app_state.subtitles.burn_subs and self.duration > 0:
             value = self.timeline_slider.value()
-            timestamp = (value / 1000.0) * self.duration
+            timestamp = self.timeline_slider.value_to_time(value)
             sub_text = get_subtitle_text(sub_path, timestamp)
             if sub_text:
                 self.app_state.log(f"Preview: Drawing subtitle at {timestamp:.1f}s: {sub_text[:50]}...", "DEBUG")
@@ -895,7 +1012,7 @@ class VideoPreview(QWidget):
         """Refresh preview with current settings"""
         if self.current_video_path and self.duration > 0:
             value = self.timeline_slider.value()
-            timestamp = (value / 1000.0) * self.duration
+            timestamp = self.timeline_slider.value_to_time(value)
             self.seek_preview(timestamp)
             
     def resizeEvent(self, event):
@@ -913,7 +1030,7 @@ class VideoPreview(QWidget):
         
         # Initialize playback time from current slider position
         value = self.timeline_slider.value()
-        self._playback_time = (value / 1000.0) * self.duration
+        self._playback_time = self.timeline_slider.value_to_time(value)
         
         self.is_playing = True
         self.play_btn.setEnabled(False)
@@ -1016,8 +1133,8 @@ class VideoPreview(QWidget):
             self.on_stop_clicked()
             return
             
-        # Update slider position (slider range is 0-1000)
-        slider_value = int((self._playback_time / self.duration) * 1000)
+        # Update slider position using dynamic range
+        slider_value = self.timeline_slider.time_to_value(self._playback_time)
         self.timeline_slider.setValue(slider_value)
         
         # Load frame at new position

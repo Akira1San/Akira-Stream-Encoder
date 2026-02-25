@@ -197,6 +197,7 @@ class DVDSettings:
     selected_subtitle_index: int = -1  # Subtitle stream index to burn (-1 = none)
     extracted_subtitle_path: str = ""  # Path to extracted .sub file for burning
     subtitle_tracks: List = field(default_factory=list)  # List of subtitle track dicts for selected title
+    vob_path_for_subs: str = ""  # Path to first VOB file for dual-input subtitle overlay
 
 
 class AppState(QObject):

@@ -576,6 +576,12 @@ class DVDHandler:
         
         self.log(f"Extracting subtitle track {subtitle_index}...", "INFO")
         
+        # Method 0: Try MKV intermediate format (most reliable for FFmpeg)
+        # The concat demuxer doesn't expose subtitle streams, so we need to remux to MKV first
+        mkv_result = self._extract_subtitle_via_mkv(vob_file, subtitle_index, output_path, concat_file)
+        if mkv_result and os.path.exists(mkv_result) and os.path.getsize(mkv_result) > 0:
+            return mkv_result
+        
         # Method 1: Try mplayer for VobSub extraction (most reliable for DVD)
         # mplayer can extract DVD subtitles as VobSub format
         mplayer_result = self._extract_subtitle_mplayer(vob_file, subtitle_index, output_path, concat_file)
@@ -816,6 +822,109 @@ class DVDHandler:
                 
             except Exception as e:
                 self.log(f"mpv check failed: {e}", "DEBUG")
+        
+        return None
+    
+    def _extract_subtitle_via_mkv(self, vob_file: str, subtitle_index: int, output_path: str,
+                                   concat_file: str = None) -> Optional[str]:
+        """
+        Extract DVD subtitle by first remuxing to MKV (which preserves subtitle streams).
+        
+        The concat demuxer doesn't expose DVD subtitle streams, but MKV does.
+        This method:
+        1. Remuxes the VOB to MKV (stream copy, very fast)
+        2. Extracts the subtitle from the MKV file
+        
+        Args:
+            vob_file: Path to the source VOB file
+            subtitle_index: Subtitle stream index
+            output_path: Base path for output (without extension)
+            concat_file: Optional concat file for full title (NOT USED - concat doesn't expose subtitles)
+            
+        Returns:
+            Path to extracted .sub file, or None on failure
+        """
+        sub_file = f"{output_path}.sub"
+        
+        # Create temporary MKV file
+        mkv_file = f"{output_path}.mkv"
+        
+        self.log("Trying MKV intermediate format for subtitle extraction...", "INFO")
+        
+        # IMPORTANT: Always use VOB file directly, NOT concat file
+        # The concat demuxer doesn't expose DVD subtitle streams!
+        # We only extract from the first VOB (subtitles are repeated across VOBs)
+        
+        remux_cmd = [
+            self.ffmpeg_path,
+            "-y",
+            "-analyzeduration", "100M",
+            "-probesize", "100M",
+            "-i", vob_file,  # Use VOB directly
+            "-c", "copy",  # Stream copy (no re-encoding)
+            "-map", "0:v?",  # Map video (optional)
+            "-map", "0:a?",  # Map audio (optional)
+            "-map", "0:s?",  # Map all subtitles (optional)
+            mkv_file
+        ]
+        
+        try:
+            self.log(f"Remuxing VOB to MKV: {os.path.basename(vob_file)}", "DEBUG")
+            result = subprocess.run(
+                remux_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=300  # 5 minute timeout
+            )
+            
+            if result.returncode != 0:
+                self.log(f"MKV remux failed: {result.stderr[:500]}", "DEBUG")
+                return None
+            
+            if not os.path.exists(mkv_file):
+                self.log("MKV file not created", "DEBUG")
+                return None
+            
+            self.log(f"MKV remux successful: {os.path.getsize(mkv_file) / 1024 / 1024:.1f} MB", "DEBUG")
+            
+        except Exception as e:
+            self.log(f"MKV remux error: {e}", "DEBUG")
+            return None
+        
+        # Step 2: Extract subtitle from MKV
+        extract_cmd = [
+            self.ffmpeg_path,
+            "-y",
+            "-i", mkv_file,
+            "-map", f"0:s:{subtitle_index}",
+            "-c:s", "copy",
+            sub_file
+        ]
+        
+        try:
+            result = subprocess.run(
+                extract_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=120
+            )
+            
+            if result.returncode == 0 and os.path.exists(sub_file) and os.path.getsize(sub_file) > 0:
+                self.log(f"Subtitle extracted from MKV: {sub_file}", "SUCCESS")
+                # Clean up MKV file
+                try:
+                    os.remove(mkv_file)
+                except:
+                    pass
+                return sub_file
+            else:
+                self.log(f"Subtitle extraction from MKV failed: {result.stderr[:300]}", "DEBUG")
+        
+        except Exception as e:
+            self.log(f"MKV subtitle extraction error: {e}", "DEBUG")
+        
+        # Clean up MKV file on failure
+        try:
+            if os.path.exists(mkv_file):
+                os.remove(mkv_file)
+        except:
+            pass
         
         return None
     
