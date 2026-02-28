@@ -3,9 +3,10 @@ Video Workspace - Main Video Tab layout and panel management (PySide6)
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QTabWidget, QScrollArea, QFrame, QLabel, QPushButton
+    QTabWidget, QScrollArea, QFrame, QLabel, QPushButton, QTextEdit
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 
 from models import AppState
 from ui_components import CollapsibleFrame
@@ -19,6 +20,37 @@ from video_preview import VideoPreview
 from nle import NLETab
 
 
+class LogWidget(QTextEdit):
+    """Custom log display widget"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.document().setMaximumBlockCount(1000)
+        self.setFont(QFont("Consolas", 9))
+        
+    def log(self, message: str, level: str = "INFO"):
+        """Add a log entry with color coding"""
+        colors = {
+            "INFO": "#000000",
+            "WARN": "#FF8C00",
+            "ERROR": "#FF0000",
+            "SUCCESS": "#008000"
+        }
+        color = colors.get(level, "#000000")
+        
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        html = f'<span style="color: #666666;">[{timestamp}]</span> '
+        html += f'<span style="color: {color};">{message}</span>'
+        
+        self.append(html)
+        
+        scrollbar = self.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+
 class VideoWorkspace(QWidget):
     """
     Main video workspace with settings panels on the left
@@ -28,6 +60,10 @@ class VideoWorkspace(QWidget):
     def __init__(self, app_state: AppState, parent=None):
         super().__init__(parent)
         self.app_state = app_state
+        
+        # Create log widget
+        self.log_widget = LogWidget()
+        self.app_state.log_message.connect(self.on_log_message)
         
         self.setup_ui()
         self.connect_signals()
@@ -109,7 +145,7 @@ class VideoWorkspace(QWidget):
         self.preview = VideoPreview(self.app_state)
         right_splitter.addWidget(self.preview)
         
-        # Tabs for Trim/Cut and Scan
+        # Tabs for Trim/Cut, Log, and Scan
         self.tabs = QTabWidget()
         
         # Trim/Cut Tab
@@ -126,6 +162,24 @@ class VideoWorkspace(QWidget):
         self.preview.timeline_slider.cut_marker_clicked.connect(self.on_cut_marker_clicked)
         trim_layout.addStretch()
         self.tabs.addTab(self.trim_tab, "Trim/Cut")
+        
+        # Log Tab
+        self.log_tab = QWidget()
+        log_layout = QVBoxLayout(self.log_tab)
+        
+        log_header = QHBoxLayout()
+        log_header.addWidget(QLabel("<b>Log Output</b>"))
+        log_header.addStretch()
+        
+        clear_btn = QPushButton("Clear")
+        clear_btn.setMaximumWidth(80)
+        clear_btn.clicked.connect(self.clear_log)
+        log_header.addWidget(clear_btn)
+        
+        log_layout.addLayout(log_header)
+        log_layout.addWidget(self.log_widget)
+        
+        self.tabs.addTab(self.log_tab, "📋 Log")
         
         # NLE Tab (Non-Linear Editor)
         self.nle_tab = NLETab(self.app_state)
@@ -195,6 +249,14 @@ class VideoWorkspace(QWidget):
     def connect_signals(self):
         """Connect signals"""
         self.app_state.current_video_changed.connect(self.on_video_changed)
+        
+    def on_log_message(self, message: str, level: str):
+        """Handle log messages from app state"""
+        self.log_widget.log(message, level)
+        
+    def clear_log(self):
+        """Clear the log widget"""
+        self.log_widget.clear()
         
     def on_settings_changed(self):
         """Handle settings change - refresh preview"""
@@ -353,6 +415,7 @@ class VideoWorkspace(QWidget):
             self.app_state.encoding.resolution == "none" and
             not self.app_state.filters.deinterlace and
             not self.app_state.filters.denoise and
+            not getattr(self.app_state.filters, 'delogo_enabled', False) and
             not self.app_state.eq.enabled and
             not self.app_state.subtitles.burn_subs and
             not self.app_state.filters.volume_enabled and

@@ -254,7 +254,7 @@ class VideoController:
                 
                 subs_filter = self.build_subtitle_filter(sub_path)
                 if subs_filter:
-                    # Build filter chain - include scale if needed
+                    # Build filter chain - include subtitle only
                     filter_parts = [subs_filter]
                     
                     # Add scale to filter chain if resolution is set
@@ -272,6 +272,12 @@ class VideoController:
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", input_path])
                 cmd.extend(["-t", duration])
+                
+                # Add scale if needed
+                if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
+                    cmd.extend(["-s", self.app_state.encoding.resolution])
+                    self.app_state.log(f"Scale output to {self.app_state.encoding.resolution}", "INFO")
+                
                 if burn_subs and not is_dvd_source:
                     self.app_state.log("No external subtitle file found (.srt, .ass, .ssa, .sub)", "WARN")
             
@@ -485,6 +491,86 @@ class VideoController:
         # Denoise
         if self.app_state.filters.denoise:
             video_filters.append("hqdn3d")
+
+        # Smart Crop (Black Bar Removal)
+        if getattr(self.app_state.filters, 'smart_crop_enabled', False):
+            crop_mode = getattr(self.app_state.filters, 'smart_crop_mode', 'manual')
+            min_dimension = 16  # Minimum dimension for codec compatibility
+
+            if crop_mode == 'manual':
+                # Manual crop values - ensure even dimensions for codec compatibility
+                w = max(self.app_state.filters.smart_crop_w, min_dimension)
+                h = max(self.app_state.filters.smart_crop_h, min_dimension)
+                x = self.app_state.filters.smart_crop_x
+                y = self.app_state.filters.smart_crop_y
+
+                # Make dimensions even (required by most codecs)
+                w = w // 2 * 2
+                h = h // 2 * 2
+
+                video_filters.append(f"crop={w}:{h}:{x}:{y}")
+                self.app_state.log(f"Smart Crop: Manual {w}x{h} at ({x},{y})", "INFO")
+
+                # Show crop preview if enabled
+                if getattr(self.app_state.filters, 'smart_crop_show_preview', False):
+                    video_filters.append(f"drawbox=x={x}:y={y}:w={w}:h={h}:color=green:thickness=3")
+                    self.app_state.log("Smart Crop Preview: Green border shown", "INFO")
+            else:
+                # Auto mode: Use preset values
+                w = max(self.app_state.filters.smart_crop_w, min_dimension)
+                h = max(self.app_state.filters.smart_crop_h, min_dimension)
+
+                # Make dimensions even
+                w = w // 2 * 2
+                h = h // 2 * 2
+
+                self.app_state.log("Smart Crop: Auto mode (using preset dimensions)", "INFO")
+                self.app_state.log(f"Smart Crop: Crop to {w}x{h} - adjust in Manual mode if needed", "INFO")
+                # Auto-center the crop
+                video_filters.append(f"crop={w}:{h}:(iw-{w})/2:(ih-{h})/2")
+
+                # Show preview in auto mode
+                if getattr(self.app_state.filters, 'smart_crop_show_preview', False):
+                    video_filters.append(f"drawbox=x=(iw-{w})/2:y=(ih-{h})/2:w={w}:h={h}:color=green:thickness=3")
+                    self.app_state.log("Smart Crop Preview: Green border shown", "INFO")
+
+        # Aspect Ratio Conversion
+        if getattr(self.app_state.filters, 'ar_convert_enabled', False):
+            ar_targets = {
+                "16:9": 16.0/9.0,
+                "4:3": 4.0/3.0,
+                "1:1": 1.0,
+                "2.35:1": 2.35
+            }
+            target_ar = ar_targets.get(getattr(self.app_state.filters, 'ar_target', '16:9'), 16.0/9.0)
+            ar_method = getattr(self.app_state.filters, 'ar_method', 'crop')
+
+            self.app_state.log(f"AR Conversion: {ar_method} to {target_ar:.2f}:1", "INFO")
+
+            if ar_method == "crop":
+                # Crop to target aspect ratio (centered)
+                # Expression: crop to match target AR, keeping the same visual area
+                video_filters.append(f"crop=iw:ow/{target_ar}:0:(ih-ow/{target_ar})/2")
+            elif ar_method == "pad":
+                # Add black bars to reach target AR
+                video_filters.append(f"pad=ih*{target_ar}:ih:(ow-ih*{target_ar})/2:0:black")
+            else:  # stretch
+                # Stretch to fill target AR (may distort)
+                video_filters.append(f"scale=iw:iw/{target_ar}")
+
+        # Delogo (Logo/Watermark Removal)
+        if getattr(self.app_state.filters, 'delogo_enabled', False):
+            x = self.app_state.filters.delogo_x
+            y = self.app_state.filters.delogo_y
+            w = self.app_state.filters.delogo_w
+            h = self.app_state.filters.delogo_h
+            video_filters.append(f"delogo=x={x}:y={y}:w={w}:h={h}")
+            self.app_state.log(f"Delogo: x={x}, y={y}, w={w}, h={h}", "INFO")
+            
+            # Show preview rectangle if enabled
+            if getattr(self.app_state.filters, 'delogo_show', False):
+                video_filters.append(f"drawbox=x={x}:y={y}:w={w}:h={h}:color=red:thickness=2")
+                self.app_state.log("Delogo Preview: Red rectangle shown", "INFO")
             
         # EQ (Color Correction)
         if self.app_state.eq.enabled:

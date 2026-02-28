@@ -83,13 +83,9 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
         
-        # Main splitter (vertical: content | log)
-        main_splitter = QSplitter(Qt.Vertical)
-        main_layout.addWidget(main_splitter)
-        
-        # === TOP SECTION: Tab Widget ===
+        # === MAIN SECTION: Tab Widget ===
         self.tab_widget = QTabWidget()
-        main_splitter.addWidget(self.tab_widget)
+        main_layout.addWidget(self.tab_widget)
         
         # Config Tab
         self.config_tab = ConfigTab(self.app_state)
@@ -105,30 +101,6 @@ class MainWindow(QMainWindow):
         self.composition_tab = CompositionTab(self.app_state)
         self.tab_widget.addTab(self.composition_tab, "🎨 Composition")
         
-        # === BOTTOM SECTION: Log Output ===
-        log_frame = QWidget()
-        log_layout = QVBoxLayout(log_frame)
-        log_layout.setContentsMargins(0, 0, 0, 0)
-        
-        log_header = QHBoxLayout()
-        log_header.addWidget(QLabel("<b>Log Output</b>"))
-        log_header.addStretch()
-        
-        clear_btn = QPushButton("Clear")
-        clear_btn.setMaximumWidth(80)
-        clear_btn.clicked.connect(self.clear_log)
-        log_header.addWidget(clear_btn)
-        
-        log_layout.addLayout(log_header)
-        
-        self.log_widget = LogWidget()
-        self.log_widget.setMinimumHeight(150)
-        self.log_widget.setMaximumHeight(250)
-        log_layout.addWidget(self.log_widget)
-        
-        main_splitter.addWidget(log_frame)
-        main_splitter.setSizes([700, 200])
-        
         # === STATUS BAR ===
         self.statusBar().showMessage("Ready")
         
@@ -137,15 +109,13 @@ class MainWindow(QMainWindow):
         
     def on_log_message(self, message: str, level: str):
         """Handle log messages from app state"""
-        self.log_widget.log(message, level)
+        # Forward log messages to video tab's log widget if it exists
+        if hasattr(self, 'video_tab') and hasattr(self.video_tab, 'log_widget'):
+            self.video_tab.log_widget.log(message, level)
         
         # Also update status bar for important messages
         if level in ("ERROR", "WARN"):
             self.statusBar().showMessage(message, 5000)
-            
-    def clear_log(self):
-        """Clear the log widget"""
-        self.log_widget.clear()
         
     def log(self, message: str, level: str = "INFO"):
         """Convenience method for logging"""

@@ -67,6 +67,27 @@ class FilterSettings:
     """Video and audio filter settings"""
     deinterlace: bool = False
     denoise: bool = False
+    # Delogo (logo removal)
+    delogo_enabled: bool = False
+    delogo_x: int = 0  # X position of logo area
+    delogo_y: int = 0  # Y position of logo area
+    delogo_w: int = 100  # Width of logo area
+    delogo_h: int = 30  # Height of logo area
+    delogo_band: int = 1  # Band size (edge softness)
+    delogo_show: bool = False  # Show debug rectangle
+    # Smart Crop (black bar removal)
+    smart_crop_enabled: bool = False
+    smart_crop_mode: str = "auto"  # auto / manual
+    smart_crop_w: int = 640  # Crop width (default: 640)
+    smart_crop_h: int = 480  # Crop height (default: 480)
+    smart_crop_x: int = 0  # Crop X offset
+    smart_crop_y: int = 0  # Crop Y offset
+    smart_crop_show_preview: bool = False  # Show crop preview
+    # Aspect Ratio conversion
+    ar_convert_enabled: bool = False
+    ar_target: str = "16:9"  # 16:9 / 4:3 / 1:1 / 2.35:1
+    ar_method: str = "crop"  # crop / pad / stretch
+    # Audio filters
     audio_denoise: bool = False
     volume_enabled: bool = False
     volume_db: float = 0.0

@@ -3,7 +3,7 @@ Video and Audio Filters Panel (PySide6)
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QLineEdit, QGroupBox, QFrame
+    QLineEdit, QGroupBox, QFrame, QSpinBox, QComboBox
 )
 from PySide6.QtCore import Signal
 
@@ -40,6 +40,230 @@ class FiltersPanel(QWidget):
         self.denoise_check.setChecked(self.app_state.filters.denoise)
         self.denoise_check.setToolTip("Reduce video noise/grain using HQDN3D filter.\nGood for grainy or noisy sources.\nMay slightly soften the image.")
         video_layout.addWidget(self.denoise_check)
+
+        # === Smart Crop (Black Bar Removal) ===
+        smart_crop_group = QGroupBox("Smart Crop (Black Bar Removal)")
+        smart_crop_layout = QVBoxLayout(smart_crop_group)
+
+        self.smart_crop_check = QCheckBox("Enable Smart Crop")
+        self.smart_crop_check.setChecked(self.app_state.filters.smart_crop_enabled)
+        self.smart_crop_check.setToolTip(
+            "Automatically detect and remove black bars from video edges.\n"
+            "Uses FFmpeg's cropdetect filter to find black borders.\n"
+            "Perfect for removing letterbox/pillarbox bars from videos."
+        )
+        smart_crop_layout.addWidget(self.smart_crop_check)
+
+        # Mode selection
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("Mode:"))
+        self.smart_crop_mode_combo = QComboBox()
+        self.smart_crop_mode_combo.addItems(["Auto Detect", "Manual"])
+        self.smart_crop_mode_combo.setCurrentText("Auto Detect" if self.app_state.filters.smart_crop_mode == "auto" else "Manual")
+        self.smart_crop_mode_combo.setEnabled(self.app_state.filters.smart_crop_enabled)
+        self.smart_crop_mode_combo.setToolTip(
+            "Auto Detect: Uses preset crop values (adjustable below)\n"
+            "Manual: Use exact crop values with custom X/Y offsets"
+        )
+        mode_layout.addWidget(self.smart_crop_mode_combo)
+        mode_layout.addStretch()
+        smart_crop_layout.addLayout(mode_layout)
+
+        # Manual crop dimensions
+        manual_layout = QHBoxLayout()
+        manual_layout.addWidget(QLabel("Width:"))
+        self.smart_crop_w_spin = QSpinBox()
+        self.smart_crop_w_spin.setRange(16, 9999)  # Min 16 for codec compatibility
+        self.smart_crop_w_spin.setValue(self.app_state.filters.smart_crop_w or 640)
+        self.smart_crop_w_spin.setMaximumWidth(70)
+        self.smart_crop_w_spin.setToolTip("Crop width (min: 16)")
+        self.smart_crop_w_spin.setEnabled(self.app_state.filters.smart_crop_enabled)
+        manual_layout.addWidget(self.smart_crop_w_spin)
+
+        manual_layout.addWidget(QLabel("Height:"))
+        self.smart_crop_h_spin = QSpinBox()
+        self.smart_crop_h_spin.setRange(16, 9999)  # Min 16 for codec compatibility
+        self.smart_crop_h_spin.setValue(self.app_state.filters.smart_crop_h or 480)
+        self.smart_crop_h_spin.setMaximumWidth(70)
+        self.smart_crop_h_spin.setToolTip("Crop height (min: 16)")
+        self.smart_crop_h_spin.setEnabled(self.app_state.filters.smart_crop_enabled)
+        manual_layout.addWidget(self.smart_crop_h_spin)
+        manual_layout.addStretch()
+        smart_crop_layout.addLayout(manual_layout)
+
+        # Crop offset
+        offset_layout = QHBoxLayout()
+        offset_layout.addWidget(QLabel("X Offset:"))
+        self.smart_crop_x_spin = QSpinBox()
+        self.smart_crop_x_spin.setRange(0, 9999)
+        self.smart_crop_x_spin.setValue(self.app_state.filters.smart_crop_x)
+        self.smart_crop_x_spin.setMaximumWidth(70)
+        self.smart_crop_x_spin.setToolTip("Horizontal offset for crop (usually 0 for centered)")
+        self.smart_crop_x_spin.setEnabled(self.app_state.filters.smart_crop_enabled and self.app_state.filters.smart_crop_mode == "manual")
+        offset_layout.addWidget(self.smart_crop_x_spin)
+
+        offset_layout.addWidget(QLabel("Y Offset:"))
+        self.smart_crop_y_spin = QSpinBox()
+        self.smart_crop_y_spin.setRange(0, 9999)
+        self.smart_crop_y_spin.setValue(self.app_state.filters.smart_crop_y)
+        self.smart_crop_y_spin.setMaximumWidth(70)
+        self.smart_crop_y_spin.setToolTip("Vertical offset for crop (usually 0 for centered)")
+        self.smart_crop_y_spin.setEnabled(self.app_state.filters.smart_crop_enabled and self.app_state.filters.smart_crop_mode == "manual")
+        offset_layout.addWidget(self.smart_crop_y_spin)
+        offset_layout.addStretch()
+        smart_crop_layout.addLayout(offset_layout)
+
+        # Show preview
+        self.smart_crop_preview_check = QCheckBox("Show Crop Preview (Green Border)")
+        self.smart_crop_preview_check.setChecked(self.app_state.filters.smart_crop_show_preview)
+        self.smart_crop_preview_check.setToolTip(
+            "Show a green rectangle indicating the crop area.\n"
+            "Useful for verifying the crop region before encoding."
+        )
+        self.smart_crop_preview_check.setEnabled(self.app_state.filters.smart_crop_enabled)
+        smart_crop_layout.addWidget(self.smart_crop_preview_check)
+
+        video_layout.addWidget(smart_crop_group)
+
+
+        # === Aspect Ratio Conversion ===
+        ar_group = QGroupBox("Aspect Ratio Converter")
+        ar_layout = QVBoxLayout(ar_group)
+
+        self.ar_check = QCheckBox("Enable AR Conversion")
+        self.ar_check.setChecked(self.app_state.filters.ar_convert_enabled)
+        self.ar_check.setToolTip(
+            "Convert video to a different aspect ratio.\n"
+            "Useful for converting 4:3 to 16:9 or vice versa."
+        )
+        ar_layout.addWidget(self.ar_check)
+
+        # Target AR
+        target_layout = QHBoxLayout()
+        target_layout.addWidget(QLabel("Target Aspect Ratio:"))
+        self.ar_target_combo = QComboBox()
+        self.ar_target_combo.addItems(["16:9 (Widescreen)", "4:3 (Standard)", "1:1 (Square)", "2.35:1 (Cinemascope)"])
+        self.ar_target_combo.setCurrentText(self.app_state.filters.ar_target.replace(":", ":") + " (Widescreen)" if self.app_state.filters.ar_target == "16:9" else 
+                                        self.app_state.filters.ar_target.replace(":", ":") + " (Standard)" if self.app_state.filters.ar_target == "4:3" else
+                                        self.app_state.filters.ar_target.replace(":", ":") + " (Square)" if self.app_state.filters.ar_target == "1:1" else
+                                        self.app_state.filters.ar_target.replace(":", ":") + " (Cinemascope)")
+        self.ar_target_combo.setEnabled(self.app_state.filters.ar_convert_enabled)
+        target_layout.addWidget(self.ar_target_combo)
+        target_layout.addStretch()
+        ar_layout.addLayout(target_layout)
+
+        # Method
+        method_layout = QHBoxLayout()
+        method_layout.addWidget(QLabel("Method:"))
+        self.ar_method_combo = QComboBox()
+        self.ar_method_combo.addItems(["Crop (cut edges)", "Pad (black bars)", "Stretch (distort)"])
+        self.ar_method_combo.setCurrentText(self.app_state.filters.ar_method.replace("crop", "Crop (cut edges)").replace("pad", "Pad (black bars)").replace("stretch", "Stretch (distort)"))
+        self.ar_method_combo.setEnabled(self.app_state.filters.ar_convert_enabled)
+        self.ar_method_combo.setToolTip(
+            "Crop: Cut edges to fit target AR (may lose video content)\n"
+            "Pad: Add black bars to reach target AR\n"
+            "Stretch: Stretch to fit (may distort image)"
+        )
+        method_layout.addWidget(self.ar_method_combo)
+        method_layout.addStretch()
+        ar_layout.addLayout(method_layout)
+
+        video_layout.addWidget(ar_group)
+
+        # === Delogo (Logo Removal) ===
+        delogo_group = QGroupBox("Logo / Watermark Removal")
+        delogo_layout = QVBoxLayout(delogo_group)
+        
+        self.delogo_check = QCheckBox("Enable Delogo Filter")
+        self.delogo_check.setChecked(self.app_state.filters.delogo_enabled)
+        self.delogo_check.setToolTip(
+            "Apply delogo filter to remove TV channel logos, watermarks, or static overlays.\n"
+            "Uses FFmpeg's delogo filter to blur a specified rectangular area.\n\n"
+            "Tip: Use a small 'band' value for sharp logo edges, higher for soft edges."
+        )
+        delogo_layout.addWidget(self.delogo_check)
+        
+        # Position controls
+        pos_layout = QHBoxLayout()
+        pos_layout.addWidget(QLabel("Position:"))
+        
+        pos_layout.addWidget(QLabel("X:"))
+        self.delogo_x_spin = QSpinBox()
+        self.delogo_x_spin.setRange(0, 9999)
+        self.delogo_x_spin.setValue(self.app_state.filters.delogo_x)
+        self.delogo_x_spin.setMaximumWidth(70)
+        self.delogo_x_spin.setToolTip("X coordinate of the logo area (top-left corner)")
+        self.delogo_x_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        pos_layout.addWidget(self.delogo_x_spin)
+        
+        pos_layout.addWidget(QLabel("Y:"))
+        self.delogo_y_spin = QSpinBox()
+        self.delogo_y_spin.setRange(0, 9999)
+        self.delogo_y_spin.setValue(self.app_state.filters.delogo_y)
+        self.delogo_y_spin.setMaximumWidth(70)
+        self.delogo_y_spin.setToolTip("Y coordinate of the logo area (top-left corner)")
+        self.delogo_y_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        pos_layout.addWidget(self.delogo_y_spin)
+        
+        pos_layout.addStretch()
+        delogo_layout.addLayout(pos_layout)
+        
+        # Size controls
+        size_layout = QHBoxLayout()
+        size_layout.addWidget(QLabel("Size:"))
+        
+        size_layout.addWidget(QLabel("W:"))
+        self.delogo_w_spin = QSpinBox()
+        self.delogo_w_spin.setRange(1, 9999)
+        self.delogo_w_spin.setValue(self.app_state.filters.delogo_w)
+        self.delogo_w_spin.setMaximumWidth(70)
+        self.delogo_w_spin.setToolTip("Width of the logo area")
+        self.delogo_w_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        size_layout.addWidget(self.delogo_w_spin)
+        
+        size_layout.addWidget(QLabel("H:"))
+        self.delogo_h_spin = QSpinBox()
+        self.delogo_h_spin.setRange(1, 9999)
+        self.delogo_h_spin.setValue(self.app_state.filters.delogo_h)
+        self.delogo_h_spin.setMaximumWidth(70)
+        self.delogo_h_spin.setToolTip("Height of the logo area")
+        self.delogo_h_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        size_layout.addWidget(self.delogo_h_spin)
+        
+        size_layout.addStretch()
+        delogo_layout.addLayout(size_layout)
+        
+        # Band (edge softness)
+        band_layout = QHBoxLayout()
+        band_layout.addWidget(QLabel("Band (softness):"))
+        self.delogo_band_spin = QSpinBox()
+        self.delogo_band_spin.setRange(0, 20)
+        self.delogo_band_spin.setValue(self.app_state.filters.delogo_band)
+        self.delogo_band_spin.setMaximumWidth(60)
+        self.delogo_band_spin.setToolTip(
+            "Band size for edge smoothing.\n"
+            "0 = sharp edges\n"
+            "1-5 = slight blur\n"
+            "10+ = heavy blur\n\n"
+            "Use lower values for sharp logo edges."
+        )
+        self.delogo_band_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        band_layout.addWidget(self.delogo_band_spin)
+        
+        band_layout.addStretch()
+        delogo_layout.addLayout(band_layout)
+        
+        # Show preview rectangle
+        self.delogo_show_check = QCheckBox("Show Preview Rectangle")
+        self.delogo_show_check.setChecked(getattr(self.app_state.filters, 'delogo_show', False))
+        self.delogo_show_check.setToolTip(
+            "Show a red rectangle outline on the video\nto help position the delogo area correctly.\n\n"
+            "The rectangle will appear during encoding."
+        )
+        self.delogo_show_check.setEnabled(self.app_state.filters.delogo_enabled)
+        delogo_layout.addWidget(self.delogo_show_check)
+        
+        video_layout.addWidget(delogo_group)
         
         layout.addWidget(video_group)
         
@@ -118,6 +342,27 @@ class FiltersPanel(QWidget):
         """Connect UI signals to handlers"""
         self.deint_check.toggled.connect(self.on_deint_changed)
         self.denoise_check.toggled.connect(self.on_denoise_changed)
+        # Smart Crop signals
+        self.smart_crop_check.toggled.connect(self.on_smart_crop_changed)
+        self.smart_crop_mode_combo.currentTextChanged.connect(self.on_smart_crop_mode_changed)
+        self.smart_crop_w_spin.valueChanged.connect(self.on_smart_crop_w_changed)
+        self.smart_crop_h_spin.valueChanged.connect(self.on_smart_crop_h_changed)
+        self.smart_crop_x_spin.valueChanged.connect(self.on_smart_crop_x_changed)
+        self.smart_crop_y_spin.valueChanged.connect(self.on_smart_crop_y_changed)
+        self.smart_crop_preview_check.toggled.connect(self.on_smart_crop_preview_changed)
+        # Aspect ratio signals
+        self.ar_check.toggled.connect(self.on_ar_changed)
+        self.ar_target_combo.currentTextChanged.connect(self.on_ar_target_changed)
+        self.ar_method_combo.currentTextChanged.connect(self.on_ar_method_changed)
+        # Delogo signals
+        self.delogo_check.toggled.connect(self.on_delogo_changed)
+        self.delogo_x_spin.valueChanged.connect(self.on_delogo_x_changed)
+        self.delogo_y_spin.valueChanged.connect(self.on_delogo_y_changed)
+        self.delogo_w_spin.valueChanged.connect(self.on_delogo_w_changed)
+        self.delogo_h_spin.valueChanged.connect(self.on_delogo_h_changed)
+        self.delogo_band_spin.valueChanged.connect(self.on_delogo_band_changed)
+        self.delogo_show_check.toggled.connect(self.on_delogo_show_changed)
+        # Audio signals
         self.audio_denoise_check.toggled.connect(self.on_audio_denoise_changed)
         self.vol_check.toggled.connect(self.on_vol_enabled_changed)
         self.vol_edit.textChanged.connect(self.on_vol_changed)
@@ -132,6 +377,127 @@ class FiltersPanel(QWidget):
     def on_denoise_changed(self, checked):
         """Handle denoise checkbox change"""
         self.app_state.filters.denoise = checked
+        self.settings_changed.emit()
+
+    # Smart Crop handlers
+    def on_smart_crop_changed(self, checked):
+        """Handle smart crop checkbox change"""
+        self.app_state.filters.smart_crop_enabled = checked
+        # Enable/disable controls
+        self.smart_crop_mode_combo.setEnabled(checked)
+        self.smart_crop_preview_check.setEnabled(checked)
+        is_manual = self.smart_crop_mode_combo.currentText() == "Manual"
+        # Width/height always editable (preset in auto, exact in manual)
+        self.smart_crop_w_spin.setEnabled(checked)
+        self.smart_crop_h_spin.setEnabled(checked)
+        # X/Y offset only in manual mode (auto centers automatically)
+        self.smart_crop_x_spin.setEnabled(checked and is_manual)
+        self.smart_crop_y_spin.setEnabled(checked and is_manual)
+        self.settings_changed.emit()
+
+    def on_smart_crop_mode_changed(self, text):
+        """Handle smart crop mode change"""
+        self.app_state.filters.smart_crop_mode = "auto" if text == "Auto Detect" else "manual"
+        is_manual = text == "Manual"
+        is_enabled = self.smart_crop_check.isChecked()
+        # Width/height always editable, X/Y only in manual mode
+        self.smart_crop_x_spin.setEnabled(is_enabled and is_manual)
+        self.smart_crop_y_spin.setEnabled(is_enabled and is_manual)
+        self.settings_changed.emit()
+
+    def on_smart_crop_w_changed(self, value):
+        """Handle smart crop width change"""
+        self.app_state.filters.smart_crop_w = value
+        self.settings_changed.emit()
+
+    def on_smart_crop_h_changed(self, value):
+        """Handle smart crop height change"""
+        self.app_state.filters.smart_crop_h = value
+        self.settings_changed.emit()
+
+    def on_smart_crop_x_changed(self, value):
+        """Handle smart crop x offset change"""
+        self.app_state.filters.smart_crop_x = value
+        self.settings_changed.emit()
+
+    def on_smart_crop_y_changed(self, value):
+        """Handle smart crop y offset change"""
+        self.app_state.filters.smart_crop_y = value
+        self.settings_changed.emit()
+
+    def on_smart_crop_preview_changed(self, checked):
+        """Handle smart crop preview checkbox change"""
+        self.app_state.filters.smart_crop_show_preview = checked
+        self.settings_changed.emit()
+
+    # Aspect Ratio conversion handlers
+    def on_ar_changed(self, checked):
+        """Handle AR conversion checkbox change"""
+        self.app_state.filters.ar_convert_enabled = checked
+        # Enable/disable controls
+        self.ar_target_combo.setEnabled(checked)
+        self.ar_method_combo.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_ar_target_changed(self, text):
+        """Handle AR target change"""
+        # Extract just the AR part (e.g., "16:9" from "16:9 (Widescreen)")
+        ar = text.split()[0] if text else "16:9"
+        self.app_state.filters.ar_target = ar
+        self.settings_changed.emit()
+
+    def on_ar_method_changed(self, text):
+        """Handle AR method change"""
+        # Extract method from text
+        if "Crop" in text:
+            method = "crop"
+        elif "Pad" in text:
+            method = "pad"
+        else:
+            method = "stretch"
+        self.app_state.filters.ar_method = method
+        self.settings_changed.emit()
+
+    def on_delogo_changed(self, checked):
+        """Handle delogo checkbox change"""
+        self.app_state.filters.delogo_enabled = checked
+        # Enable/disable spin boxes
+        self.delogo_x_spin.setEnabled(checked)
+        self.delogo_y_spin.setEnabled(checked)
+        self.delogo_w_spin.setEnabled(checked)
+        self.delogo_h_spin.setEnabled(checked)
+        self.delogo_band_spin.setEnabled(checked)
+        self.delogo_show_check.setEnabled(checked)
+        self.settings_changed.emit()
+        
+    def on_delogo_x_changed(self, value):
+        """Handle delogo X position change"""
+        self.app_state.filters.delogo_x = value
+        self.settings_changed.emit()
+        
+    def on_delogo_y_changed(self, value):
+        """Handle delogo Y position change"""
+        self.app_state.filters.delogo_y = value
+        self.settings_changed.emit()
+        
+    def on_delogo_w_changed(self, value):
+        """Handle delogo width change"""
+        self.app_state.filters.delogo_w = value
+        self.settings_changed.emit()
+        
+    def on_delogo_h_changed(self, value):
+        """Handle delogo height change"""
+        self.app_state.filters.delogo_h = value
+        self.settings_changed.emit()
+        
+    def on_delogo_band_changed(self, value):
+        """Handle delogo band (edge softness) change"""
+        self.app_state.filters.delogo_band = value
+        self.settings_changed.emit()
+        
+    def on_delogo_show_changed(self, checked):
+        """Handle delogo show preview rectangle change"""
+        self.app_state.filters.delogo_show = checked
         self.settings_changed.emit()
         
     def on_audio_denoise_changed(self, checked):
