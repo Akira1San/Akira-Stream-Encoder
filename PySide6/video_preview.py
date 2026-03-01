@@ -870,6 +870,20 @@ class VideoPreview(QWidget):
             if eq_params:
                 filters.append(f"eq={':'.join(eq_params)}")
         
+        # Geometry crop (Force 16:9 Widescreen)
+        if self.app_state.geometry.force_widescreen:
+            # Calculate 16:9 crop from video dimensions
+            # crop=w:h:x:y
+            # For 4:3 to 16:9 conversion, we crop height (not width):
+            # w = iw (full width - keep it all)
+            # h = iw*9/16 (calculate 16:9 height from width)
+            # x = 0 (start from left edge)
+            # y = (ih-iw*9/16)/2 + offset_y (center vertically with offset)
+            offset_y = self.app_state.geometry.offset_y
+            crop_filter = f"crop=iw:iw*9/16:0:(ih-iw*9/16)/2+{offset_y}"
+            filters.append(crop_filter)
+            self.app_state.log(f"Preview crop filter: {crop_filter}", "DEBUG")
+        
         # Get subtitle text BEFORE processing with FFmpeg (we need the timestamp)
         sub_text = ""
         sub_path = None

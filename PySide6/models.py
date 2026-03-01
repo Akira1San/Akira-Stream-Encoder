@@ -100,7 +100,8 @@ class FilterSettings:
 class GeometrySettings:
     """Geometry and aspect ratio settings"""
     force_widescreen: bool = False
-    offset: float = 0.0
+    offset_x: float = 0.0  # Horizontal offset for crop position
+    offset_y: float = 0.0  # Vertical offset for crop position
 
 
 @dataclass

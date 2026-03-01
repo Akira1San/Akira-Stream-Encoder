@@ -492,6 +492,18 @@ class VideoController:
         if self.app_state.filters.denoise:
             video_filters.append("hqdn3d")
 
+        # Geometry Widescreen Crop (16:9 with offset)
+        if getattr(self.app_state.geometry, 'force_widescreen', False):
+            offset_y = getattr(self.app_state.geometry, 'offset_y', 0)
+            # For 4:3 to 16:9 conversion, we crop height (not width):
+            # w = iw (full width - keep it all)
+            # h = iw*9/16 (calculate 16:9 height from width)
+            # x = 0 (start from left edge)
+            # y = (ih-iw*9/16)/2 + offset_y (center vertically with offset)
+            crop_filter = f"crop=iw:iw*9/16:0:(ih-iw*9/16)/2+{offset_y}"
+            video_filters.append(crop_filter)
+            self.app_state.log(f"Geometry Crop: 16:9 with vertical offset {offset_y}", "INFO")
+
         # Smart Crop (Black Bar Removal)
         if getattr(self.app_state.filters, 'smart_crop_enabled', False):
             crop_mode = getattr(self.app_state.filters, 'smart_crop_mode', 'manual')
