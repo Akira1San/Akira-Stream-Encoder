@@ -570,6 +570,10 @@ class VideoController:
             elif ar_method == "pad":
                 # Add black bars to reach target AR
                 video_filters.append(f"pad=ih*{target_ar}:ih:(ow-ih*{target_ar})/2:0:black")
+            elif ar_method == "scale_2step":
+                # Two-step scaling 4:3 to 16:9 (preserves all content without distortion)
+                # First scale to intermediate, then to final with neighbor (fast) algorithm
+                video_filters.append("scale=540:400,scale=720:400:flags=neighbor,setsar=1")
             else:  # stretch
                 # Stretch to fill target AR (may distort)
                 video_filters.append(f"scale=iw:iw/{target_ar}")

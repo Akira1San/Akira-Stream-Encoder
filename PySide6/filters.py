@@ -156,8 +156,8 @@ class FiltersPanel(QWidget):
         method_layout = QHBoxLayout()
         method_layout.addWidget(QLabel("Method:"))
         self.ar_method_combo = QComboBox()
-        self.ar_method_combo.addItems(["Crop (cut edges)", "Pad (black bars)", "Stretch (distort)"])
-        self.ar_method_combo.setCurrentText(self.app_state.filters.ar_method.replace("crop", "Crop (cut edges)").replace("pad", "Pad (black bars)").replace("stretch", "Stretch (distort)"))
+        self.ar_method_combo.addItems(["Crop (cut edges)", "Pad (black bars)", "Stretch (distort)", "Scale (2-step)"])
+        self.ar_method_combo.setCurrentText(self.app_state.filters.ar_method.replace("crop", "Crop (cut edges)").replace("pad", "Pad (black bars)").replace("stretch", "Stretch (distort)").replace("scale_2step", "Scale (2-step)"))
         self.ar_method_combo.setEnabled(self.app_state.filters.ar_convert_enabled)
         self.ar_method_combo.setToolTip(
             "Crop: Cut edges to fit target AR (may lose video content)\n"
@@ -453,6 +453,8 @@ class FiltersPanel(QWidget):
             method = "crop"
         elif "Pad" in text:
             method = "pad"
+        elif "Scale" in text:
+            method = "scale_2step"
         else:
             method = "stretch"
         self.app_state.filters.ar_method = method
