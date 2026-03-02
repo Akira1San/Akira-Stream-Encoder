@@ -27,37 +27,6 @@ class GeometryPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         
-        # === Crop Position Offsets (Sliders) ===
-        # Horizontal Offset
-        h_offset_layout = QHBoxLayout()
-        h_offset_layout.addWidget(QLabel("Crop Horizontal Offset:"))
-        
-        self.h_offset_slider = QSlider(Qt.Horizontal)
-        self.h_offset_slider.setRange(-100, 100)
-        self.h_offset_slider.setValue(int(self.app_state.geometry.offset_x))
-        h_offset_layout.addWidget(self.h_offset_slider)
-        
-        self.h_offset_label = QLabel(str(int(self.app_state.geometry.offset_x)))
-        self.h_offset_label.setMinimumWidth(30)
-        h_offset_layout.addWidget(self.h_offset_label)
-        
-        layout.addLayout(h_offset_layout)
-        
-        # Vertical Offset
-        v_offset_layout = QHBoxLayout()
-        v_offset_layout.addWidget(QLabel("Crop Vertical Offset:"))
-        
-        self.v_offset_slider = QSlider(Qt.Horizontal)
-        self.v_offset_slider.setRange(-100, 100)
-        self.v_offset_slider.setValue(int(self.app_state.geometry.offset_y))
-        v_offset_layout.addWidget(self.v_offset_slider)
-        
-        self.v_offset_label = QLabel(str(int(self.app_state.geometry.offset_y)))
-        self.v_offset_label.setMinimumWidth(30)
-        v_offset_layout.addWidget(self.v_offset_label)
-        
-        layout.addLayout(v_offset_layout)
-        
         # === Split Video Section ===
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
@@ -172,8 +141,6 @@ class GeometryPanel(QWidget):
         
     def connect_signals(self):
         """Connect UI signals to handlers"""
-        self.h_offset_slider.valueChanged.connect(self.on_h_offset_changed)
-        self.v_offset_slider.valueChanged.connect(self.on_v_offset_changed)
         self.split_check.toggled.connect(self.on_split_toggled)
         self.chunk_spin.valueChanged.connect(self.on_chunk_changed)
         self.fast_split_check.toggled.connect(self.on_fast_split_toggled)
@@ -181,18 +148,6 @@ class GeometryPanel(QWidget):
         self.extract_check.toggled.connect(self.on_extract_toggled)
         self.extract_start_spin.valueChanged.connect(self.on_extract_start_changed)
         self.extract_duration_spin.valueChanged.connect(self.on_extract_duration_changed)
-        
-    def on_h_offset_changed(self, value):
-        """Handle horizontal offset slider change"""
-        self.app_state.geometry.offset_x = value
-        self.h_offset_label.setText(str(value))
-        self.settings_changed.emit()
-        
-    def on_v_offset_changed(self, value):
-        """Handle vertical offset slider change"""
-        self.app_state.geometry.offset_y = value
-        self.v_offset_label.setText(str(value))
-        self.settings_changed.emit()
         
     def on_split_toggled(self, checked):
         """Handle split checkbox toggle"""
