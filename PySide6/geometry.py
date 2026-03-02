@@ -27,11 +27,6 @@ class GeometryPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         
-        # === Force 16:9 Widescreen ===
-        self.widescreen_check = QCheckBox("Force 16:9 Widescreen\n(Crop Top/Bottom Black Bars)")
-        self.widescreen_check.setChecked(self.app_state.geometry.force_widescreen)
-        layout.addWidget(self.widescreen_check)
-        
         # === Crop Position Offsets (Sliders) ===
         # Horizontal Offset
         h_offset_layout = QHBoxLayout()
@@ -177,7 +172,6 @@ class GeometryPanel(QWidget):
         
     def connect_signals(self):
         """Connect UI signals to handlers"""
-        self.widescreen_check.toggled.connect(self.on_widescreen_changed)
         self.h_offset_slider.valueChanged.connect(self.on_h_offset_changed)
         self.v_offset_slider.valueChanged.connect(self.on_v_offset_changed)
         self.split_check.toggled.connect(self.on_split_toggled)
@@ -187,11 +181,6 @@ class GeometryPanel(QWidget):
         self.extract_check.toggled.connect(self.on_extract_toggled)
         self.extract_start_spin.valueChanged.connect(self.on_extract_start_changed)
         self.extract_duration_spin.valueChanged.connect(self.on_extract_duration_changed)
-        
-    def on_widescreen_changed(self, checked):
-        """Handle widescreen checkbox change"""
-        self.app_state.geometry.force_widescreen = checked
-        self.settings_changed.emit()
         
     def on_h_offset_changed(self, value):
         """Handle horizontal offset slider change"""
