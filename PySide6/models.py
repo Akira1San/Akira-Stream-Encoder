@@ -23,6 +23,7 @@ class EncodingSettings:
     container: str = "mp4"
     # Preset settings
     cpu_preset: str = "medium"  # ultrafast/superfast/veryfast/faster/fast/medium/slow/slower/veryslow
+    cpu_tune: str = "none"  # none/film/animation/grain/fastdecode/zerolatency
     gpu_preset: str = "p4"  # p1-p7 for NVENC
     # Scale filter settings
     scale_mode: str = "off"  # off / on

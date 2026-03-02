@@ -96,6 +96,28 @@ class EncodingPanel(QWidget):
         )
         preset_layout.addWidget(self.cpu_preset_combo)
         
+        # Tune (for CPU encoding - libx264/libx265)
+        self.tune_label = QLabel("Tune:")
+        preset_layout.addWidget(self.tune_label)
+        
+        self.cpu_tune_combo = QComboBox()
+        self.cpu_tune_combo.addItems([
+            "none", "film", "animation", "grain", "fastdecode", "zerolatency"
+        ])
+        self.cpu_tune_combo.setCurrentText(self.app_state.encoding.cpu_tune)
+        self.cpu_tune_combo.setMinimumWidth(100)
+        self.cpu_tune_combo.setToolTip(
+            "CPU Tune:\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "none: No tune (default)\n"
+            "film: Best for movies/TV\n"
+            "animation: Better for cartoons\n"
+            "grain: Preserves film grain\n"
+            "fastdecode: Faster playback\n"
+            "zerolatency: Live streaming"
+        )
+        preset_layout.addWidget(self.cpu_tune_combo)
+        
         preset_layout.addStretch()
         layout.addLayout(preset_layout)
         
@@ -430,6 +452,7 @@ class EncodingPanel(QWidget):
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
         self.cpu_preset_combo.currentTextChanged.connect(self.on_cpu_preset_changed)
+        self.cpu_tune_combo.currentTextChanged.connect(self.on_cpu_tune_changed)
         
         # Set initial preset visibility
         self.update_preset_visibility()
@@ -499,6 +522,33 @@ class EncodingPanel(QWidget):
         # Show GPU preset for NVENC, CPU preset for others
         self.gpu_preset_combo.setVisible(is_nvenc)
         self.cpu_preset_combo.setVisible(not is_nvenc)
+        self.tune_label.setVisible(not is_nvenc)
+        self.cpu_tune_combo.setVisible(not is_nvenc)
+        
+        # Update tune options based on encoder (x264 vs x265 have different valid tunes)
+        self.update_tune_options()
+    
+    def update_tune_options(self):
+        """Update tune dropdown options based on selected encoder"""
+        encoder = self.encoder_combo.currentText()
+        current_tune = self.cpu_tune_combo.currentText()
+        
+        if "x265" in encoder.lower():
+            # x265 valid tunes: psnr, ssim, grain, zerolatency, fastdecode, animation
+            tune_options = ["none", "psnr", "ssim", "grain", "zerolatency", "fastdecode", "animation"]
+        else:
+            # x264 valid tunes: film, animation, grain, fastdecode, zerolatency
+            tune_options = ["none", "film", "animation", "grain", "fastdecode", "zerolatency"]
+        
+        self.cpu_tune_combo.clear()
+        self.cpu_tune_combo.addItems(tune_options)
+        
+        # Try to restore previous selection, or default to "none"
+        if current_tune in tune_options:
+            self.cpu_tune_combo.setCurrentText(current_tune)
+        else:
+            self.cpu_tune_combo.setCurrentText("none")
+            self.app_state.encoding.cpu_tune = "none"
     
     def on_gpu_preset_changed(self, text):
         """Handle GPU preset change"""
@@ -508,6 +558,11 @@ class EncodingPanel(QWidget):
     def on_cpu_preset_changed(self, text):
         """Handle CPU preset change"""
         self.app_state.encoding.cpu_preset = text
+        self.settings_changed.emit()
+    
+    def on_cpu_tune_changed(self, text):
+        """Handle CPU tune change"""
+        self.app_state.encoding.cpu_tune = text
         self.settings_changed.emit()
         
     def on_video_mode_changed(self, text):

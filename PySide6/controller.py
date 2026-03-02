@@ -298,6 +298,8 @@ class VideoController:
                 else:
                     cmd.extend(["-crf", str(self.app_state.encoding.cq)])
                     cmd.extend(["-preset", self.app_state.encoding.cpu_preset])
+                    if self.app_state.encoding.cpu_tune != "none":
+                        cmd.extend(["-tune", self.app_state.encoding.cpu_tune])
                 
                 # Resolution
                 if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
@@ -371,6 +373,8 @@ class VideoController:
             else:
                 cmd.extend(["-crf", str(self.app_state.encoding.cq)])
                 cmd.extend(["-preset", self.app_state.encoding.cpu_preset])
+                if self.app_state.encoding.cpu_tune != "none":
+                    cmd.extend(["-tune", self.app_state.encoding.cpu_tune])
                 
             # Resolution - only use -s if scale_mode is off (otherwise use filter)
             if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
