@@ -61,6 +61,17 @@ class EQSettings:
     gamma_r: float = 1.0
     gamma_g: float = 1.0
     gamma_b: float = 1.0
+    # White Balance settings (colorbalance filter)
+    white_balance_enabled: bool = False
+    wb_shadows_r: float = 0.0  # -1.0 to 1.0
+    wb_shadows_g: float = 0.0
+    wb_shadows_b: float = 0.0
+    wb_midtones_r: float = 0.0
+    wb_midtones_g: float = 0.0
+    wb_midtones_b: float = 0.0
+    wb_highlights_r: float = 0.0
+    wb_highlights_g: float = 0.0
+    wb_highlights_b: float = 0.0
 
 
 @dataclass

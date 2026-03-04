@@ -601,6 +601,37 @@ class VideoController:
             if eq_params:
                 video_filters.append(f"eq={':'.join(eq_params)}")
         
+        # White Balance (colorbalance filter)
+        if self.app_state.eq.white_balance_enabled:
+            wb_params = []
+            
+            # Shadows
+            if self.app_state.eq.wb_shadows_r != 0:
+                wb_params.append(f"rs={self.app_state.eq.wb_shadows_r}")
+            if self.app_state.eq.wb_shadows_g != 0:
+                wb_params.append(f"gs={self.app_state.eq.wb_shadows_g}")
+            if self.app_state.eq.wb_shadows_b != 0:
+                wb_params.append(f"bs={self.app_state.eq.wb_shadows_b}")
+            
+            # Midtones
+            if self.app_state.eq.wb_midtones_r != 0:
+                wb_params.append(f"rm={self.app_state.eq.wb_midtones_r}")
+            if self.app_state.eq.wb_midtones_g != 0:
+                wb_params.append(f"gm={self.app_state.eq.wb_midtones_g}")
+            if self.app_state.eq.wb_midtones_b != 0:
+                wb_params.append(f"bm={self.app_state.eq.wb_midtones_b}")
+            
+            # Highlights
+            if self.app_state.eq.wb_highlights_r != 0:
+                wb_params.append(f"rh={self.app_state.eq.wb_highlights_r}")
+            if self.app_state.eq.wb_highlights_g != 0:
+                wb_params.append(f"gh={self.app_state.eq.wb_highlights_g}")
+            if self.app_state.eq.wb_highlights_b != 0:
+                wb_params.append(f"bh={self.app_state.eq.wb_highlights_b}")
+            
+            if wb_params:
+                video_filters.append(f"colorbalance={':'.join(wb_params)}")
+        
         # Subtitles burn-in - look for external subtitle files
         # DVD subtitles are handled separately in build_ffmpeg_command after extraction
         if self.app_state.subtitles.burn_subs:
