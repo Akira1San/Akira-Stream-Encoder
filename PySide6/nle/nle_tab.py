@@ -242,6 +242,9 @@ class NLETab(QWidget):
         self.tree_view.selection_changed.connect(self._on_selection_changed)
         self.tree_view.project_changed.connect(self._on_project_tree_changed)
         
+        # Set project immediately so buttons work
+        self.tree_view.set_project(self.project)
+        
         return self.tree_view
     
     def _on_selection_changed(self, item):
