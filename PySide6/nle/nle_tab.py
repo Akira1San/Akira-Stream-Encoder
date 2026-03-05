@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt, Signal
 from models import AppState
 from nle.nle_models import NLEProject, TrackType, NLEClip
 from nle.nle_source_bin import SourceBinPanel
-from nle.nle_preview import NLEPreviewWidget
 
 
 class PlaceholderPanel(QFrame):
@@ -36,15 +35,6 @@ class PlaceholderPanel(QFrame):
         layout.addWidget(self.label)
 
 
-class PreviewPanel(PlaceholderPanel):
-    """Preview Panel - for video preview"""
-    
-    def __init__(self, parent=None):
-        super().__init__("Preview\n\nSelect a clip to preview", "#1a1a1a", parent)
-        self.setMinimumWidth(320)
-        self.setMinimumHeight(180)
-
-
 class PropertiesPanel(PlaceholderPanel):
     """Properties Panel - for clip/track properties and effects"""
     
@@ -60,11 +50,11 @@ class NLETab(QWidget):
     Layout structure:
     ┌─────────────────────────────────────────────────────────────┐
     │  Toolbar                                                     │
-    ├──────────────┬──────────────────────────┬───────────────────┤
-    │              │                          │                   │
-    │  Source Bin  │        Preview           │    Properties     │
-    │              │                          │                   │
-    ├──────────────┴──────────────────────────┴───────────────────┤
+    ├──────────────┬──────────────────────────────────────────────┤
+    │              │                                               │
+    │  Source Bin  │              Properties                       │
+    │              │                                               │
+    ├──────────────┴──────────────────────────────────────────────┤
     │                                                              │
     │                     Timeline                                 │
     │                                                              │
@@ -88,31 +78,23 @@ class NLETab(QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(5)
         
-        # === Toolbar ===
-        toolbar = self._create_toolbar()
-        layout.addWidget(toolbar)
-        
         # === Main Content Area ===
         # Vertical splitter for top panels and timeline
         main_splitter = QSplitter(Qt.Vertical)
         
-        # Top section: Horizontal splitter for Source Bin | Preview | Properties
+        # Top section: Horizontal splitter for Source Bin | Properties
         top_splitter = QSplitter(Qt.Horizontal)
         
         # Source Bin Panel
         self.source_bin = SourceBinPanel()
         top_splitter.addWidget(self.source_bin)
         
-        # Preview Panel (actual preview widget)
-        self.preview = NLEPreviewWidget()
-        top_splitter.addWidget(self.preview)
-        
         # Properties Panel
         self.properties = PropertiesPanel()
         top_splitter.addWidget(self.properties)
         
-        # Set initial sizes for top splitter (Source:Preview:Properties = 1:2:1)
-        top_splitter.setSizes([200, 400, 200])
+        # Set initial sizes for top splitter (Source:Properties = 1:1)
+        top_splitter.setSizes([250, 250])
         
         main_splitter.addWidget(top_splitter)
         
@@ -279,9 +261,6 @@ class NLETab(QWidget):
         self.source_bin.preview_requested.connect(self._on_preview_source)
         self.source_bin.clip_create_requested.connect(self._on_create_clip_from_source)
         
-        # Connect preview signals
-        self.preview.playhead_move_requested.connect(self._on_preview_playhead_move)
-        
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts"""
         from PySide6.QtCore import Qt
@@ -445,8 +424,6 @@ class NLETab(QWidget):
     def _on_playhead_moved(self, position: float):
         """Handle playhead position change"""
         self._update_time_display(position)
-        # Update preview
-        self.preview.update_preview(position)
     
     def _on_zoom_changed(self, pixels_per_second: float):
         """Handle zoom change"""
@@ -464,9 +441,6 @@ class NLETab(QWidget):
         # Update timeline with project
         self.timeline.set_project(self.project)
         
-        # Update preview with project
-        self.preview.set_project(self.project)
-        
         # Update time display
         self._update_time_display()
     
@@ -476,9 +450,3 @@ class NLETab(QWidget):
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    
-    def _on_preview_playhead_move(self, position: float):
-        """Handle playhead move request from preview"""
-        self.timeline.playhead.set_position(position)
-        self.timeline.playhead._update_geometry()
-        self._update_time_display(position)
