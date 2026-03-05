@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from models import AppState
 from nle.nle_models import NLEProject, TrackType, NLEClip
 from nle.nle_source_bin import SourceBinPanel
+from nle.nle_tree_view import NLETreeView
 
 
 class PlaceholderPanel(QFrame):
@@ -39,8 +40,48 @@ class PropertiesPanel(PlaceholderPanel):
     """Properties Panel - for clip/track properties and effects"""
     
     def __init__(self, parent=None):
-        super().__init__("Properties\n\nSelect a clip to edit", "#252525", parent)
+        super().__init__("Properties\n\nSelect a track or clip", "#252525", parent)
         self.setMinimumWidth(200)
+        self.current_item = None
+    
+    def set_item(self, item):
+        """Set the currently selected item (track or clip)"""
+        self.current_item = item
+        self._update_display()
+    
+    def _update_display(self):
+        """Update the properties display based on selected item"""
+        from nle.nle_models import NLETrack, NLEClip
+        
+        if self.current_item is None:
+            self.label.setText("Properties\n\nSelect a track or clip")
+            return
+        
+        if isinstance(self.current_item, NLETrack):
+            track = self.current_item
+            track_type = "Video" if track.track_type.value == "video" else "Audio"
+            self.label.setText(
+                f"Properties\n\n"
+                f"Name: {track.name}\n"
+                f"Type: {track_type}\n"
+                f"Clips: {len(track.clips)}"
+            )
+        elif isinstance(self.current_item, NLEClip):
+            clip = self.current_item
+            self.label.setText(
+                f"Properties\n\n"
+                f"Name: {clip.name}\n"
+                f"Duration: {self._format_time(clip.duration)}\n"
+                f"Source: {clip.source_path}"
+            )
+        else:
+            self.label.setText("Properties\n\nUnknown item type")
+    
+    def _format_time(self, seconds: float) -> str:
+        """Format seconds as MM:SS"""
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes:02d}:{secs:02d}"
 
 
 class NLETab(QWidget):
@@ -98,9 +139,9 @@ class NLETab(QWidget):
         
         main_splitter.addWidget(top_splitter)
         
-        # === Timeline Section ===
-        timeline_widget = self._create_timeline_section()
-        main_splitter.addWidget(timeline_widget)
+        # === Composition Section (Tree View) ===
+        composition_widget = self._create_composition_section()
+        main_splitter.addWidget(composition_widget)
         
         # Set initial sizes (top:timeline = 1:1)
         main_splitter.setSizes([300, 300])
@@ -194,105 +235,53 @@ class NLETab(QWidget):
         
         return toolbar
     
-    def _create_timeline_section(self) -> QWidget:
-        """Create the timeline section with controls and track area"""
-        timeline_widget = QFrame()
-        timeline_widget.setStyleSheet("""
-            QFrame {
-                background-color: #1e1e1e;
-                border: 1px solid #3d3d3d;
-                border-radius: 4px;
-            }
-        """)
+    def _create_composition_section(self) -> QWidget:
+        """Create the composition section with tree view"""
+        # Use tree view instead of timeline
+        self.tree_view = NLETreeView()
+        self.tree_view.selection_changed.connect(self._on_selection_changed)
+        self.tree_view.project_changed.connect(self._on_project_tree_changed)
         
-        layout = QVBoxLayout(timeline_widget)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
-        
-        # Timeline header with zoom controls
-        header = QFrame()
-        header.setStyleSheet("background-color: transparent;")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Time display
-        self.time_label = QLabel("00:00:00 / 00:00:00")
-        self.time_label.setStyleSheet("color: #aaa; font-family: monospace; font-size: 12px;")
-        header_layout.addWidget(self.time_label)
-        
-        header_layout.addStretch()
-        
-        # Zoom controls
-        zoom_out_btn = QPushButton("➖")
-        zoom_out_btn.setFixedSize(30, 24)
-        zoom_out_btn.setToolTip("Zoom Out")
-        zoom_out_btn.clicked.connect(self.on_zoom_out)
-        header_layout.addWidget(zoom_out_btn)
-        
-        self.zoom_label = QLabel("100%")
-        self.zoom_label.setStyleSheet("color: #aaa; font-size: 11px; min-width: 50px;")
-        self.zoom_label.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(self.zoom_label)
-        
-        zoom_in_btn = QPushButton("➕")
-        zoom_in_btn.setFixedSize(30, 24)
-        zoom_in_btn.setToolTip("Zoom In")
-        zoom_in_btn.clicked.connect(self.on_zoom_in)
-        header_layout.addWidget(zoom_in_btn)
-        
-        layout.addWidget(header)
-        
-        # Timeline widget (actual NLE timeline)
-        from nle.nle_timeline import NLETimeline
-        self.timeline = NLETimeline()
-        self.timeline.playhead_moved.connect(self._on_playhead_moved)
-        self.timeline.zoom_changed.connect(self._on_zoom_changed)
-        self.timeline.source_dropped.connect(self._on_create_clip_from_source)
-        self.timeline.setMinimumHeight(150)
-        layout.addWidget(self.timeline)
-        
-        return timeline_widget
+        return self.tree_view
+    
+    def _on_selection_changed(self, item):
+        """Handle selection change in tree view"""
+        self.properties.set_item(item)
+    
+    def _on_project_tree_changed(self):
+        """Handle project change from tree view"""
+        self.project_changed.emit()
     
     def connect_signals(self):
         """Connect internal signals"""
         self.project_changed.connect(self.on_project_changed)
-        
-        # Connect source bin signals
-        self.source_bin.preview_requested.connect(self._on_preview_source)
-        self.source_bin.clip_create_requested.connect(self._on_create_clip_from_source)
         
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts"""
         from PySide6.QtCore import Qt
         
         if event.key() == Qt.Key_Delete:
-            # Delete selected clips
-            self.timeline.delete_selected_clips()
+            # Delete selected item in tree view
+            self.tree_view.remove_selected()
             self.project_changed.emit()
-            self.app_state.log("Deleted selected clips", "INFO")
-            
+            self.app_state.log("Deleted selected item", "INFO")
+        
         elif event.key() == Qt.Key_S and event.modifiers() == Qt.ControlModifier:
             # Save project
             self.on_save_project()
-            
-        elif event.key() == Qt.Key_Space:
-            # Toggle play/pause (future implementation)
-            self.app_state.log("Play/Pause not yet implemented", "INFO")
-            
+        
         elif event.key() == Qt.Key_S and event.modifiers() == Qt.NoModifier:
-            # Split at playhead
-            if self.timeline.split_clip_at_playhead():
-                self.project_changed.emit()
-                self.app_state.log("Split clip at playhead", "INFO")
-                
+            # (was split at playhead - not applicable in tree view)
+            pass
+        
         elif event.key() == Qt.Key_Plus or event.key() == Qt.Key_Equal:
-            # Zoom in
-            self.timeline.zoom_in()
-            
+            # (was zoom in - not applicable in tree view)
+            pass
+        
         elif event.key() == Qt.Key_Minus:
-            # Zoom out
-            self.timeline.zoom_out()
-            
+            # (was zoom out - not applicable in tree view)
+            pass
+        
         else:
             super().keyPressEvent(event)
     
@@ -404,33 +393,6 @@ class NLETab(QWidget):
     def on_render(self):
         """Render the project"""
         self.app_state.log("Render not yet implemented", "WARN")
-        
-    def on_split_at_playhead(self):
-        """Split clip at playhead position"""
-        if self.timeline.split_clip_at_playhead():
-            self.project_changed.emit()
-            self.app_state.log("Split clip at playhead", "INFO")
-        else:
-            self.app_state.log("No clip under playhead to split", "WARN")
-    
-    def on_zoom_in(self):
-        """Zoom in timeline"""
-        self.timeline.zoom_in()
-    
-    def on_zoom_out(self):
-        """Zoom out timeline"""
-        self.timeline.zoom_out()
-    
-    def _on_playhead_moved(self, position: float):
-        """Handle playhead position change"""
-        self._update_time_display(position)
-    
-    def _on_zoom_changed(self, pixels_per_second: float):
-        """Handle zoom change"""
-        percentage = int((pixels_per_second / 20.0) * 100)
-        self.zoom_label.setText(f"{percentage}%")
-    
-    def _update_time_display(self, current_time: float = 0.0):
         """Update the time display label"""
         current_str = self._format_time(current_time)
         duration_str = self._format_time(self.project.duration)
@@ -438,11 +400,8 @@ class NLETab(QWidget):
     
     def on_project_changed(self):
         """Handle project changes"""
-        # Update timeline with project
-        self.timeline.set_project(self.project)
-        
-        # Update time display
-        self._update_time_display()
+        # Update tree view with project
+        self.tree_view.set_project(self.project)
     
     def _format_time(self, seconds: float) -> str:
         """Format seconds as HH:MM:SS"""
