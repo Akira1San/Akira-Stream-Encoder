@@ -205,6 +205,8 @@ class NLETreeView(QWidget):
     
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int):
         """Handle item selection"""
+        if item is None:
+            return
         data = item.data(0, Qt.UserRole)
         if data:
             self.selection_changed.emit(data["object"])
