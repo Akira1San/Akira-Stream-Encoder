@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import threading
+import json
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -237,6 +238,98 @@ class DVDTitleDialog(QDialog):
         return None
 
 
+class TrackSelectionDialog(QDialog):
+    """Dialog for selecting a video or audio track to extract"""
+    
+    def __init__(self, video_tracks, audio_tracks, parent=None):
+        super().__init__(parent)
+        self.video_tracks = video_tracks
+        self.audio_tracks = audio_tracks
+        self.selected_track = None  # {'type': 'video'|'audio', 'index': int, 'info': str}
+        
+        self.setWindowTitle("Select Track to Extract")
+        self.setMinimumSize(500, 400)
+        
+        layout = QVBoxLayout(self)
+        
+        # Video tracks section
+        if video_tracks:
+            layout.addWidget(QLabel("<b>Video Tracks:</b>"))
+            self.video_list = QListWidget()
+            self.video_list.setAlternatingRowColors(True)
+            self.video_list.setSelectionMode(QAbstractItemView.SingleSelection)
+            
+            for track in video_tracks:
+                item_text = f"Track {track['index']}: {track['codec']} {track.get('resolution', '')}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, {'type': 'video', 'index': track['index'], 'info': item_text})
+                self.video_list.addItem(item)
+            
+            layout.addWidget(self.video_list)
+        else:
+            layout.addWidget(QLabel("<b>Video Tracks:</b> None found"))
+            self.video_list = None
+        
+        layout.addSpacing(10)
+        
+        # Audio tracks section
+        if audio_tracks:
+            layout.addWidget(QLabel("<b>Audio Tracks:</b>"))
+            self.audio_list = QListWidget()
+            self.audio_list.setAlternatingRowColors(True)
+            self.audio_list.setSelectionMode(QAbstractItemView.SingleSelection)
+            
+            for track in audio_tracks:
+                lang = track.get('language', 'unknown')
+                item_text = f"Track {track['index']}: {track['codec']} - {track['channels']}ch ({lang})"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, {'type': 'audio', 'index': track['index'], 'info': item_text})
+                self.audio_list.addItem(item)
+            
+            layout.addWidget(self.audio_list)
+        else:
+            layout.addWidget(QLabel("<b>Audio Tracks:</b> None found"))
+            self.audio_list = None
+        
+        layout.addSpacing(10)
+        
+        # Buttons
+        btn_box = QDialogButtonBox()
+        self.extract_btn = btn_box.addButton("Extract", QDialogButtonBox.AcceptRole)
+        self.extract_btn.setEnabled(False)
+        btn_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+        
+        # Connect selection signals
+        if self.video_list:
+            self.video_list.itemSelectionChanged.connect(self._on_selection_changed)
+        if self.audio_list:
+            self.audio_list.itemSelectionChanged.connect(self._on_selection_changed)
+    
+    def _on_selection_changed(self):
+        """Handle selection change"""
+        self.selected_track = None
+        
+        if self.video_list and self.video_list.selectedItems():
+            item = self.video_list.selectedItems()[0]
+            self.selected_track = item.data(Qt.UserRole)
+            if self.audio_list:
+                self.audio_list.clearSelection()
+        elif self.audio_list and self.audio_list.selectedItems():
+            item = self.audio_list.selectedItems()[0]
+            self.selected_track = item.data(Qt.UserRole)
+            if self.video_list:
+                self.video_list.clearSelection()
+        
+        self.extract_btn.setEnabled(self.selected_track is not None)
+    
+    def get_selected_track(self):
+        """Return the selected track info"""
+        return self.selected_track
+
+
 class ConfigTab(QWidget):
     """Configuration tab for system paths and file management"""
     
@@ -368,6 +461,11 @@ class ConfigTab(QWidget):
         extract_subs_btn.setToolTip("Extract all subtitles from video or DVD folder")
         extract_subs_btn.clicked.connect(self.extract_subtitles)
         btn_layout.addWidget(extract_subs_btn)
+        
+        extract_track_btn = QPushButton("📦 Extract Track")
+        extract_track_btn.setToolTip("Extract video or audio track from video file")
+        extract_track_btn.clicked.connect(self.extract_track)
+        btn_layout.addWidget(extract_track_btn)
         
         clear_btn = QPushButton("🗑️ Clear All")
         clear_btn.clicked.connect(self.clear_files)
@@ -889,6 +987,196 @@ class ConfigTab(QWidget):
         
         self.app_state.log(msg, "INFO")
         QMessageBox.information(self, "DVD Subtitles", msg)
+    
+    def extract_track(self):
+        """Extract video or audio track from video file"""
+        # Select video file
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Video File",
+            "",
+            "Video Files (*.mp4 *.mkv *.avi *.mov *.mpg *.mpeg *.vob);;All Files (*)"
+        )
+        if not file_path:
+            return
+        
+        self._extract_track_from_video(file_path)
+    
+    def _extract_track_from_video(self, video_path):
+        """Extract a track from a video file"""
+        self.app_state.log(f"Analyzing tracks in: {os.path.basename(video_path)}", "INFO")
+        
+        # Get all streams using ffprobe
+        cmd = [
+            self.app_state.ffprobe_path,
+            "-v", "error",
+            "-show_entries", "stream=index,codec_type,codec_name,width,height:stream_tags=language",
+            "-of", "json",
+            video_path
+        ]
+        
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                self.app_state.log(f"ffprobe error: {result.stderr}", "ERROR")
+                QMessageBox.warning(self, "Extract Track", f"Error analyzing file: {result.stderr}")
+                return
+            
+            data = json.loads(result.stdout)
+            streams = data.get('streams', [])
+            
+            # Separate video and audio tracks
+            video_tracks = []
+            audio_tracks = []
+            
+            for stream in streams:
+                codec_type = stream.get('codec_type')
+                
+                if codec_type == 'video':
+                    width = stream.get('width', 0)
+                    height = stream.get('height', 0)
+                    resolution = f"{width}x{height}" if width and height else ""
+                    video_tracks.append({
+                        'index': stream.get('index'),
+                        'codec': stream.get('codec_name', 'unknown').upper(),
+                        'resolution': resolution
+                    })
+                elif codec_type == 'audio':
+                    audio_tracks.append({
+                        'index': stream.get('index'),
+                        'codec': stream.get('codec_name', 'unknown').upper(),
+                        'channels': 'Stereo',
+                        'language': stream.get('tags', {}).get('language', 'unknown')
+                    })
+            
+            # Get more detailed audio info
+            if audio_tracks:
+                cmd_audio = [
+                    self.app_state.ffprobe_path,
+                    "-v", "error",
+                    "-select_streams", "a",
+                    "-show_entries", "stream=index,codec_name,channels:stream_tags=language",
+                    "-of", "json",
+                    video_path
+                ]
+                try:
+                    result_audio = subprocess.run(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+                    if result_audio.returncode == 0:
+                        audio_data = json.loads(result_audio.stdout)
+                        for i, stream in enumerate(audio_data.get('streams', [])):
+                            if i < len(audio_tracks):
+                                channels = stream.get('channels', 0)
+                                ch_str = f"{channels}ch" if channels else "Stereo"
+                                audio_tracks[i]['channels'] = ch_str
+                except Exception:
+                    pass
+            
+            if not video_tracks and not audio_tracks:
+                self.app_state.log("No video or audio tracks found", "WARN")
+                QMessageBox.information(self, "Extract Track", "No video or audio tracks found in the file.")
+                return
+            
+            # Show selection dialog
+            dialog = TrackSelectionDialog(video_tracks, audio_tracks, self)
+            if dialog.exec() == QDialog.Accepted:
+                selected = dialog.get_selected_track()
+                if selected:
+                    self._do_extract_track(video_path, selected)
+            
+        except json.JSONDecodeError as e:
+            self.app_state.log(f"Failed to parse ffprobe output: {e}", "ERROR")
+            QMessageBox.warning(self, "Extract Track", f"Failed to analyze file: {e}")
+        except Exception as e:
+            self.app_state.log(f"Error extracting track: {e}", "ERROR")
+            QMessageBox.warning(self, "Extract Track", f"Error: {e}")
+    
+    def _do_extract_track(self, video_path, track_info):
+        """Perform the actual track extraction"""
+        # Get output folder
+        output_folder = self.app_state.output_folder if self.app_state.output_folder else os.path.dirname(video_path)
+        
+        # Generate output filename
+        base_name = os.path.splitext(os.path.basename(video_path))[0]
+        track_type = track_info['type']
+        track_idx = track_info['index']
+        
+        if track_type == 'video':
+            output_ext = '.mkv'
+            output_filename = f"{base_name}_video_track{track_idx}{output_ext}"
+            
+            cmd = [
+                self.app_state.ffmpeg_path,
+                "-y",
+                "-i", video_path,
+                "-map", f"0:v:{track_idx}",
+                "-c", "copy",
+                os.path.join(output_folder, output_filename)
+            ]
+        else:
+            # Get audio codec
+            cmd_probe = [
+                self.app_state.ffprobe_path,
+                "-v", "error",
+                "-select_streams", f"a:{track_idx}",
+                "-show_entries", "stream=codec_name",
+                "-of", "json",
+                video_path
+            ]
+            
+            codec = 'aac'
+            try:
+                result = subprocess.run(cmd_probe, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+                if result.returncode == 0:
+                    data = json.loads(result.stdout)
+                    streams = data.get('streams', [])
+                    if streams:
+                        codec = streams[0].get('codec_name', 'aac').lower()
+            except Exception:
+                pass
+            
+            codec_ext = {
+                'aac': '.aac', 'mp3': '.mp3', 'ac3': '.ac3', 'dts': '.dts',
+                'flac': '.flac', 'ogg': '.ogg', 'opus': '.opus',
+                'wav': '.wav', 'pcm_s16le': '.wav'
+            }
+            output_ext = codec_ext.get(codec, '.aac')
+            output_filename = f"{base_name}_audio_track{track_idx}{output_ext}"
+            
+            cmd = [
+                self.app_state.ffmpeg_path,
+                "-y",
+                "-i", video_path,
+                "-map", f"0:a:{track_idx}",
+                "-c", "copy",
+                os.path.join(output_folder, output_filename)
+            ]
+        
+        self.app_state.log(f"Extracting {track_type} track to: {output_filename}", "INFO")
+        
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                output_path = os.path.join(output_folder, output_filename)
+                if os.path.exists(output_path):
+                    size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                    msg = f"Successfully extracted {track_type} track!\n\nOutput: {output_filename}\nSize: {size_mb:.2f} MB"
+                    self.app_state.log(msg, "SUCCESS")
+                    QMessageBox.information(self, "Extract Track", msg)
+                else:
+                    self.app_state.log("Output file not found", "ERROR")
+                    QMessageBox.warning(self, "Extract Track", "Extraction completed but output file not found.")
+            else:
+                error_msg = result.stderr if result.stderr else "Unknown error"
+                self.app_state.log(f"Extraction failed: {error_msg}", "ERROR")
+                QMessageBox.warning(self, "Extract Track", f"Extraction failed: {error_msg}")
+                
+        except subprocess.TimeoutExpired:
+            self.app_state.log("Extraction timed out", "ERROR")
+            QMessageBox.warning(self, "Extract Track", "Extraction timed out.")
+        except Exception as e:
+            self.app_state.log(f"Error during extraction: {e}", "ERROR")
+            QMessageBox.warning(self, "Extract Track", f"Error: {e}")
         
     def run_validation(self, filepath):
         """Run video validation and show results"""
