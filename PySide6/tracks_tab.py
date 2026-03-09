@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QLineEdit, QFileDialog, QMessageBox, QFrame,
     QScrollArea, QProgressDialog, QApplication
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QRect
 from PySide6.QtGui import QPainter, QColor, QFont, QBrush, QPen
 
 from models import AppState, Track, TrackType
@@ -124,7 +124,8 @@ class TimelineView(QWidget):
     def _draw_time_ruler(self, painter: QPainter):
         """Draw time ruler"""
         painter.setPen(QColor("#333333"))
-        painter.fillRect(0, 0, self.width(), 25)
+        ruler_rect = QRect(0, 0, self.width(), 25)
+        painter.fillRect(ruler_rect, QColor("#333333"))
         
         # Draw ticks based on zoom
         if self._pixels_per_second >= 50:
