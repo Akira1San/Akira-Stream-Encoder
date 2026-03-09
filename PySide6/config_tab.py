@@ -882,9 +882,11 @@ class ConfigTab(QWidget):
             
             self.app_state.log(f"Found {len(subtitle_streams)} subtitle stream(s)", "INFO")
             
-            # Create output directory
-            output_dir = tempfile.mkdtemp(prefix='extracted_subs_')[1]
-            output_dir = output_dir if isinstance(output_dir, str) else output_dir
+            # Use video file's directory for output
+            video_dir = os.path.dirname(video_path)
+            video_name = os.path.splitext(os.path.basename(video_path))[0]
+            output_dir = os.path.join(video_dir, f"{video_name}_subs")
+            os.makedirs(output_dir, exist_ok=True)
             
             extracted_files = []
             
@@ -899,7 +901,7 @@ class ConfigTab(QWidget):
                 cmd = [
                     self.app_state.ffmpeg_path,
                     "-y", "-i", video_path,
-                    "-map", f"0:s:{stream_idx}",
+                    "-map", f"0:s:{i}",
                     "-c:s", "srt",
                     output_file
                 ]

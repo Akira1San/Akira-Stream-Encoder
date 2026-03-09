@@ -307,6 +307,23 @@ class VideoController:
                 
                 # Pixel format for compatibility
                 cmd.extend(["-pix_fmt", "yuv420p"])
+                
+                # --- STRICT STREAMER FLAGS for extract clip ---
+                # H.265 (libx265) requires x265-params for keyframe and level control
+                if encoder == "libx265":
+                    cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+                else:
+                    # H.264 and NVENC use standard flags
+                    cmd.extend(["-g", "144"])  # GOP size
+                    cmd.extend(["-bf", "0"])  # No B-frames
+                
+                # Profile and level
+                cmd.extend(["-profile:v", "main"])  # Profile: main
+                if encoder != "libx265":
+                    cmd.extend(["-level:v", "4.0"])  # Level for H.264/NVENC
+                
+                # Force keyframe at start for clean cut
+                cmd.extend(["-force_key_frames:v", "0"])
             
             # Build audio filters for extract clip mode
             _, audio_filters = self.build_filter_complex(input_path)
@@ -375,7 +392,7 @@ class VideoController:
                 cmd.extend(["-preset", self.app_state.encoding.cpu_preset])
                 if self.app_state.encoding.cpu_tune != "none":
                     cmd.extend(["-tune", self.app_state.encoding.cpu_tune])
-                
+            
             # Resolution - only use -s if scale_mode is off (otherwise use filter)
             if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
                 cmd.extend(["-s", self.app_state.encoding.resolution])
@@ -384,11 +401,25 @@ class VideoController:
             cmd.extend(["-r", self.app_state.encoding.framerate])
             
             # --- STRICT STREAMER FLAGS ---
-            cmd.extend(["-g", "144"])  # GOP size
-            cmd.extend(["-bf", "0"])  # No B-frames
+            
+            # H.265 (libx265) requires x265-params for keyframe and level control
+            if encoder == "libx265":
+                # Use x265-params for H.265 specific settings (keyint, bframes, level)
+                cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+            else:
+                # H.264 and NVENC use standard flags
+                cmd.extend(["-g", "144"])  # GOP size
+                cmd.extend(["-bf", "0"])  # No B-frames
+            
             cmd.extend(["-pix_fmt", "yuv420p"])  # Pixel format
-            cmd.extend(["-profile:v", "main"])  # Profile: main
-            cmd.extend(["-level:v", "4.0"])  # Level 4.0 (compatible with level 120)
+            
+            # Profile and level - handle differently for H.265
+            if encoder == "libx265":
+                cmd.extend(["-profile:v", "main"])  # Profile: main for H.265
+                # Level is set in x265-params above
+            else:
+                cmd.extend(["-profile:v", "main"])  # Profile: main
+                cmd.extend(["-level:v", "4.0"])  # Level 4.0 for H.264/NVENC
             
             # Force keyframe at start to avoid green frames after seeking/cutting
             cmd.extend(["-force_key_frames:v", "0"])
@@ -460,6 +491,9 @@ class VideoController:
         """Build FFmpeg filter strings - returns (video_filters, audio_filters)"""
         video_filters = []
         audio_filters = []
+        
+        # Force SAR to 1:1 FIRST for HLS streaming compatibility (before any other filters)
+        video_filters.append("setsar=1:1")
         
         # Scale filter with algorithm (when scale_mode is "on")
         if self.app_state.encoding.scale_mode == "on" and self.app_state.encoding.resolution != "none":
@@ -665,7 +699,7 @@ class VideoController:
         if getattr(self.app_state.filters, 'audio_compressor', False):
             audio_filters.append("acompressor=threshold=0.15:ratio=3:attack=20:release=250")
             self.app_state.log("Audio: Applying audio compressor", "INFO")
-            
+        
         return (
             ",".join(video_filters) if video_filters else "",
             ",".join(audio_filters) if audio_filters else ""

@@ -18,6 +18,7 @@ from config import SETTINGS_FILE
 from config_tab import ConfigTab
 from video_workspace import VideoWorkspace
 from composition import CompositionTab
+from tracks_tab import TracksTab
 
 
 class LogWidget(QTextEdit):
@@ -97,6 +98,10 @@ class MainWindow(QMainWindow):
         self.video_tab = VideoWorkspace(self.app_state)
         self.tab_widget.addTab(self.video_tab, "🎬 Video")
         
+        # Tracks Tab
+        self.tracks_tab = TracksTab(self.app_state)
+        self.tab_widget.addTab(self.tracks_tab, "📊 Tracks")
+        
         # Composition tab
         self.composition_tab = CompositionTab(self.app_state)
         self.tab_widget.addTab(self.composition_tab, "🎨 Composition")
@@ -161,6 +166,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.setCurrentWidget(self.video_tab)
         # Load video in workspace
         self.video_tab.set_video(file_path)
+        # Also load in tracks tab
+        if hasattr(self, 'tracks_tab'):
+            self.tracks_tab.load_video(file_path)
     
     def on_dvd_imported(self):
         """Handle DVD import - update subtitles panel with DVD subtitle tracks"""
