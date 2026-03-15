@@ -8,29 +8,29 @@
 
 ## Phase 1: Core QMediaPlayer Integration
 
-- [ ] Create `video_player.py` with QMediaPlayer-based video widget
-- [ ] Support basic play/pause/stop with QMediaPlayer
-- [ ] Implement timeline seeking with QMediaPlayer
-- [ ] Get video duration from QMediaPlayer instead of ffprobe
-- [ ] Test: Basic video playback works smoothly
+- [x] Create `video_player.py` with QMediaPlayer-based video widget
+- [x] Support basic play/pause/stop with QMediaPlayer
+- [x] Implement timeline seeking with QMediaPlayer
+- [x] Get video duration from QMediaPlayer instead of ffprobe
+- [x] Test: Basic video playback works smoothly
 
 ---
 
 ## Phase 2: Video Widget Setup
 
-- [ ] Use QVideoWidget for video display
-- [ ] Handle video aspect ratio correctly
-- [ ] Support resizable preview (Small/Medium sizes)
-- [ ] Display video in "Original" panel
+- [x] Use QVideoWidget for video display
+- [x] Handle video aspect ratio correctly
+- [x] Support resizable preview (Small/Medium sizes)
+- [x] Display video in "Original" panel
 - [ ] Test: Video displays correctly in preview area
 
 ---
 
 ## Phase 3: Audio Integration
 
-- [ ] QMediaPlayer handles audio natively - remove separate AudioPlayer
-- [ ] Connect volume slider to QMediaPlayer volume
-- [ ] Connect mute button to QMediaPlayer muted property
+- [x] QMediaPlayer handles audio natively - remove separate AudioPlayer
+- [x] Connect volume slider to QMediaPlayer volume
+- [x] Connect mute button to QMediaPlayer muted property
 - [ ] Test: Audio plays in sync with video
 
 ---
@@ -116,5 +116,5 @@ player.setPlaybackRate(1.5)  # 1.5x speed
 
 ## Status
 
-**Current Phase**: Not started
-**Progress**: 0%
+**Current Phase**: Phase 1-3 Completed (Core Integration, Video Widget, Audio)
+**Progress**: 40%

@@ -16,6 +16,8 @@ from PySide6.QtCore import Qt, Signal, QThread, QObject, QBuffer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QPen
 
 from audio_player import AudioPlayer
+from video_player import VideoPlayer
+from PySide6.QtMultimediaWidgets import QVideoWidget
 
 
 def parse_srt_file(srt_path: str) -> list:
@@ -464,6 +466,17 @@ class VideoPreview(QWidget):
         self._audio_volume: float = 0.8  # Default volume 80%
         self._audio_position_sync_enabled: bool = True  # Flag to prevent feedback loops
         
+        # Video player (QMediaPlayer for smooth playback)
+        self._video_player = VideoPlayer(self)
+        self._video_player_widget: Optional[QVideoWidget] = None
+        self._video_player.position_changed.connect(self._on_video_position_changed)
+        self._video_player.duration_changed.connect(self._video_duration_changed)
+        self._video_player.state_changed.connect(self._video_state_changed)
+        self._video_player.error_occurred.connect(self._on_video_error)
+        
+        # Use QMediaPlayer for playback (smooth) vs FFmpeg for frame capture (processed preview)
+        self._use_smooth_playback: bool = True  # Toggle for testing
+        
         self.setup_ui()
         
     def setup_ui(self):
@@ -489,6 +502,14 @@ class VideoPreview(QWidget):
         self.original_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
         self.original_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         original_layout.addWidget(self.original_label)
+        
+        # Create video widget for smooth playback (hidden initially, shown when using QMediaPlayer)
+        self._video_widget = QVideoWidget()
+        self._video_widget.setMinimumSize(self.preview_width, self.preview_height)
+        self._video_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self._video_widget.setVisible(False)  # Hidden by default, show when playing
+        self._video_player.set_video_output(self._video_widget)
+        original_layout.addWidget(self._video_widget)
         
         self.split.addWidget(self.original_group)
         
@@ -611,18 +632,57 @@ class VideoPreview(QWidget):
         
         self.current_video_path = video_path
         
-        # Get video duration
+        # Load video into QMediaPlayer for smooth playback
+        self._video_player.load_file(video_path)
+        self._video_player.set_volume(self._audio_volume)
+        
+        # Get video duration from QMediaPlayer (faster than ffprobe)
+        # Duration will be available via duration_changed signal
+        # Also try ffprobe as fallback
         self.load_video_metadata(video_path)
         
-        # Load audio for playback
-        self._audio_player.load_file(video_path)
-        self._audio_player.set_volume(self._audio_volume)
-        
-        # Load initial frame
+        # Load initial frame for processed preview (FFmpeg frame capture)
         self.seek_preview(0)
         
     def _on_audio_error(self, error_msg: str):
         """Handle audio player errors"""
+        self.app_state.log(error_msg, "WARN")
+    
+    def _on_video_position_changed(self, position_sec: float):
+        """Handle video player position change - update timeline and processed preview"""
+        self._playback_time = position_sec
+        
+        # Update timeline slider
+        if self.duration > 0:
+            slider_value = self.timeline_slider.time_to_value(position_sec)
+            self.timeline_slider.setValue(slider_value)
+            
+            # Update time label
+            mins, secs = divmod(int(position_sec), 60)
+            hours = mins // 60
+            mins = mins % 60
+            if hours > 0:
+                time_str = f"{hours}:{mins:02d}:{secs:02d}"
+            else:
+                time_str = f"{mins:02d}:{secs:02d}"
+            self.time_label.setText(time_str)
+    
+    def _video_duration_changed(self, duration_sec: float):
+        """Handle video player duration change"""
+        if duration_sec > 0 and duration_sec != self.duration:
+            self.duration = duration_sec
+            self.timeline_slider.set_duration(self.duration)
+            self.app_state.log(f"Video duration (QMediaPlayer): {self.duration:.2f}s", "INFO")
+    
+    def _video_state_changed(self, state: str):
+        """Handle video player state change"""
+        if state == "stopped" and self.is_playing:
+            # Video finished playing
+            self.on_pause_clicked()
+            self.app_state.log("Playback finished", "INFO")
+    
+    def _on_video_error(self, error_msg: str):
+        """Handle video player errors"""
         self.app_state.log(error_msg, "WARN")
         
     def load_video_metadata(self, video_path: str):
@@ -729,18 +789,23 @@ class VideoPreview(QWidget):
             self.app_state.log(f"Invalid time format: {text}. Use MM:SS or seconds", "WARN")
             
     def on_timeline_released(self):
-        """Handle timeline slider release - load frame and sync audio"""
+        """Handle timeline slider release - seek video and update processed preview"""
         if self.current_video_path and self.duration > 0:
             value = self.timeline_slider.value()
             timestamp = self.timeline_slider.value_to_time(value)
-            self.seek_preview(timestamp)
             
-            # Sync playback time (for when playing)
+            # Use QMediaPlayer for smooth seeking
+            if self._use_smooth_playback:
+                self._video_player.seek(timestamp)
+            else:
+                # Fallback: use FFmpeg frame extraction
+                self.seek_preview(timestamp)
+                # Sync audio position
+                if self._audio_player.is_ready():
+                    self._audio_player.seek(timestamp)
+            
+            # Sync playback time
             self._playback_time = timestamp
-            
-            # Sync audio position
-            if self._audio_player.is_ready():
-                self._audio_player.seek(timestamp)
             
     def get_current_timestamp(self):
         """Get the current timeline position in seconds"""
@@ -1055,32 +1120,31 @@ class VideoPreview(QWidget):
             self.display_image(self.processed_label, processed)
             
     def on_play_clicked(self):
-        """Handle play button click - start auto-advancing frames"""
+        """Handle play button click - use QMediaPlayer for smooth playback"""
         if not self.current_video_path or self.duration <= 0:
             return
         
-        # Initialize playback time from current slider position
-        value = self.timeline_slider.value()
-        self._playback_time = self.timeline_slider.value_to_time(value)
-        
-        self.is_playing = True
-        self.play_btn.setEnabled(False)
-        self.pause_btn.setEnabled(True)
-        
-        # Calculate timer interval based on playback speed
-        # Base: 30 fps, adjust by speed
-        base_fps = 30
-        actual_fps = base_fps * self.playback_speed
-        interval = int(1000 / actual_fps)
-        
-        # Start playback timer
-        self.playback_timer = self.startTimer(interval)
-        
-        # Start audio playback
-        if self._audio_player.is_ready():
-            self._audio_player.play()
-        
-        self.app_state.log(f"Playback started at {self.playback_speed}x speed", "INFO")
+        # Use QMediaPlayer for smooth playback
+        if self._use_smooth_playback:
+            # Show video widget, hide label
+            self.original_label.setVisible(False)
+            self._video_widget.setVisible(True)
+            
+            # Seek to current position first
+            value = self.timeline_slider.value()
+            position = self.timeline_slider.value_to_time(value)
+            self._video_player.seek(position)
+            
+            # Start playback
+            self._video_player.play()
+            
+            self.is_playing = True
+            self.play_btn.setEnabled(False)
+            self.pause_btn.setEnabled(True)
+            self.app_state.log(f"Smooth playback started at {self.playback_speed}x speed", "INFO")
+        else:
+            # Fallback: old frame-by-frame approach
+            self._start_frame_playback()
         
     def on_speed_changed(self, speed_text):
         """Handle playback speed change"""
@@ -1088,8 +1152,12 @@ class VideoPreview(QWidget):
         speed = float(speed_text.replace('x', ''))
         self.playback_speed = speed
         
-        # If currently playing, restart timer with new speed
-        if self.is_playing:
+        # Use QMediaPlayer's playback rate for smooth playback
+        if self._use_smooth_playback:
+            self._video_player.set_playback_rate(speed)
+            self.app_state.log(f"Playback speed changed to {self.playback_speed}x", "INFO")
+        elif self.is_playing:
+            # Fallback: old frame-by-frame approach
             self.killTimer(self.playback_timer)
             base_fps = 30
             actual_fps = base_fps * self.playback_speed
@@ -1119,11 +1187,15 @@ class VideoPreview(QWidget):
     def on_pause_clicked(self):
         """Handle pause button click"""
         self.is_playing = False
-        if hasattr(self, 'playback_timer'):
-            self.killTimer(self.playback_timer)
         
-        # Pause audio
-        self._audio_player.pause()
+        # Use QMediaPlayer for smooth playback
+        if self._use_smooth_playback:
+            self._video_player.pause()
+        else:
+            if hasattr(self, 'playback_timer'):
+                self.killTimer(self.playback_timer)
+            # Pause audio (fallback)
+            self._audio_player.pause()
         
         self.play_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
@@ -1132,11 +1204,18 @@ class VideoPreview(QWidget):
     def on_stop_clicked(self):
         """Handle stop button click - reset to beginning"""
         self.is_playing = False
-        if hasattr(self, 'playback_timer'):
-            self.killTimer(self.playback_timer)
         
-        # Stop audio and reset position
-        self._audio_player.stop()
+        # Use QMediaPlayer for smooth playback
+        if self._use_smooth_playback:
+            self._video_player.stop()
+            # Show label, hide video widget
+            self.original_label.setVisible(True)
+            self._video_widget.setVisible(False)
+        else:
+            if hasattr(self, 'playback_timer'):
+                self.killTimer(self.playback_timer)
+            # Stop audio and reset position (fallback)
+            self._audio_player.stop()
         
         # Reset to beginning
         self._playback_time = 0.0
@@ -1174,7 +1253,12 @@ class VideoPreview(QWidget):
     def on_volume_changed(self, value: int):
         """Handle volume slider change"""
         self._audio_volume = value / 100.0
-        self._audio_player.set_volume(self._audio_volume)
+        
+        # Update both audio player and video player (they handle audio)
+        if self._use_smooth_playback:
+            self._video_player.set_volume(self._audio_volume)
+        else:
+            self._audio_player.set_volume(self._audio_volume)
         
         # Update mute button icon
         if value == 0:
@@ -1184,8 +1268,13 @@ class VideoPreview(QWidget):
             
     def on_mute_clicked(self):
         """Handle mute button click"""
-        is_muted = self._audio_player.is_muted()
-        self._audio_player.set_muted(not is_muted)
+        # Toggle mute on video player (smooth playback) or audio player (fallback)
+        if self._use_smooth_playback:
+            is_muted = self._video_player.is_muted()
+            self._video_player.set_muted(not is_muted)
+        else:
+            is_muted = self._audio_player.is_muted()
+            self._audio_player.set_muted(not is_muted)
         
         if not is_muted:
             self.mute_btn.setText("🔇")
