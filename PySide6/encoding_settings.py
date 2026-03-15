@@ -1,10 +1,11 @@
 """
 Encoding Settings Panel (PySide6)
 """
+import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QCheckBox, QSlider, QSpinBox, QLineEdit, QGroupBox,
-    QRadioButton, QButtonGroup, QFrame
+    QRadioButton, QButtonGroup, QFrame, QPushButton, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -404,6 +405,57 @@ class EncodingPanel(QWidget):
         audio_track_layout.addStretch()
         advanced_layout.addLayout(audio_track_layout)
         
+        # External Audio File Selection
+        ext_audio_group = QGroupBox("External Audio")
+        ext_audio_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #888;
+                border-radius: 3px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+            }
+        """)
+        ext_audio_layout = QVBoxLayout(ext_audio_group)
+        
+        # Enable external audio checkbox
+        self.external_audio_check = QCheckBox("Use External Audio File")
+        self.external_audio_check.setToolTip("Load an external audio file to replace the video's embedded audio.\nSupports: MP3, AAC, WAV, FLAC, OGG, M4A, AC3")
+        ext_audio_layout.addWidget(self.external_audio_check)
+        
+        # File selection row
+        ext_file_layout = QHBoxLayout()
+        self.external_audio_path = QLineEdit()
+        self.external_audio_path.setPlaceholderText("No file selected...")
+        self.external_audio_path.setReadOnly(True)
+        self.external_audio_path.setToolTip("Path to external audio file")
+        ext_file_layout.addWidget(self.external_audio_path)
+        
+        self.browse_audio_btn = QPushButton("Browse...")
+        self.browse_audio_btn.setMaximumWidth(80)
+        self.browse_audio_btn.setToolTip("Browse for audio file")
+        ext_file_layout.addWidget(self.browse_audio_btn)
+        
+        self.clear_audio_btn = QPushButton("Clear")
+        self.clear_audio_btn.setMaximumWidth(60)
+        self.clear_audio_btn.setToolTip("Remove external audio")
+        self.clear_audio_btn.setEnabled(False)
+        ext_file_layout.addWidget(self.clear_audio_btn)
+        
+        ext_audio_layout.addLayout(ext_file_layout)
+        
+        # Audio info display
+        self.external_audio_info = QLabel("No audio file selected")
+        self.external_audio_info.setStyleSheet("color: gray; font-size: 11px;")
+        self.external_audio_info.setToolTip("Information about selected external audio file")
+        ext_audio_layout.addWidget(self.external_audio_info)
+        
+        advanced_layout.addWidget(ext_audio_group)
+        
         # Audio Sample Rate
         sample_rate_layout = QHBoxLayout()
         sample_rate_layout.addWidget(QLabel("Audio Sample Rate:"))
@@ -454,6 +506,11 @@ class EncodingPanel(QWidget):
         self.cpu_preset_combo.currentTextChanged.connect(self.on_cpu_preset_changed)
         self.cpu_tune_combo.currentTextChanged.connect(self.on_cpu_tune_changed)
         
+        # External audio signals
+        self.external_audio_check.toggled.connect(self.on_external_audio_toggled)
+        self.browse_audio_btn.clicked.connect(self.on_browse_external_audio)
+        self.clear_audio_btn.clicked.connect(self.on_clear_external_audio)
+        
         # Set initial preset visibility
         self.update_preset_visibility()
         
@@ -491,6 +548,181 @@ class EncodingPanel(QWidget):
         default_index = 0
         self.audio_track_combo.setCurrentIndex(default_index)
         self.app_state.tracks.audio_stream_index = default_index
+        
+    def on_external_audio_toggled(self, checked):
+        """Handle external audio checkbox toggle"""
+        self.app_state.tracks.external_audio_enabled = checked
+        
+        # Enable/disable browse and clear buttons based on checkbox state
+        self.browse_audio_btn.setEnabled(checked)
+        
+        # If unchecked and there's a path, keep it but mark as disabled
+        if not checked:
+            self.external_audio_path.setEnabled(False)
+            self.clear_audio_btn.setEnabled(False)
+        elif self.app_state.tracks.external_audio_path:
+            self.external_audio_path.setEnabled(True)
+            self.clear_audio_btn.setEnabled(True)
+        
+        self.settings_changed.emit()
+        
+    def on_browse_external_audio(self):
+        """Handle browse button click for external audio file"""
+        file_filter = "Audio Files (*.mp3 *.aac *.wav *.flac *.ogg *.m4a *.ac3);;All Files (*)"
+        
+        # Get last directory from app state or use home directory
+        last_dir = getattr(self.app_state, 'last_directory', '')
+        if not last_dir:
+            import os
+            last_dir = os.path.expanduser("~")
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select External Audio File",
+            last_dir,
+            file_filter
+        )
+        
+        if file_path:
+            # Save directory for next time
+            import os
+            self.app_state.last_directory = os.path.dirname(file_path)
+            
+            # Validate and load the audio file
+            self.load_external_audio(file_path)
+        
+    def load_external_audio(self, file_path: str):
+        """Load and validate external audio file"""
+        import os
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            self.external_audio_info.setText("Error: File not found")
+            self.external_audio_info.setStyleSheet("color: red; font-size: 11px;")
+            return
+        
+        # Try to get audio info using ffprobe
+        audio_info = self.get_external_audio_info(file_path)
+        
+        if audio_info:
+            # Store the path
+            self.app_state.tracks.external_audio_path = file_path
+            
+            # Display file name
+            file_name = os.path.basename(file_path)
+            self.external_audio_path.setText(file_name)
+            self.external_audio_path.setToolTip(file_path)
+            
+            # Display audio info
+            info_text = f"{audio_info.get('codec', 'Unknown').upper()}"
+            if audio_info.get('duration'):
+                info_text += f", {audio_info['duration']}"
+            if audio_info.get('channels'):
+                info_text += f", {audio_info['channels']}ch"
+            if audio_info.get('sample_rate'):
+                info_text += f", {audio_info['sample_rate']}Hz"
+            
+            self.external_audio_info.setText(info_text)
+            self.external_audio_info.setStyleSheet("color: green; font-size: 11px;")
+            
+            # Store info in app state
+            self.app_state.tracks.external_audio_info = info_text
+            
+            # Enable UI elements
+            self.external_audio_path.setEnabled(True)
+            self.clear_audio_btn.setEnabled(True)
+            self.external_audio_check.setChecked(True)
+            self.app_state.tracks.external_audio_enabled = True
+            
+            self.app_state.log(f"Loaded external audio: {file_name}", "INFO")
+            self.settings_changed.emit()
+        else:
+            self.external_audio_info.setText("Error: Could not read audio info")
+            self.external_audio_info.setStyleSheet("color: red; font-size: 11px;")
+            
+    def get_external_audio_info(self, file_path: str) -> dict:
+        """Get information about external audio file using ffprobe"""
+        import subprocess
+        import json
+        
+        ffprobe_path = self.app_state.ffprobe_path
+        ffmpeg_path = self.app_state.ffmpeg_path
+        
+        # Try to find ffprobe
+        if ffmpeg_path != "ffmpeg" and os.path.exists(ffmpeg_path):
+            base_dir = os.path.dirname(ffmpeg_path)
+            candidate = os.path.join(base_dir, "ffprobe.exe" if os.name == 'nt' else "ffprobe")
+            if os.path.exists(candidate):
+                ffprobe_path = candidate
+        
+        if not ffprobe_path:
+            ffprobe_path = "ffprobe"
+        
+        try:
+            cmd = [
+                ffprobe_path,
+                "-v", "error",
+                "-show_entries", "stream=index,codec_name,codec_type,channels,sample_rate:format=duration",
+                "-of", "json",
+                file_path
+            ]
+            
+            result = subprocess.run(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=30
+            )
+            
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                
+                # Find audio stream
+                audio_stream = None
+                for stream in data.get('streams', []):
+                    if stream.get('codec_type') == 'audio':
+                        audio_stream = stream
+                        break
+                
+                if audio_stream:
+                    info = {
+                        'codec': audio_stream.get('codec_name', 'unknown'),
+                        'channels': audio_stream.get('channels', 0),
+                        'sample_rate': audio_stream.get('sample_rate', '')
+                    }
+                    
+                    # Get duration from format
+                    if data.get('format') and data['format'].get('duration'):
+                        duration_sec = float(data['format']['duration'])
+                        mins, secs = divmod(int(duration_sec), 60)
+                        hours, mins = divmod(mins, 60)
+                        if hours > 0:
+                            info['duration'] = f"{hours}:{mins:02d}:{secs:02d}"
+                        else:
+                            info['duration'] = f"{mins}:{secs:02d}"
+                    
+                    return info
+        except Exception as e:
+            self.app_state.log(f"Failed to read audio info: {e}", "WARN")
+        
+        return None
+        
+    def on_clear_external_audio(self):
+        """Handle clear button click to remove external audio"""
+        self.app_state.tracks.external_audio_path = ""
+        self.app_state.tracks.external_audio_enabled = False
+        self.app_state.tracks.external_audio_info = ""
+        
+        self.external_audio_path.clear()
+        self.external_audio_path.setToolTip("")
+        self.external_audio_info.setText("No audio file selected")
+        self.external_audio_info.setStyleSheet("color: gray; font-size: 11px;")
+        
+        self.external_audio_check.setChecked(False)
+        self.external_audio_path.setEnabled(False)
+        self.clear_audio_btn.setEnabled(False)
+        self.browse_audio_btn.setEnabled(False)
+        
+        self.app_state.log("External audio cleared", "INFO")
+        self.settings_changed.emit()
         
     def on_gpu_changed(self, checked):
         """Handle GPU checkbox change"""

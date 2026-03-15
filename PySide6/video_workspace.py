@@ -17,7 +17,6 @@ from subtitles import SubtitlesPanel
 from filters import FiltersPanel
 from trim_panel import TrimPanel
 from video_preview import VideoPreview
-from nle import NLETab
 
 
 class LogWidget(QTextEdit):
@@ -181,9 +180,6 @@ class VideoWorkspace(QWidget):
         
         self.tabs.addTab(self.log_tab, "📋 Log")
         
-        # NLE Tab (Non-Linear Editor)
-        self.nle_tab = NLETab(self.app_state)
-        self.tabs.addTab(self.nle_tab, "NLE Editor")
         
         right_splitter.addWidget(self.tabs)
         right_splitter.setSizes([500, 250])
@@ -267,6 +263,22 @@ class VideoWorkspace(QWidget):
         if video_path:
             self.preview.set_video(video_path)
             self.trim_panel.detect_tracks(video_path)
+            
+            # Clear external audio when new video is loaded (audio is specific to each video)
+            if hasattr(self.app_state.tracks, 'external_audio_enabled'):
+                self.app_state.tracks.external_audio_enabled = False
+                self.app_state.tracks.external_audio_path = ""
+                self.app_state.tracks.external_audio_info = ""
+                # Reset the UI if enc_panel exists
+                if hasattr(self, 'enc_panel') and hasattr(self.enc_panel, 'on_clear_external_audio'):
+                    self.enc_panel.external_audio_path.clear()
+                    self.enc_panel.external_audio_path.setToolTip("")
+                    self.enc_panel.external_audio_info.setText("No audio file selected")
+                    self.enc_panel.external_audio_info.setStyleSheet("color: gray; font-size: 11px;")
+                    self.enc_panel.external_audio_check.setChecked(False)
+                    self.enc_panel.external_audio_path.setEnabled(False)
+                    self.enc_panel.clear_audio_btn.setEnabled(False)
+                    self.enc_panel.browse_audio_btn.setEnabled(False)
             
             # Detect audio tracks and populate encoding panel
             from controller import VideoController

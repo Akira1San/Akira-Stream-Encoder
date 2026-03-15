@@ -188,6 +188,10 @@ class TrackSettings:
     audio_info: str = ""  # Summary info of selected track
     subtitle_info: str = ""
     available_audio_tracks: List[AudioTrackInfo] = field(default_factory=list)
+    # External audio support
+    external_audio_enabled: bool = False
+    external_audio_path: str = ""  # Full path to external audio file
+    external_audio_info: str = ""  # Display info (codec, duration, channels)
 
 
 @dataclass

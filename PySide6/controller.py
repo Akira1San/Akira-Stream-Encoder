@@ -249,6 +249,18 @@ class VideoController:
             # External subtitle burning (non-DVD sources)
             if burn_subs and sub_path and not is_dvd_source:
                 cmd.extend(["-i", input_path])
+                
+                # Handle external audio file for subtitle burning mode
+                external_audio_enabled = getattr(self.app_state.tracks, 'external_audio_enabled', False)
+                external_audio_path = getattr(self.app_state.tracks, 'external_audio_path', '')
+                
+                if external_audio_enabled and external_audio_path and os.path.exists(external_audio_path):
+                    cmd.extend(["-i", external_audio_path])
+                    self.app_state.log(f"External Audio: Using {os.path.basename(external_audio_path)}", "INFO")
+                    self._external_audio_enabled = True
+                else:
+                    self._external_audio_enabled = False
+                
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-t", duration])
                 
@@ -271,6 +283,18 @@ class VideoController:
             else:
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", input_path])
+                
+                # Handle external audio file for extract clip mode
+                external_audio_enabled = getattr(self.app_state.tracks, 'external_audio_enabled', False)
+                external_audio_path = getattr(self.app_state.tracks, 'external_audio_path', '')
+                
+                if external_audio_enabled and external_audio_path and os.path.exists(external_audio_path):
+                    cmd.extend(["-i", external_audio_path])
+                    self.app_state.log(f"External Audio: Using {os.path.basename(external_audio_path)}", "INFO")
+                    self._external_audio_enabled = True
+                else:
+                    self._external_audio_enabled = False
+                
                 cmd.extend(["-t", duration])
                 
                 # Add scale if needed
@@ -325,10 +349,38 @@ class VideoController:
                 # Force keyframe at start for clean cut
                 cmd.extend(["-force_key_frames:v", "0"])
             
+            # Map video from first input (external audio would be second input if present)
+            if self.app_state.tracks.video_selected:
+                if self._external_audio_enabled:
+                    cmd.extend(["-map", "0:v"])
+                else:
+                    cmd.extend(["-map", "0:v"])
+            
             # Build audio filters for extract clip mode
             _, audio_filters = self.build_filter_complex(input_path)
             
-            if self.app_state.tracks.audio_copy_mode:
+            # Handle external audio in extract clip mode
+            if self._external_audio_enabled:
+                cmd.extend(["-map", "1:a"])
+                
+                # Use copy mode by default for external audio
+                if self.app_state.tracks.audio_copy_mode:
+                    ext_audio_path = self.app_state.tracks.external_audio_path
+                    ext = os.path.splitext(ext_audio_path)[1].lower()
+                    if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
+                        cmd.extend(["-c:a", "copy"])
+                        self.app_state.log("Audio: Copy external file", "INFO")
+                    else:
+                        cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2"])
+                        self.app_state.log("Audio: Re-encode external to AAC", "INFO")
+                else:
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
+                    self.app_state.log("Audio: Re-encode external to AAC stereo", "INFO")
+                
+                # Use shortest to handle duration mismatch
+                cmd.extend(["-shortest"])
+                
+            elif self.app_state.tracks.audio_copy_mode:
                 # Cannot apply audio filters in copy mode - warn user
                 if audio_filters:
                     self.app_state.log("Audio: Copy mode - audio filters (volume, denoise, etc.) will not be applied", "WARN")
@@ -364,6 +416,19 @@ class VideoController:
                 cmd.extend(["-f", "concat", "-safe", "0"])
             
             cmd.extend(["-i", input_path])
+            
+            # Handle external audio file
+            external_audio_enabled = getattr(self.app_state.tracks, 'external_audio_enabled', False)
+            external_audio_path = getattr(self.app_state.tracks, 'external_audio_path', '')
+            
+            if external_audio_enabled and external_audio_path and os.path.exists(external_audio_path):
+                cmd.extend(["-i", external_audio_path])
+                self.app_state.log(f"External Audio: Using {os.path.basename(external_audio_path)}", "INFO")
+            else:
+                external_audio_enabled = False  # Reset if file doesn't exist
+            
+            # Store for later use in audio mapping
+            self._external_audio_enabled = external_audio_enabled
             
             # Seek AFTER input for accurate frame-precise seeking (avoids green frames)
             if start_time:
@@ -443,16 +508,52 @@ class VideoController:
         if self.app_state.tracks.video_selected:
             cmd.extend(["-map", "0:v:0"])
         
-        # Audio handling - check both track panel setting and encoding panel setting
-        audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
+        # Audio handling - check external audio first
+        external_audio_enabled = getattr(self, '_external_audio_enabled', False)
         
         # Use encoding panel audio mode by default, or track panel if set
+        audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
         if audio_mode == "copy" or self.app_state.tracks.audio_copy_mode:
             audio_copy = True
         else:
             audio_copy = False
         
-        if self.app_state.tracks.audio_selected:
+        # Check if we should use external audio
+        use_external_audio = (
+            external_audio_enabled and 
+            self.app_state.tracks.audio_selected and
+            getattr(self.app_state.tracks, 'external_audio_path', '')
+        )
+        
+        if use_external_audio:
+            # Use external audio (input index 1)
+            cmd.extend(["-map", "1:a"])
+            
+            # For external audio, use copy mode by default (faster and maintains quality)
+            # or encode mode based on user preference
+            if audio_copy:
+                # Determine codec from file extension
+                ext_audio_path = self.app_state.tracks.external_audio_path
+                ext = os.path.splitext(ext_audio_path)[1].lower()
+                
+                # Most formats support stream copy
+                if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
+                    cmd.extend(["-c:a", "copy"])
+                    self.app_state.log(f"Audio: Copy external file ({os.path.basename(ext_audio_path)})", "INFO")
+                else:
+                    # Re-encode if format doesn't support copy
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"])
+                    self.app_state.log(f"Audio: Re-encode external file to AAC", "INFO")
+            else:
+                # Re-encode external audio to AAC
+                cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+                self.app_state.log("Audio: Re-encode external audio to AAC stereo", "INFO")
+            
+            # Use -shortest to ensure output doesn't exceed shorter of video/audio
+            cmd.extend(["-shortest"])
+            
+        elif self.app_state.tracks.audio_selected:
+            # Use embedded audio from video file
             audio_stream_idx = self.app_state.tracks.audio_stream_index
             # Default to first audio stream (0) if index is invalid
             if audio_stream_idx is None or audio_stream_idx < 0:
