@@ -1014,24 +1014,51 @@ class VideoController:
         # Copy video and audio streams without re-encoding
         cmd.extend(["-c:v", "copy"])
         
+        # Check for external audio file
+        external_audio_enabled = getattr(self.app_state.tracks, 'external_audio_enabled', False)
+        external_audio_path = getattr(self.app_state.tracks, 'external_audio_path', '')
+        has_external_audio = external_audio_enabled and external_audio_path and os.path.exists(external_audio_path)
+        
+        # Add external audio as second input if available
+        if has_external_audio:
+            cmd.extend(["-i", external_audio_path])
+            self.app_state.log(f"Fast cut: Using external audio {os.path.basename(external_audio_path)}", "INFO")
+        
         # Map video stream
         if self.app_state.tracks.video_selected:
             cmd.extend(["-map", "0:v:0"])
         
         # Audio handling - map specific stream
         if self.app_state.tracks.audio_selected:
-            audio_stream_idx = self.app_state.tracks.audio_stream_index
-            cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
-            
-            # Check audio mode from Encoding Settings first, then fallback to Track Selection setting
-            audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
-            audio_copy = (audio_mode == 'copy') or self.app_state.tracks.audio_copy_mode
-            
-            if audio_copy:
-                cmd.extend(["-c:a", "copy"])
+            if has_external_audio:
+                # Use external audio (input index 1)
+                cmd.extend(["-map", "1:a"])
+                # Use copy codec for external audio
+                ext_audio_path = self.app_state.tracks.external_audio_path
+                ext = os.path.splitext(ext_audio_path)[1].lower()
+                if ext in ['.mp3', '.mp2']:
+                    cmd.extend(["-c:a", "copy"])
+                elif ext == '.wav':
+                    cmd.extend(["-c:a", "pcm_s16le"])
+                elif ext == '.flac':
+                    cmd.extend(["-c:a", "copy"])
+                else:
+                    # For aac, ogg, m4a, etc - re-encode to aac for compatibility
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"])
             else:
-                # Re-encode audio but keep video copy
-                cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+                # Use embedded audio from video
+                audio_stream_idx = self.app_state.tracks.audio_stream_index
+                cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+                
+                # Check audio mode from Encoding Settings first, then fallback to Track Selection setting
+                audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
+                audio_copy = (audio_mode == 'copy') or self.app_state.tracks.audio_copy_mode
+                
+                if audio_copy:
+                    cmd.extend(["-c:a", "copy"])
+                else:
+                    # Re-encode audio but keep video copy
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
         else:
             cmd.extend(["-an"])
         

@@ -423,6 +423,11 @@ class VideoWorkspace(QWidget):
         self.app_state.log(f"Video duration: {duration:.2f} seconds ({duration/60:.2f} minutes)", "INFO")
         
         # Check if we can do fast cut (stream copy) - only when no filters or re-encoding needed
+        # Note: External audio requires re-encoding, so we can't use fast cut
+        external_audio_enabled = getattr(self.app_state.tracks, 'external_audio_enabled', False)
+        external_audio_path = getattr(self.app_state.tracks, 'external_audio_path', '')
+        has_external_audio = external_audio_enabled and external_audio_path
+        
         can_fast_cut = (
             self.app_state.encoding.resolution == "none" and
             not self.app_state.filters.deinterlace and
@@ -433,7 +438,8 @@ class VideoWorkspace(QWidget):
             not self.app_state.filters.volume_enabled and
             not getattr(self.app_state.filters, 'audio_denoise', False) and
             not getattr(self.app_state.filters, 'audio_dynnorm', False) and
-            not getattr(self.app_state.filters, 'audio_compressor', False)
+            not getattr(self.app_state.filters, 'audio_compressor', False) and
+            not has_external_audio  # External audio requires re-encoding
         )
         
         # Generate output paths
