@@ -479,23 +479,20 @@ class FilterOverlay(QWidget):
         
         painter = QPainter(self)
         
-        # Scale the image to fit the widget while maintaining aspect ratio
+        # Scale the image to fill the widget (ignore aspect ratio to fill the panel)
         pixmap = QPixmap.fromImage(self._current_image)
         scaled = pixmap.scaled(
             self.size(),
-            Qt.KeepAspectRatio,
+            Qt.IgnoreAspectRatio,
             Qt.SmoothTransformation
         )
         
-        # Center the image
-        x = (self.width() - scaled.width()) // 2
-        y = (self.height() - scaled.height()) // 2
-        
-        painter.drawPixmap(x, y, scaled)
+        # Draw the image
+        painter.drawPixmap(0, 0, scaled)
         
         # Draw subtitle if present
         if self._subtitle_text:
-            self._draw_subtitle(painter, scaled.width(), scaled.height(), x, y)
+            self._draw_subtitle(painter, scaled.width(), scaled.height(), 0, 0)
         
         painter.end()
     
