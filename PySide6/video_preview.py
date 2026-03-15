@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
     QGroupBox, QSplitter, QSizePolicy, QPushButton, QComboBox
 )
-from PySide6.QtCore import Qt, Signal, QThread, QObject, QBuffer
+from PySide6.QtCore import Qt, Signal, QThread, QObject, QBuffer, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QPen
 
 from audio_player import AudioPlayer
@@ -437,6 +437,142 @@ class FrameLoader(QObject):
         self._cancelled = True
 
 
+class FilterOverlay(QWidget):
+    """
+    Overlay widget that displays processed video frames with filters and subtitles.
+    Sits on top of the video widget and displays filtered preview.
+    """
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setStyleSheet("background: transparent;")
+        
+        # Current processed frame to display
+        self._current_image: Optional[QImage] = None
+        self._subtitle_text: str = ""
+    
+    def set_image(self, image: QImage):
+        """Set the processed frame to display"""
+        if not image.isNull():
+            self._current_image = image.copy()
+            self.update()
+    
+    def set_subtitle(self, text: str):
+        """Set subtitle text to display"""
+        self._subtitle_text = text
+        self.update()
+    
+    def clear(self):
+        """Clear the overlay"""
+        self._current_image = None
+        self._subtitle_text = ""
+        self.update()
+    
+    def paintEvent(self, event):
+        """Draw the processed frame and subtitle on the overlay"""
+        super().paintEvent(event)
+        
+        if self._current_image is None or self._current_image.isNull():
+            return
+        
+        painter = QPainter(self)
+        
+        # Scale the image to fit the widget while maintaining aspect ratio
+        pixmap = QPixmap.fromImage(self._current_image)
+        scaled = pixmap.scaled(
+            self.size(),
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        
+        # Center the image
+        x = (self.width() - scaled.width()) // 2
+        y = (self.height() - scaled.height()) // 2
+        
+        painter.drawPixmap(x, y, scaled)
+        
+        # Draw subtitle if present
+        if self._subtitle_text:
+            self._draw_subtitle(painter, scaled.width(), scaled.height(), x, y)
+        
+        painter.end()
+    
+    def _draw_subtitle(self, painter: QPainter, img_width: int, img_height: int, img_x: int, img_y: int):
+        """Draw subtitle text on the image"""
+        from models import AppState
+        
+        # Get default settings if AppState not available
+        font_family = "Arial"
+        font_size = 24
+        text_color = "white"
+        bg_color = "black"
+        bg_opacity = 0.5
+        position = "bottom"
+        outline_width = 2
+        outline_color = "black"
+        vertical_offset = 0
+        
+        # Try to get settings from AppState if available
+        if hasattr(self, 'app_state') and self.app_state:
+            subs = self.app_state.subtitles
+            font_family = subs.font
+            font_size = subs.size
+            text_color = subs.color
+            bg_color = subs.bg_color
+            bg_opacity = subs.bg_opacity
+            position = subs.position
+            outline_width = subs.outline_width
+            outline_color = subs.outline_color
+            vertical_offset = subs.vertical_offset
+        
+        # Set up font
+        font = QFont(font_family)
+        font.setPixelSize(font_size)
+        painter.setFont(font)
+        
+        # Calculate text position
+        metrics = painter.fontMetrics()
+        lines = self._subtitle_text.split('\n')
+        max_width = max(metrics.horizontalAdvance(line) for line in lines)
+        total_height = metrics.height() * len(lines)
+        
+        # Position based on settings (relative to video image)
+        if position == "bottom":
+            x = img_x + (img_width - max_width) // 2
+            y = img_y + img_height - 20 - total_height + vertical_offset
+        elif position == "top":
+            x = img_x + (img_width - max_width) // 2
+            y = img_y + 20 + metrics.height() - vertical_offset
+        else:  # center
+            x = img_x + (img_width - max_width) // 2
+            y = img_y + (img_height - total_height) // 2
+        
+        # Draw background if opacity > 0
+        if bg_opacity > 0:
+            bg = QColor(bg_color)
+            bg.setAlpha(int(bg_opacity * 255))
+            painter.fillRect(x - 10, y - metrics.height() + 5,
+                           max_width + 20, total_height + 10, bg)
+        
+        # Draw outline
+        outline = QColor(outline_color)
+        text_col = QColor(text_color)
+        
+        for dx in range(-outline_width, outline_width + 1):
+            for dy in range(-outline_width, outline_width + 1):
+                if dx != 0 or dy != 0:
+                    painter.setPen(outline)
+                    painter.drawText(x + dx, y + dy, max_width, total_height,
+                                   Qt.AlignLeft | Qt.AlignTop, self._subtitle_text)
+        
+        # Draw main text
+        painter.setPen(text_col)
+        painter.drawText(x, y, max_width, total_height,
+                        Qt.AlignLeft | Qt.AlignTop, self._subtitle_text)
+
+
 class VideoPreview(QWidget):
     """
     Video preview widget with before/after comparison.
@@ -473,6 +609,17 @@ class VideoPreview(QWidget):
         self._video_player.duration_changed.connect(self._video_duration_changed)
         self._video_player.state_changed.connect(self._video_state_changed)
         self._video_player.error_occurred.connect(self._on_video_error)
+        
+        # Connect frame capture for filter overlay preview
+        self._video_player.frame_captured.connect(self._on_frame_captured)
+        
+        # Filter overlay timer for processed preview
+        self._overlay_timer = QTimer(self)
+        self._overlay_timer.setInterval(100)  # Update every 100ms (~10 fps for preview)
+        self._overlay_timer.timeout.connect(self._update_filter_overlay)
+        
+        # Current subtitle text for overlay
+        self._current_subtitle: str = ""
         
         # Use QMediaPlayer for playback (smooth) vs FFmpeg for frame capture (processed preview)
         self._use_smooth_playback: bool = True  # Toggle for testing
@@ -518,12 +665,31 @@ class VideoPreview(QWidget):
         processed_layout = QVBoxLayout(self.processed_group)
         processed_layout.setContentsMargins(5, 5, 5, 5)
         
+        # Container for processed preview (label + overlay)
+        self.processed_container = QWidget()
+        self.processed_container.setMinimumSize(self.preview_width, self.preview_height)
+        self.processed_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.processed_container.setStyleSheet("background-color: #1a1a1a;")
+        processed_container_layout = QVBoxLayout(self.processed_container)
+        processed_container_layout.setContentsMargins(0, 0, 0, 0)
+        processed_container_layout.setSpacing(0)
+        
+        # Processed label (for displaying filtered frame from FFmpeg)
         self.processed_label = QLabel("No Video")
         self.processed_label.setAlignment(Qt.AlignCenter)
         self.processed_label.setMinimumSize(self.preview_width, self.preview_height)
         self.processed_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
         self.processed_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        processed_layout.addWidget(self.processed_label)
+        processed_container_layout.addWidget(self.processed_label)
+        
+        # Filter overlay widget (for displaying QMediaPlayer frames with filters)
+        self.filter_overlay = FilterOverlay()
+        self.filter_overlay.setMinimumSize(self.preview_width, self.preview_height)
+        self.filter_overlay.setVisible(False)  # Hidden by default
+        self.filter_overlay.app_state = self.app_state  # Pass app_state for subtitle settings
+        processed_container_layout.addWidget(self.filter_overlay)
+        
+        processed_layout.addWidget(self.processed_container)
         
         self.split.addWidget(self.processed_group)
         self.split.setSizes([400, 400])
@@ -684,6 +850,58 @@ class VideoPreview(QWidget):
     def _on_video_error(self, error_msg: str):
         """Handle video player errors"""
         self.app_state.log(error_msg, "WARN")
+    
+    def _on_frame_captured(self, frame: QImage):
+        """
+        Handle captured frame from QMediaPlayer.
+        Apply filters and update the overlay display.
+        """
+        if frame.isNull():
+            return
+        
+        # Apply filters to the captured frame
+        processed = self.apply_filters(frame)
+        
+        # Get current subtitle text
+        sub_text = self._get_current_subtitle()
+        
+        # Update filter overlay with processed frame and subtitle
+        self.filter_overlay.set_image(processed)
+        self.filter_overlay.set_subtitle(sub_text)
+    
+    def _update_filter_overlay(self):
+        """
+        Timer callback to update the filter overlay.
+        This is called periodically during playback to refresh the preview.
+        """
+        # Get the last captured frame from the video player
+        last_frame = self._video_player.get_last_frame()
+        if last_frame is None or last_frame.isNull():
+            return
+        
+        # Apply filters and update overlay
+        self._on_frame_captured(last_frame)
+    
+    def _get_current_subtitle(self) -> str:
+        """Get subtitle text for current playback position"""
+        if not self.app_state.subtitles.burn_subs or not self.current_video_path:
+            return ""
+        
+        # Look for external subtitle file
+        base = os.path.splitext(self.current_video_path)[0]
+        sub_path = None
+        for ext in [".srt", ".ass", ".ssa", ".sub"]:
+            test_path = base + ext
+            if os.path.exists(test_path):
+                sub_path = test_path
+                break
+        
+        if not sub_path:
+            return ""
+        
+        # Get subtitle for current timestamp
+        timestamp = self._playback_time
+        return get_subtitle_text(sub_path, timestamp)
         
     def load_video_metadata(self, video_path: str):
         """Load video metadata using ffprobe"""
@@ -1130,6 +1348,10 @@ class VideoPreview(QWidget):
             self.original_label.setVisible(False)
             self._video_widget.setVisible(True)
             
+            # Show filter overlay on processed side
+            self.processed_label.setVisible(False)
+            self.filter_overlay.setVisible(True)
+            
             # Seek to current position first
             value = self.timeline_slider.value()
             position = self.timeline_slider.value_to_time(value)
@@ -1137,6 +1359,9 @@ class VideoPreview(QWidget):
             
             # Start playback
             self._video_player.play()
+            
+            # Start overlay update timer
+            self._overlay_timer.start()
             
             self.is_playing = True
             self.play_btn.setEnabled(False)
@@ -1177,6 +1402,8 @@ class VideoPreview(QWidget):
         
         self.original_label.setMinimumSize(w, h)
         self.processed_label.setMinimumSize(w, h)
+        self.filter_overlay.setMinimumSize(w, h)
+        self._video_widget.setMinimumSize(w, h)
         
         self.original_group.setMinimumHeight(h + 30)
         self.processed_group.setMinimumHeight(h + 30)
@@ -1187,6 +1414,9 @@ class VideoPreview(QWidget):
     def on_pause_clicked(self):
         """Handle pause button click"""
         self.is_playing = False
+        
+        # Stop overlay timer
+        self._overlay_timer.stop()
         
         # Use QMediaPlayer for smooth playback
         if self._use_smooth_playback:
@@ -1205,12 +1435,18 @@ class VideoPreview(QWidget):
         """Handle stop button click - reset to beginning"""
         self.is_playing = False
         
+        # Stop overlay timer
+        self._overlay_timer.stop()
+        
         # Use QMediaPlayer for smooth playback
         if self._use_smooth_playback:
             self._video_player.stop()
             # Show label, hide video widget
             self.original_label.setVisible(True)
             self._video_widget.setVisible(False)
+            # Hide filter overlay, show processed label
+            self.filter_overlay.setVisible(False)
+            self.processed_label.setVisible(True)
         else:
             if hasattr(self, 'playback_timer'):
                 self.killTimer(self.playback_timer)

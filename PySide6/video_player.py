@@ -1,19 +1,22 @@
 """
 Video Player Component - Handles video playback using QMediaPlayer (PySide6)
 Provides smooth video playback with timeline seeking and playback controls.
+Also supports frame capture via QVideoSink for filter overlay preview.
 """
-from typing import Optional
+from typing import Optional, Callable
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, QObject, Signal, QUrl
-from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PySide6.QtCore import Qt, QObject, Signal, QUrl, QTimer
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoFrame
 from PySide6.QtMultimediaWidgets import QVideoWidget
+from PySide6.QtGui import QImage, QPixmap
 
 
 class VideoPlayer(QObject):
     """
     Video player using QMediaPlayer for smooth video playback.
     Combines video and audio playback in a single component.
+    Supports frame capture via QVideoSink for filter overlay preview.
     """
     
     # Signals for playback state changes
@@ -22,6 +25,7 @@ class VideoPlayer(QObject):
     state_changed = Signal(str)  # "playing", "paused", "stopped"
     error_occurred = Signal(str)  # Error message
     playback_rate_changed = Signal(float)  # Playback speed changed
+    frame_captured = Signal(object)  # QImage frame captured
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -35,6 +39,11 @@ class VideoPlayer(QObject):
         
         # Create video widget (can be None initially, set later)
         self._video_widget: Optional[QVideoWidget] = None
+        
+        # Frame capture support
+        self._video_sink = None
+        self._frame_callback: Optional[Callable] = None
+        self._last_captured_frame: Optional[QImage] = None
         
         # State tracking
         self._current_source: Optional[str] = None
@@ -83,13 +92,12 @@ class VideoPlayer(QObject):
     
     def set_video_output(self, video_widget: QVideoWidget):
         """
-        Set the video output widget.
+        Set the video output widget with frame capture enabled.
         
         Args:
             video_widget: QVideoWidget to display video
         """
-        self._video_widget = video_widget
-        self._media_player.setVideoOutput(video_widget)
+        self.set_video_output_with_sink(video_widget, enable_sink=True)
     
     def load_file(self, file_path: str) -> bool:
         """
@@ -224,6 +232,131 @@ class VideoPlayer(QObject):
         self._media_player.setSource(QUrl())
         self._current_source = None
         self._is_ready = False
+    
+    # ============== Frame Capture Methods ==============
+    
+    def set_video_output_with_sink(self, video_widget: QVideoWidget, enable_sink: bool = True):
+        """
+        Set the video output widget with optional frame capture.
+        
+        Args:
+            video_widget: QVideoWidget to display video
+            enable_sink: If True, enables QVideoSink for frame capture
+        """
+        self._video_widget = video_widget
+        
+        if enable_sink:
+            # Try to use QVideoSink for frame capture
+            try:
+                from PySide6.QtMultimedia import QVideoSink
+                self._video_sink = QVideoSink()
+                self._video_sink.videoFrameChanged.connect(self._on_video_frame_changed)
+                self._media_player.setVideoSink(self._video_sink)
+                self._media_player.setVideoOutput(video_widget)
+            except (ImportError, AttributeError):
+                # Fallback for older PySide6 versions - use video widget only
+                self._media_player.setVideoOutput(video_widget)
+                self._video_sink = None
+        else:
+            self._media_player.setVideoOutput(video_widget)
+            self._video_sink = None
+    
+    def _on_video_frame_changed(self, frame: QVideoFrame):
+        """Handle incoming video frame from QVideoSink"""
+        if not frame.isValid():
+            return
+        
+        # Convert QVideoFrame to QImage
+        image = self._video_frame_to_image(frame)
+        if not image.isNull():
+            self._last_captured_frame = image
+            self.frame_captured.emit(image)
+            
+            # Call callback if registered
+            if self._frame_callback:
+                self._frame_callback(image)
+    
+    def _video_frame_to_image(self, frame: QVideoFrame) -> QImage:
+        """Convert QVideoFrame to QImage"""
+        # Make a copy of the frame to ensure we can read it
+        copied_frame = QVideoFrame(frame)
+        
+        if not copied_frame.map(QVideoFrame.ReadOnly):
+            return QImage()
+        
+        try:
+            # Get frame properties
+            width = copied_frame.width()
+            height = copied_frame.height()
+            
+            # Determine pixel format and create image accordingly
+            if copied_frame.pixelFormat() == QVideoFrame.Format_RGB32:
+                img = QImage(
+                    copied_frame.bits(),
+                    width,
+                    height,
+                    width * 4,
+                    QImage.Format_RGB32
+                ).copy()
+            elif copied_frame.pixelFormat() == QVideoFrame.Format_BGR32:
+                img = QImage(
+                    copied_frame.bits(),
+                    width,
+                    height,
+                    width * 4,
+                    QImage.Format_BGR32
+                ).copy()
+            elif copied_frame.pixelFormat() == QVideoFrame.Format_ARGB32:
+                img = QImage(
+                    copied_frame.bits(),
+                    width,
+                    height,
+                    width * 4,
+                    QImage.Format_ARGB32
+                ).copy()
+            elif copied_frame.pixelFormat() == QVideoFrame.Format_RGB565:
+                # Handle RGB565 format
+                img = QImage(
+                    copied_frame.bits(),
+                    width,
+                    height,
+                    width * 2,
+                    QImage.Format_RGB16
+                ).copy()
+            else:
+                # Try generic approach
+                img = QImage(
+                    copied_frame.bits(),
+                    width,
+                    height,
+                    width * 4,
+                    QImage.Format_RGB32
+                ).copy()
+            
+            return img
+        finally:
+            copied_frame.unmap()
+    
+    def set_frame_callback(self, callback: Callable[[QImage], None]):
+        """
+        Set a callback function to receive captured frames.
+        
+        Args:
+            callback: Function that takes a QImage as parameter
+        """
+        self._frame_callback = callback
+    
+    def get_last_frame(self) -> Optional[QImage]:
+        """Get the last captured frame"""
+        return self._last_captured_frame
+    
+    def capture_current_frame(self) -> Optional[QImage]:
+        """
+        Request capture of current frame.
+        Note: Frame will be delivered via frame_captured signal or callback.
+        Returns the last captured frame immediately if available.
+        """
+        return self._last_captured_frame
 
 
 class VideoPlayerWidget(QVideoWidget):

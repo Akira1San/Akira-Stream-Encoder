@@ -37,11 +37,11 @@
 
 ## Phase 4: Filter Overlay System
 
-- [ ] Create overlay widget that sits on top of video
-- [ ] Overlay draws processed frame preview (filters applied)
-- [ ] Use timer to capture current video frame periodically
-- [ ] Apply filters to captured frame and draw on overlay
-- [ ] Support subtitle overlay on processed view
+- [x] Create overlay widget that sits on top of video
+- [x] Overlay draws processed frame preview (filters applied)
+- [x] Use timer to capture current video frame periodically
+- [x] Apply filters to captured frame and draw on overlay
+- [x] Support subtitle overlay on processed view
 - [ ] Test: Filters display in "Processed Preview" panel
 
 ---
@@ -116,5 +116,5 @@ player.setPlaybackRate(1.5)  # 1.5x speed
 
 ## Status
 
-**Current Phase**: Phase 1-3 Completed (Core Integration, Video Widget, Audio)
-**Progress**: 40%
+**Current Phase**: Phase 4 Completed (Filter Overlay System)
+**Progress**: 50%
