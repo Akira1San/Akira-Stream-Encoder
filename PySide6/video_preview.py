@@ -615,7 +615,7 @@ class VideoPreview(QWidget):
         
         # Filter overlay timer for processed preview
         self._overlay_timer = QTimer(self)
-        self._overlay_timer.setInterval(100)  # Update every 100ms (~10 fps for preview)
+        self._overlay_timer.setInterval(500)  # Update every 500ms (2 fps) - slower for FFmpeg fallback
         self._overlay_timer.timeout.connect(self._update_filter_overlay)
         
         # Current subtitle text for overlay
@@ -873,14 +873,19 @@ class VideoPreview(QWidget):
         """
         Timer callback to update the filter overlay.
         This is called periodically during playback to refresh the preview.
+        Uses FFmpeg as fallback if QVideoSink doesn't work.
         """
-        # Get the last captured frame from the video player
+        # First try to get frame from QVideoSink
         last_frame = self._video_player.get_last_frame()
-        if last_frame is None or last_frame.isNull():
-            return
         
-        # Apply filters and update overlay
-        self._on_frame_captured(last_frame)
+        if last_frame is not None and not last_frame.isNull():
+            # QVideoSink is working - use captured frame
+            self._on_frame_captured(last_frame)
+        else:
+            # QVideoSink not working - use FFmpeg fallback
+            current_pos = self._video_player.get_position()
+            # Use seek_preview to get frame via FFmpeg
+            self.seek_preview(current_pos)
     
     def _get_current_subtitle(self) -> str:
         """Get subtitle text for current playback position"""
@@ -1348,8 +1353,9 @@ class VideoPreview(QWidget):
             self.original_label.setVisible(False)
             self._video_widget.setVisible(True)
             
-            # Show filter overlay on processed side
-            self.processed_label.setVisible(False)
+            # Show filter overlay on processed side (try QVideoSink capture first)
+            # But keep processed_label visible as fallback if QVideoSink doesn't work
+            self.processed_label.setVisible(True)
             self.filter_overlay.setVisible(True)
             
             # Seek to current position first
@@ -1360,7 +1366,7 @@ class VideoPreview(QWidget):
             # Start playback
             self._video_player.play()
             
-            # Start overlay update timer
+            # Start overlay update timer (for fallback FFmpeg preview)
             self._overlay_timer.start()
             
             self.is_playing = True
