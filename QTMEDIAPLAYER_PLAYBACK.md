@@ -68,10 +68,10 @@
 
 ## Phase 7: Cleanup & Optimization
 
-- [ ] Remove old frame-by-frame playback code from video_preview.py
-- [ ] Remove AudioPlayer class (no longer needed)
-- [ ] Handle edge cases (no video, invalid video, audio-only files)
-- [ ] Error handling for unsupported formats
+- [x] Remove old frame-by-frame playback code from video_preview.py
+- [x] Remove AudioPlayer class (no longer needed)
+- [x] Handle edge cases (no video, invalid video, audio-only files)
+- [x] Error handling for unsupported formats
 - [ ] Test: App is stable and handles errors gracefully
 
 ---
@@ -116,5 +116,5 @@ player.setPlaybackRate(1.5)  # 1.5x speed
 
 ## Status
 
-**Current Phase**: Phase 6 Completed (Dual-View Layout)
-**Progress**: 70%
+**Current Phase**: Phase 7 Completed (Cleanup & Optimization)
+**Progress**: 95%
