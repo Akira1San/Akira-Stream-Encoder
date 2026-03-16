@@ -192,7 +192,8 @@ class VideoPlayer(QObject):
         Args:
             rate: Playback rate (e.g., 1.0 = normal, 1.5 = 1.5x speed)
         """
-        self._media_player.setPlaybackRate(max(0.1, min(4.0, rate)))
+        # Clamp to valid range (0.25x to 4x)
+        self._media_player.setPlaybackRate(max(0.25, min(4.0, rate)))
     
     def get_playback_rate(self) -> float:
         """Get current playback speed"""

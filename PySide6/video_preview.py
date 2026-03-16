@@ -599,6 +599,9 @@ class VideoPreview(QWidget):
         self._audio_volume: float = 0.8  # Default volume 80%
         self._audio_position_sync_enabled: bool = True  # Flag to prevent feedback loops
         
+        # Flag to prevent feedback loop between slider and video position
+        self._is_user_seeking: bool = False  # True when user is dragging timeline
+        
         # Video player (QMediaPlayer for smooth playback)
         self._video_player = VideoPlayer(self)
         self._video_player_widget: Optional[QVideoWidget] = None
@@ -723,10 +726,10 @@ class VideoPreview(QWidget):
         # Playback speed dropdown
         playback_layout.addWidget(QLabel("Speed:"))
         self.speed_combo = QComboBox()
-        self.speed_combo.addItems(["0.5x", "1.0x", "1.5x", "2.0x"])
+        self.speed_combo.addItems(["0.25x", "0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "1.75x", "2.0x"])
         self.speed_combo.setCurrentText("1.0x")
         self.speed_combo.currentTextChanged.connect(self.on_speed_changed)
-        self.speed_combo.setMaximumWidth(70)
+        self.speed_combo.setMaximumWidth(80)
         playback_layout.addWidget(self.speed_combo)
         
         playback_layout.addSpacing(15)
@@ -768,7 +771,9 @@ class VideoPreview(QWidget):
         
         self.timeline_slider = TimelineSlider(Qt.Horizontal)
         self.timeline_slider.setRange(0, 1000)  # Will be updated dynamically when duration is set
+        # Connect timeline slider signals
         self.timeline_slider.valueChanged.connect(self.on_timeline_changed)
+        self.timeline_slider.sliderPressed.connect(self.on_timeline_pressed)
         self.timeline_slider.sliderReleased.connect(self.on_timeline_released)
         timeline_layout.addWidget(self.timeline_slider)
         
@@ -813,6 +818,10 @@ class VideoPreview(QWidget):
     
     def _on_video_position_changed(self, position_sec: float):
         """Handle video player position change - update timeline and processed preview"""
+        # Skip if user is manually seeking (prevents feedback loop)
+        if self._is_user_seeking:
+            return
+        
         self._playback_time = position_sec
         
         # Update timeline slider
@@ -952,7 +961,7 @@ class VideoPreview(QWidget):
             self.duration = 0.0
             
     def on_timeline_changed(self, value):
-        """Handle timeline slider change"""
+        """Handle timeline slider change while dragging"""
         if self.duration > 0:
             timestamp = self.timeline_slider.value_to_time(value)
             mins, secs = divmod(int(timestamp), 60)
@@ -965,6 +974,13 @@ class VideoPreview(QWidget):
             self.time_label.setText(time_str)
             # Update input field to match
             self.time_input.setText(time_str)
+            
+            # Seek video in real-time while dragging (if user is seeking)
+            if self._is_user_seeking and self._use_smooth_playback:
+                self._video_player.seek(timestamp)
+                self._playback_time = timestamp
+                # Also update the processed preview via FFmpeg
+                self.seek_preview(timestamp)
     
     def on_time_input_entered(self):
         """Handle time input field entry"""
@@ -1008,8 +1024,18 @@ class VideoPreview(QWidget):
         except ValueError:
             self.app_state.log(f"Invalid time format: {text}. Use MM:SS or seconds", "WARN")
             
+    def on_timeline_pressed(self):
+        """Handle timeline slider press - start real-time seeking"""
+        self._is_user_seeking = True
+        
+        # Pause overlay updates during seeking to prevent flicker
+        self._overlay_timer.stop()
+    
     def on_timeline_released(self):
-        """Handle timeline slider release - seek video and update processed preview"""
+        """Handle timeline slider release - finalize seek and resume playback"""
+        # Clear the seeking flag
+        self._is_user_seeking = False
+        
         if self.current_video_path and self.duration > 0:
             value = self.timeline_slider.value()
             timestamp = self.timeline_slider.value_to_time(value)
@@ -1026,6 +1052,10 @@ class VideoPreview(QWidget):
             
             # Sync playback time
             self._playback_time = timestamp
+            
+            # Resume overlay timer if playing
+            if self.is_playing:
+                self._overlay_timer.start()
             
     def get_current_timestamp(self):
         """Get the current timeline position in seconds"""
@@ -1418,6 +1448,9 @@ class VideoPreview(QWidget):
         """Handle pause button click"""
         self.is_playing = False
         
+        # Clear seeking flag
+        self._is_user_seeking = False
+        
         # Stop overlay timer
         self._overlay_timer.stop()
         
@@ -1437,6 +1470,9 @@ class VideoPreview(QWidget):
     def on_stop_clicked(self):
         """Handle stop button click - reset to beginning"""
         self.is_playing = False
+        
+        # Clear seeking flag
+        self._is_user_seeking = False
         
         # Stop overlay timer
         self._overlay_timer.stop()

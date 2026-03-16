@@ -48,11 +48,11 @@
 
 ## Phase 5: Timeline & Controls Integration
 
-- [ ] Connect timeline slider to QMediaPlayer position
-- [ ] Update slider position during playback (signal from QMediaPlayer)
-- [ ] Handle manual timeline seeking
-- [ ] Update speed controls to use QMediaPlayer playbackRate
-- [ ] Preserve cut markers on timeline slider
+- [x] Connect timeline slider to QMediaPlayer position
+- [x] Update slider position during playback (signal from QMediaPlayer)
+- [x] Handle manual timeline seeking
+- [x] Update speed controls to use QMediaPlayer playbackRate
+- [x] Preserve cut markers on timeline slider
 - [ ] Test: All playback controls work correctly
 
 ---
@@ -116,5 +116,5 @@ player.setPlaybackRate(1.5)  # 1.5x speed
 
 ## Status
 
-**Current Phase**: Phase 4 Completed (Filter Overlay System)
-**Progress**: 50%
+**Current Phase**: Phase 5 Completed (Timeline & Controls Integration)
+**Progress**: 60%
