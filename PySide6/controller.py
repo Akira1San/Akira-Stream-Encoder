@@ -356,6 +356,13 @@ class VideoController:
                 else:
                     cmd.extend(["-map", "0:v"])
             
+            # Map audio - either from external or from input file
+            if self.app_state.tracks.audio_selected:
+                if self._external_audio_enabled:
+                    cmd.extend(["-map", "1:a"])
+                else:
+                    cmd.extend(["-map", "0:a"])  # Map audio from input file
+            
             # Build audio filters for extract clip mode
             _, audio_filters = self.build_filter_complex(input_path)
             
