@@ -10,7 +10,8 @@ from typing import Optional
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
-    QGroupBox, QSplitter, QSizePolicy, QPushButton, QComboBox
+    QGroupBox, QSplitter, QSizePolicy, QPushButton, QComboBox,
+    QStackedLayout
 )
 from PySide6.QtCore import Qt, Signal, QThread, QObject, QBuffer, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QPen
@@ -648,25 +649,24 @@ class VideoPreview(QWidget):
         self.original_container.setMinimumSize(self.preview_width, self.preview_height)
         self.original_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.original_container.setStyleSheet("background-color: #1a1a1a;")
-        original_container_layout = QVBoxLayout(self.original_container)
-        original_container_layout.setContentsMargins(0, 0, 0, 0)
-        original_container_layout.setSpacing(0)
+        original_stacked_layout = QStackedLayout(self.original_container)
+        original_stacked_layout.setContentsMargins(0, 0, 0, 0)
+        original_stacked_layout.setSpacing(0)
         
-        # Placeholder label (shown when no video)
+        # Placeholder label (shown when no video) - index 0
         self.original_label = QLabel("No Video")
         self.original_label.setAlignment(Qt.AlignCenter)
         self.original_label.setMinimumSize(self.preview_width, self.preview_height)
         self.original_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
         self.original_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        original_container_layout.addWidget(self.original_label)
+        original_stacked_layout.addWidget(self.original_label)
         
-        # Create video widget for smooth playback (QVideoWidget)
+        # Create video widget for smooth playback (QVideoWidget) - index 1
         self._video_widget = QVideoWidget()
         self._video_widget.setMinimumSize(self.preview_width, self.preview_height)
         self._video_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        self._video_widget.setVisible(False)  # Hidden until video is loaded
         self._video_player.set_video_output(self._video_widget)
-        original_container_layout.addWidget(self._video_widget)
+        original_stacked_layout.addWidget(self._video_widget)
         
         self.original_group.layout().addWidget(self.original_container)
         
@@ -677,29 +677,28 @@ class VideoPreview(QWidget):
         processed_layout = QVBoxLayout(self.processed_group)
         processed_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Container for processed preview (label + overlay)
+        # Container for processed preview (label + overlay stacked)
         self.processed_container = QWidget()
         self.processed_container.setMinimumSize(self.preview_width, self.preview_height)
         self.processed_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.processed_container.setStyleSheet("background-color: #1a1a1a;")
-        processed_container_layout = QVBoxLayout(self.processed_container)
-        processed_container_layout.setContentsMargins(0, 0, 0, 0)
-        processed_container_layout.setSpacing(0)
+        processed_stacked_layout = QStackedLayout(self.processed_container)
+        processed_stacked_layout.setContentsMargins(0, 0, 0, 0)
+        processed_stacked_layout.setSpacing(0)
         
-        # Processed label (for displaying filtered frame from FFmpeg)
+        # Placeholder label (shown when no video) - index 0
         self.processed_label = QLabel("No Video")
         self.processed_label.setAlignment(Qt.AlignCenter)
         self.processed_label.setMinimumSize(self.preview_width, self.preview_height)
         self.processed_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
         self.processed_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        processed_container_layout.addWidget(self.processed_label)
+        processed_stacked_layout.addWidget(self.processed_label)
         
-        # Filter overlay widget (for displaying QMediaPlayer frames with filters)
+        # Filter overlay widget (for displaying QMediaPlayer frames with filters applied) - index 1
         self.filter_overlay = FilterOverlay()
         self.filter_overlay.setMinimumSize(self.preview_width, self.preview_height)
-        self.filter_overlay.setVisible(False)  # Hidden by default
         self.filter_overlay.app_state = self.app_state  # Pass app_state for subtitle settings
-        processed_container_layout.addWidget(self.filter_overlay)
+        processed_stacked_layout.addWidget(self.filter_overlay)
         
         processed_layout.addWidget(self.processed_container)
         
@@ -812,14 +811,12 @@ class VideoPreview(QWidget):
         
         self.current_video_path = video_path
         
-        # Set up dual-view layout: show QVideoWidget in Original, FilterOverlay in Processed
-        # Original panel: show QVideoWidget, hide placeholder label
-        self.original_label.setVisible(False)
-        self._video_widget.setVisible(True)
+        # Set up dual-view layout using stacked layouts
+        # Original panel: show QVideoWidget (index 1), hide placeholder label (index 0)
+        self.original_container.layout().setCurrentIndex(1)
         
-        # Processed panel: show FilterOverlay (filters applied), hide placeholder label
-        self.processed_label.setVisible(False)
-        self.filter_overlay.setVisible(True)
+        # Processed panel: show FilterOverlay (index 1), hide placeholder label (index 0)
+        self.processed_container.layout().setCurrentIndex(1)
         
         # Load video into QMediaPlayer for smooth playback
         self._video_player.load_file(video_path)
@@ -853,11 +850,9 @@ class VideoPreview(QWidget):
         self.timeline_slider.setValue(0)
         self.time_label.setText("00:00")
         
-        # Reset view: show placeholder labels, hide video widgets
-        self.original_label.setVisible(True)
-        self._video_widget.setVisible(False)
-        self.processed_label.setVisible(True)
-        self.filter_overlay.setVisible(False)
+        # Reset view: show placeholder labels (index 0) using stacked layout
+        self.original_container.layout().setCurrentIndex(0)
+        self.processed_container.layout().setCurrentIndex(0)
         self.filter_overlay.clear()
         
         # Clear any pending frame loader
@@ -1435,12 +1430,10 @@ class VideoPreview(QWidget):
         
         # Use QMediaPlayer for smooth playback
         if self._use_smooth_playback:
-            # Dual-view: both Original (QVideoWidget) and Processed (FilterOverlay) are already visible
-            # Just ensure they stay visible
-            self.original_label.setVisible(False)
-            self._video_widget.setVisible(True)
-            self.processed_label.setVisible(False)
-            self.filter_overlay.setVisible(True)
+            # Dual-view: both panels already showing correct widgets via stacked layout
+            # Just ensure they are set to video/overlay (index 1)
+            self.original_container.layout().setCurrentIndex(1)
+            self.processed_container.layout().setCurrentIndex(1)
             
             # Seek to current position first
             value = self.timeline_slider.value()
@@ -1542,13 +1535,10 @@ class VideoPreview(QWidget):
         # Use QMediaPlayer for smooth playback
         if self._use_smooth_playback:
             self._video_player.stop()
-            # Dual-view: Keep both panels visible even when stopped
-            # Original: show QVideoWidget (shows last frame)
-            # Processed: show FilterOverlay (shows last frame with filters)
-            self.original_label.setVisible(False)
-            self._video_widget.setVisible(True)
-            self.processed_label.setVisible(False)
-            self.filter_overlay.setVisible(True)
+            # Dual-view: Keep both panels showing video/overlay (index 1)
+            # This shows the last frame
+            self.original_container.layout().setCurrentIndex(1)
+            self.processed_container.layout().setCurrentIndex(1)
         else:
             if hasattr(self, 'playback_timer'):
                 self.killTimer(self.playback_timer)
