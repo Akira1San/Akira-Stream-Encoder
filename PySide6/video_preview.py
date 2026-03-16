@@ -1203,9 +1203,14 @@ class VideoPreview(QWidget):
         # Display original
         self.display_image(self.original_label, image)
         
-        # Apply filters and display processed
+        # Apply filters and update the filter overlay (not the hidden label)
         processed = self.apply_filters(image)
-        self.display_image(self.processed_label, processed)
+        sub_text = self._get_current_subtitle()
+        self.filter_overlay.set_image(processed)
+        self.filter_overlay.set_subtitle(sub_text)
+        
+        # Debug log to trace processed preview
+        self.app_state.log(f"Preview updated: original={image.width()}x{image.height()}, processed={processed.width()}x{processed.height()}", "DEBUG")
         
         # Clean up thread
         self._cleanup_thread()
@@ -1448,7 +1453,9 @@ class VideoPreview(QWidget):
         if self.current_frame and not self.current_frame.isNull():
             self.display_image(self.original_label, self.current_frame)
             processed = self.apply_filters(self.current_frame)
-            self.display_image(self.processed_label, processed)
+            sub_text = self._get_current_subtitle()
+            self.filter_overlay.set_image(processed)
+            self.filter_overlay.set_subtitle(sub_text)
             
     def on_play_clicked(self):
         """Handle play button click - use QMediaPlayer for smooth playback"""
