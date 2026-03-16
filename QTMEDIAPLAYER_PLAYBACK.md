@@ -59,9 +59,9 @@
 
 ## Phase 6: Dual-View Layout
 
-- [ ] Split view: Original (QVideoWidget) | Processed (QLabel with overlay)
-- [ ] Both views sync to same timeline position
-- [ ] Handle video loading/unloading
+- [x] Split view: Original (QVideoWidget) | Processed (QLabel with overlay)
+- [x] Both views sync to same timeline position
+- [x] Handle video loading/unloading
 - [ ] Test: Side-by-side comparison works
 
 ---
@@ -116,5 +116,5 @@ player.setPlaybackRate(1.5)  # 1.5x speed
 
 ## Status
 
-**Current Phase**: Phase 5 Completed (Timeline & Controls Integration)
-**Progress**: 60%
+**Current Phase**: Phase 6 Completed (Dual-View Layout)
+**Progress**: 70%

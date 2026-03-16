@@ -643,20 +643,32 @@ class VideoPreview(QWidget):
         original_layout = QVBoxLayout(self.original_group)
         original_layout.setContentsMargins(5, 5, 5, 5)
         
+        # Create container for original video (label + QVideoWidget stacked)
+        self.original_container = QWidget()
+        self.original_container.setMinimumSize(self.preview_width, self.preview_height)
+        self.original_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.original_container.setStyleSheet("background-color: #1a1a1a;")
+        original_container_layout = QVBoxLayout(self.original_container)
+        original_container_layout.setContentsMargins(0, 0, 0, 0)
+        original_container_layout.setSpacing(0)
+        
+        # Placeholder label (shown when no video)
         self.original_label = QLabel("No Video")
         self.original_label.setAlignment(Qt.AlignCenter)
         self.original_label.setMinimumSize(self.preview_width, self.preview_height)
         self.original_label.setStyleSheet("background-color: #1a1a1a; color: #888;")
         self.original_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        original_layout.addWidget(self.original_label)
+        original_container_layout.addWidget(self.original_label)
         
-        # Create video widget for smooth playback (hidden initially, shown when using QMediaPlayer)
+        # Create video widget for smooth playback (QVideoWidget)
         self._video_widget = QVideoWidget()
         self._video_widget.setMinimumSize(self.preview_width, self.preview_height)
         self._video_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        self._video_widget.setVisible(False)  # Hidden by default, show when playing
+        self._video_widget.setVisible(False)  # Hidden until video is loaded
         self._video_player.set_video_output(self._video_widget)
-        original_layout.addWidget(self._video_widget)
+        original_container_layout.addWidget(self._video_widget)
+        
+        self.original_group.layout().addWidget(self.original_container)
         
         self.split.addWidget(self.original_group)
         
@@ -800,6 +812,15 @@ class VideoPreview(QWidget):
         
         self.current_video_path = video_path
         
+        # Set up dual-view layout: show QVideoWidget in Original, FilterOverlay in Processed
+        # Original panel: show QVideoWidget, hide placeholder label
+        self.original_label.setVisible(False)
+        self._video_widget.setVisible(True)
+        
+        # Processed panel: show FilterOverlay (filters applied), hide placeholder label
+        self.processed_label.setVisible(False)
+        self.filter_overlay.setVisible(True)
+        
         # Load video into QMediaPlayer for smooth playback
         self._video_player.load_file(video_path)
         self._video_player.set_volume(self._audio_volume)
@@ -811,6 +832,36 @@ class VideoPreview(QWidget):
         
         # Load initial frame for processed preview (FFmpeg frame capture)
         self.seek_preview(0)
+        
+    def clear_video(self):
+        """Clear the current video and reset the preview"""
+        # Stop any current playback
+        if self.is_playing:
+            self.on_stop_clicked()
+        
+        # Stop and cleanup video player
+        self._video_player.cleanup()
+        
+        # Reset state
+        self.current_video_path = None
+        self.duration = 0.0
+        self.current_frame = None
+        self._playback_time = 0.0
+        
+        # Reset timeline
+        self.timeline_slider.set_duration(0)
+        self.timeline_slider.setValue(0)
+        self.time_label.setText("00:00")
+        
+        # Reset view: show placeholder labels, hide video widgets
+        self.original_label.setVisible(True)
+        self._video_widget.setVisible(False)
+        self.processed_label.setVisible(True)
+        self.filter_overlay.setVisible(False)
+        self.filter_overlay.clear()
+        
+        # Clear any pending frame loader
+        self._cleanup_thread()
         
     def _on_audio_error(self, error_msg: str):
         """Handle audio player errors"""
@@ -1043,6 +1094,8 @@ class VideoPreview(QWidget):
             # Use QMediaPlayer for smooth seeking
             if self._use_smooth_playback:
                 self._video_player.seek(timestamp)
+                # Update filter overlay immediately after seeking (for dual-view)
+                self._update_filter_overlay()
             else:
                 # Fallback: use FFmpeg frame extraction
                 self.seek_preview(timestamp)
@@ -1364,6 +1417,12 @@ class VideoPreview(QWidget):
     def resizeEvent(self, event):
         """Handle resize - rescale images"""
         super().resizeEvent(event)
+        # Update container sizes to match new dimensions
+        if self.original_container:
+            self.original_container.setMinimumSize(self.preview_width, self.preview_height)
+        if self.processed_container:
+            self.processed_container.setMinimumSize(self.preview_width, self.preview_height)
+        
         if self.current_frame and not self.current_frame.isNull():
             self.display_image(self.original_label, self.current_frame)
             processed = self.apply_filters(self.current_frame)
@@ -1376,13 +1435,11 @@ class VideoPreview(QWidget):
         
         # Use QMediaPlayer for smooth playback
         if self._use_smooth_playback:
-            # Show video widget, hide label
+            # Dual-view: both Original (QVideoWidget) and Processed (FilterOverlay) are already visible
+            # Just ensure they stay visible
             self.original_label.setVisible(False)
             self._video_widget.setVisible(True)
-            
-            # Show filter overlay on processed side (try QVideoSink capture first)
-            # But keep processed_label visible as fallback if QVideoSink doesn't work
-            self.processed_label.setVisible(True)
+            self.processed_label.setVisible(False)
             self.filter_overlay.setVisible(True)
             
             # Seek to current position first
@@ -1393,7 +1450,7 @@ class VideoPreview(QWidget):
             # Start playback
             self._video_player.play()
             
-            # Start overlay update timer (for fallback FFmpeg preview)
+            # Start overlay update timer (for filter preview updates)
             self._overlay_timer.start()
             
             self.is_playing = True
@@ -1433,6 +1490,11 @@ class VideoPreview(QWidget):
         self.preview_width = w
         self.preview_height = h
         
+        # Update container sizes
+        self.original_container.setMinimumSize(w, h)
+        self.processed_container.setMinimumSize(w, h)
+        
+        # Update widget sizes
         self.original_label.setMinimumSize(w, h)
         self.processed_label.setMinimumSize(w, h)
         self.filter_overlay.setMinimumSize(w, h)
@@ -1480,12 +1542,13 @@ class VideoPreview(QWidget):
         # Use QMediaPlayer for smooth playback
         if self._use_smooth_playback:
             self._video_player.stop()
-            # Show label, hide video widget
-            self.original_label.setVisible(True)
-            self._video_widget.setVisible(False)
-            # Hide filter overlay, show processed label
-            self.filter_overlay.setVisible(False)
-            self.processed_label.setVisible(True)
+            # Dual-view: Keep both panels visible even when stopped
+            # Original: show QVideoWidget (shows last frame)
+            # Processed: show FilterOverlay (shows last frame with filters)
+            self.original_label.setVisible(False)
+            self._video_widget.setVisible(True)
+            self.processed_label.setVisible(False)
+            self.filter_overlay.setVisible(True)
         else:
             if hasattr(self, 'playback_timer'):
                 self.killTimer(self.playback_timer)
