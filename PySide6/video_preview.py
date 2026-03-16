@@ -833,6 +833,9 @@ class VideoPreview(QWidget):
         self._video_player.load_file(video_path)
         self._video_player.set_volume(self._audio_volume)
         
+        # Seek to beginning to show first frame
+        self._video_player.seek(0)
+        
         # Log for debugging
         self.app_state.log(f"Video loaded: {video_path}", "INFO")
         
