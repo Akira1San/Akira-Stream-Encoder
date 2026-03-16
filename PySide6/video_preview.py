@@ -647,7 +647,10 @@ class VideoPreview(QWidget):
         # Create container for original video (label + QVideoWidget stacked)
         self.original_container = QWidget()
         self.original_container.setMinimumSize(self.preview_width, self.preview_height)
-        self.original_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.original_container.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding
+        )
         self.original_container.setStyleSheet("background-color: #1a1a1a;")
         original_stacked_layout = QStackedLayout(self.original_container)
         original_stacked_layout.setContentsMargins(0, 0, 0, 0)
@@ -664,7 +667,10 @@ class VideoPreview(QWidget):
         # Create video widget for smooth playback (QVideoWidget) - index 1
         self._video_widget = QVideoWidget()
         self._video_widget.setMinimumSize(self.preview_width, self.preview_height)
-        self._video_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self._video_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding
+        )
         self._video_player.set_video_output(self._video_widget)
         original_stacked_layout.addWidget(self._video_widget)
         
@@ -680,7 +686,10 @@ class VideoPreview(QWidget):
         # Container for processed preview (label + overlay stacked)
         self.processed_container = QWidget()
         self.processed_container.setMinimumSize(self.preview_width, self.preview_height)
-        self.processed_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.processed_container.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding
+        )
         self.processed_container.setStyleSheet("background-color: #1a1a1a;")
         processed_stacked_layout = QStackedLayout(self.processed_container)
         processed_stacked_layout.setContentsMargins(0, 0, 0, 0)
@@ -814,13 +823,18 @@ class VideoPreview(QWidget):
         # Set up dual-view layout using stacked layouts
         # Original panel: show QVideoWidget (index 1), hide placeholder label (index 0)
         self.original_container.layout().setCurrentIndex(1)
+        self._video_widget.update()
         
         # Processed panel: show FilterOverlay (index 1), hide placeholder label (index 0)
         self.processed_container.layout().setCurrentIndex(1)
+        self.filter_overlay.update()
         
         # Load video into QMediaPlayer for smooth playback
         self._video_player.load_file(video_path)
         self._video_player.set_volume(self._audio_volume)
+        
+        # Log for debugging
+        self.app_state.log(f"Video loaded: {video_path}", "INFO")
         
         # Get video duration from QMediaPlayer (faster than ffprobe)
         # Duration will be available via duration_changed signal
