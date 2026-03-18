@@ -479,8 +479,13 @@ class FilterOverlay(QWidget):
         
         painter = QPainter(self)
         
+        # Get image to draw (apply subtitles if present)
+        image_to_draw = self._current_image
+        if self._subtitle_text:
+            image_to_draw = self.draw_subtitle_on_image(self._current_image.copy(), self._subtitle_text)
+        
         # Scale the image to fill the widget (ignore aspect ratio to fill the panel)
-        pixmap = QPixmap.fromImage(self._current_image)
+        pixmap = QPixmap.fromImage(image_to_draw)
         scaled = pixmap.scaled(
             self.size(),
             Qt.IgnoreAspectRatio,
@@ -490,107 +495,8 @@ class FilterOverlay(QWidget):
         # Draw the image
         painter.drawPixmap(0, 0, scaled)
         
-        # Draw subtitle if present
-        if self._subtitle_text:
-            self._draw_subtitle(painter, scaled.width(), scaled.height(), 0, 0)
-        
         painter.end()
     
-    def _draw_subtitle(self, painter: QPainter, img_width: int, img_height: int, img_x: int, img_y: int):
-        """Draw subtitle text on the image"""
-        from models import AppState
-        
-        # Get default settings if AppState not available
-        font_family = "Arial"
-        font_size = 24
-        text_color = "white"
-        bg_color = "black"
-        bg_opacity = 0.5
-        position = "bottom"
-        outline_width = 2
-        outline_color = "black"
-        vertical_offset = 0
-        # Shadow settings
-        shadow_enabled = False
-        shadow_color = "black"
-        shadow_offset_x = 2
-        shadow_offset_y = 2
-        shadow_opacity = 0.5
-        
-        # Try to get settings from AppState if available
-        if hasattr(self, 'app_state') and self.app_state:
-            subs = self.app_state.subtitles
-            font_family = subs.font
-            font_size = subs.size
-            text_color = subs.color
-            bg_color = subs.bg_color
-            bg_opacity = subs.bg_opacity
-            position = subs.position
-            outline_width = subs.outline_width
-            outline_color = subs.outline_color
-            vertical_offset = subs.vertical_offset
-            # Get shadow settings
-            shadow_enabled = getattr(subs, 'shadow_enabled', False)
-            shadow_color = getattr(subs, 'shadow_color', 'black')
-            shadow_offset_x = getattr(subs, 'shadow_offset_x', 2)
-            shadow_offset_y = getattr(subs, 'shadow_offset_y', 2)
-            shadow_opacity = getattr(subs, 'shadow_opacity', 0.5)
-        
-        # Set up font
-        font = QFont(font_family)
-        font.setPixelSize(font_size)
-        painter.setFont(font)
-        
-        # Calculate text position
-        metrics = painter.fontMetrics()
-        lines = self._subtitle_text.split('\n')
-        max_width = max(metrics.horizontalAdvance(line) for line in lines)
-        total_height = metrics.height() * len(lines)
-        
-        # Position based on settings (relative to video image)
-        if position == "bottom":
-            x = img_x + (img_width - max_width) // 2
-            y = img_y + img_height - 20 - total_height + vertical_offset
-        elif position == "top":
-            x = img_x + (img_width - max_width) // 2
-            y = img_y + 20 + metrics.height() - vertical_offset
-        else:  # center
-            x = img_x + (img_width - max_width) // 2
-            y = img_y + (img_height - total_height) // 2
-        
-        # Draw shadow if enabled (drawn first, behind everything)
-        if shadow_enabled and shadow_opacity > 0:
-            shadow = QColor(shadow_color)
-            shadow.setAlpha(int(shadow_opacity * 255))
-            shadow_x = x + shadow_offset_x
-            shadow_y = y + shadow_offset_y
-            painter.setPen(shadow)
-            painter.drawText(shadow_x, shadow_y, max_width, total_height,
-                          Qt.AlignLeft | Qt.AlignTop, self._subtitle_text)
-        
-        # Draw background if opacity > 0
-        if bg_opacity > 0:
-            bg = QColor(bg_color)
-            bg.setAlpha(int(bg_opacity * 255))
-            painter.fillRect(x - 10, y - metrics.height() + 5,
-                           max_width + 20, total_height + 10, bg)
-        
-        # Draw outline
-        outline = QColor(outline_color)
-        text_col = QColor(text_color)
-        
-        for dx in range(-outline_width, outline_width + 1):
-            for dy in range(-outline_width, outline_width + 1):
-                if dx != 0 or dy != 0:
-                    painter.setPen(outline)
-                    painter.drawText(x + dx, y + dy, max_width, total_height,
-                                   Qt.AlignLeft | Qt.AlignTop, self._subtitle_text)
-        
-        # Draw main text
-        painter.setPen(text_col)
-        painter.drawText(x, y, max_width, total_height,
-                        Qt.AlignLeft | Qt.AlignTop, self._subtitle_text)
-
 
 class VideoPreview(QWidget):
     """
