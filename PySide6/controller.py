@@ -891,6 +891,12 @@ class VideoController:
         
         # Shadow settings
         if subs.shadow_enabled:
+            # Set BorderStyle=3 (outline) for shadow to work properly with SRT
+            if "BorderStyle=4" not in style:
+                style.append("BorderStyle=3")  # 3 = outline (not opaque box)
+            # Ensure there's an outline width (required for shadow)
+            if subs.outline_width == 0:
+                style.append("Outline=1")
             # Shadow color with opacity
             shadow_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
             style.append(f"Shadow={shadow_ass}")
