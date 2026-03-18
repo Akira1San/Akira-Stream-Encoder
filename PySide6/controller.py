@@ -907,12 +907,18 @@ class VideoController:
         return f"subtitles='{escaped_path}'{force_style}"
     
     def hex_to_ass(self, hex_color: str, opacity: float = 1.0) -> str:
-        """Convert hex color to ASS format (&HAABBGGRR)"""
+        """Convert hex color to ASS format (&HAABBGGRR)
+        
+        Note: In ASS format:
+        - Alpha: &H00 = fully transparent, &HFF = fully opaque
+        - Colors are in BGR order (not RGB)
+        """
         hex_color = hex_color.lstrip('#')
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
         b = int(hex_color[4:6], 16)
-        alpha = int((1.0 - opacity) * 255)
+        # ASS alpha: 00 = transparent, FF = opaque (inverted from typical)
+        alpha = int(opacity * 255)
         return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
 
     def encode_file(self, input_path: str, output_path: str,
