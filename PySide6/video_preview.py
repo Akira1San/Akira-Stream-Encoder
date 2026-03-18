@@ -1407,6 +1407,16 @@ class VideoPreview(QWidget):
         else:  # center
             y = (img_height - total_height) // 2
         
+        # Draw shadow if enabled (drawn first, behind everything)
+        if subs.shadow_enabled and subs.shadow_opacity > 0:
+            shadow_color = QColor(subs.shadow_color)
+            shadow_color.setAlpha(int(subs.shadow_opacity * 255))
+            shadow_x = x + subs.shadow_offset_x
+            shadow_y = y + subs.shadow_offset_y
+            painter.setPen(shadow_color)
+            painter.drawText(shadow_x, shadow_y, max_width, total_height,
+                           Qt.AlignLeft | Qt.AlignTop, text)
+        
         # Draw background if opacity > 0
         if subs.bg_opacity > 0:
             bg_color = QColor(subs.bg_color)

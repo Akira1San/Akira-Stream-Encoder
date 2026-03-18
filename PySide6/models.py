@@ -44,6 +44,13 @@ class SubtitleSettings:
     bg_color: str = "#000000"
     outline_width: int = 2
     bg_opacity: float = 0.5
+    # Shadow settings
+    shadow_enabled: bool = False
+    shadow_color: str = "#000000"
+    shadow_offset_x: int = 2  # Horizontal shadow offset
+    shadow_offset_y: int = 2  # Vertical shadow offset
+    shadow_opacity: float = 0.5  # Shadow opacity (0.0-1.0)
+    # Other settings
     delay_enabled: bool = False
     delay: int = 0
     selected_subtitle: str = ""

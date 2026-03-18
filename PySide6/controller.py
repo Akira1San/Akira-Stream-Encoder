@@ -889,6 +889,18 @@ class VideoController:
             else:
                 style.append(f"MarginV={subs.vertical_offset}")
         
+        # Shadow settings
+        if subs.shadow_enabled:
+            # Shadow color with opacity
+            shadow_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+            style.append(f"Shadow={shadow_ass}")
+            # Shadow offset X
+            if subs.shadow_offset_x != 2:
+                style.append(f"ShadowX={subs.shadow_offset_x}")
+            # Shadow offset Y
+            if subs.shadow_offset_y != 2:
+                style.append(f"ShadowY={subs.shadow_offset_y}")
+        
         # Build the filter string
         force_style = f":force_style='{','.join(style)}'" if style else ""
         

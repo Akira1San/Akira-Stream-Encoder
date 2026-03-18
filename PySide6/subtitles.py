@@ -199,6 +199,63 @@ class SubtitlesPanel(QWidget):
         
         layout.addLayout(bg_layout)
         
+        # Shadow controls
+        shadow_header_layout = QHBoxLayout()
+        self.shadow_check = QCheckBox("Enable Shadow")
+        self.shadow_check.setChecked(self.app_state.subtitles.shadow_enabled)
+        self.shadow_check.setToolTip("Add shadow effect to subtitles")
+        shadow_header_layout.addWidget(self.shadow_check)
+        shadow_header_layout.addStretch()
+        layout.addLayout(shadow_header_layout)
+        
+        # Shadow color
+        shadow_color_layout = QHBoxLayout()
+        shadow_color_layout.addWidget(QLabel("Shadow Color:"))
+        self.shadow_color_btn = QPushButton("Shadow")
+        self.shadow_color_btn.setStyleSheet(f"background-color: {self.app_state.subtitles.shadow_color}")
+        shadow_color_layout.addWidget(self.shadow_color_btn)
+        shadow_color_layout.addStretch()
+        layout.addLayout(shadow_color_layout)
+        
+        # Shadow offset X and Y
+        shadow_offset_layout = QHBoxLayout()
+        shadow_offset_layout.addWidget(QLabel("Shadow Offset X:"))
+        self.shadow_x_slider = QSlider(Qt.Horizontal)
+        self.shadow_x_slider.setRange(0, 10)
+        self.shadow_x_slider.setValue(self.app_state.subtitles.shadow_offset_x)
+        self.shadow_x_slider.setMaximumWidth(80)
+        shadow_offset_layout.addWidget(self.shadow_x_slider)
+        self.shadow_x_label = QLabel(str(self.app_state.subtitles.shadow_offset_x))
+        self.shadow_x_label.setMinimumWidth(20)
+        shadow_offset_layout.addWidget(self.shadow_x_label)
+        
+        shadow_offset_layout.addSpacing(20)
+        shadow_offset_layout.addWidget(QLabel("Shadow Offset Y:"))
+        self.shadow_y_slider = QSlider(Qt.Horizontal)
+        self.shadow_y_slider.setRange(0, 10)
+        self.shadow_y_slider.setValue(self.app_state.subtitles.shadow_offset_y)
+        self.shadow_y_slider.setMaximumWidth(80)
+        shadow_offset_layout.addWidget(self.shadow_y_slider)
+        self.shadow_y_label = QLabel(str(self.app_state.subtitles.shadow_offset_y))
+        self.shadow_y_label.setMinimumWidth(20)
+        shadow_offset_layout.addWidget(self.shadow_y_label)
+        
+        shadow_offset_layout.addStretch()
+        layout.addLayout(shadow_offset_layout)
+        
+        # Shadow opacity
+        shadow_op_layout = QHBoxLayout()
+        shadow_op_layout.addWidget(QLabel("Shadow Opacity:"))
+        self.shadow_op_slider = QSlider(Qt.Horizontal)
+        self.shadow_op_slider.setRange(0, 10)
+        self.shadow_op_slider.setValue(int(self.app_state.subtitles.shadow_opacity * 10))
+        shadow_op_layout.addWidget(self.shadow_op_slider)
+        self.shadow_op_label = QLabel(f"{self.app_state.subtitles.shadow_opacity:.1f}")
+        self.shadow_op_label.setMinimumWidth(30)
+        shadow_op_layout.addWidget(self.shadow_op_label)
+        shadow_op_layout.addStretch()
+        layout.addLayout(shadow_op_layout)
+        
         layout.addStretch()
         
     def connect_signals(self):
@@ -215,6 +272,12 @@ class SubtitlesPanel(QWidget):
         self.bg_color_btn.clicked.connect(self.on_bg_color_clicked)
         self.ol_slider.valueChanged.connect(self.on_outline_width_changed)
         self.bg_op_slider.valueChanged.connect(self.on_bg_opacity_changed)
+        # Shadow controls
+        self.shadow_check.toggled.connect(self.on_shadow_changed)
+        self.shadow_color_btn.clicked.connect(self.on_shadow_color_clicked)
+        self.shadow_x_slider.valueChanged.connect(self.on_shadow_offset_x_changed)
+        self.shadow_y_slider.valueChanged.connect(self.on_shadow_offset_y_changed)
+        self.shadow_op_slider.valueChanged.connect(self.on_shadow_opacity_changed)
         
     def on_burn_changed(self, checked):
         """Handle burn checkbox change"""
@@ -388,4 +451,40 @@ class SubtitlesPanel(QWidget):
         opacity = value / 10.0
         self.app_state.subtitles.bg_opacity = opacity
         self.bg_op_label.setText(f"{opacity:.1f}")
+        self.settings_changed.emit()
+    
+    def on_shadow_changed(self, checked):
+        """Handle shadow enable checkbox change"""
+        self.app_state.subtitles.shadow_enabled = checked
+        self.settings_changed.emit()
+        
+    def on_shadow_color_clicked(self):
+        """Handle shadow color button click"""
+        color = QColorDialog.getColor(
+            QColor(self.app_state.subtitles.shadow_color),
+            self,
+            "Select Shadow Color"
+        )
+        if color.isValid():
+            self.app_state.subtitles.shadow_color = color.name()
+            self.shadow_color_btn.setStyleSheet(f"background-color: {color.name()}")
+            self.settings_changed.emit()
+            
+    def on_shadow_offset_x_changed(self, value):
+        """Handle shadow offset X change"""
+        self.app_state.subtitles.shadow_offset_x = value
+        self.shadow_x_label.setText(str(value))
+        self.settings_changed.emit()
+        
+    def on_shadow_offset_y_changed(self, value):
+        """Handle shadow offset Y change"""
+        self.app_state.subtitles.shadow_offset_y = value
+        self.shadow_y_label.setText(str(value))
+        self.settings_changed.emit()
+        
+    def on_shadow_opacity_changed(self, value):
+        """Handle shadow opacity change"""
+        opacity = value / 10.0
+        self.app_state.subtitles.shadow_opacity = opacity
+        self.shadow_op_label.setText(f"{opacity:.1f}")
         self.settings_changed.emit()
