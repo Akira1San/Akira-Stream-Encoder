@@ -443,8 +443,9 @@ class FilterOverlay(QWidget):
     Sits on top of the video widget and displays filtered preview.
     """
     
-    def __init__(self, parent=None):
+    def __init__(self, app_state=None, parent=None):
         super().__init__(parent)
+        self.app_state = app_state
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setStyleSheet("background: transparent;")
@@ -469,6 +470,76 @@ class FilterOverlay(QWidget):
         self._current_image = None
         self._subtitle_text = ""
         self.update()
+    
+    def draw_subtitle_on_image(self, image: QImage, text: str) -> QImage:
+        """Draw subtitle text on the image using QPainter"""
+        # Create a copy of the image to draw on
+        result = image.copy()
+        painter = QPainter(result)
+        
+        # Get subtitle settings
+        subs = self.app_state.subtitles
+        
+        # Set up font (use pixel size to match FFmpeg)
+        font = QFont(subs.font)
+        font.setPixelSize(subs.size)
+        painter.setFont(font)
+        
+        # Calculate text rect
+        metrics = painter.fontMetrics()
+        lines = text.split('\n')
+        max_width = max(metrics.horizontalAdvance(line) for line in lines)
+        total_height = metrics.height() * len(lines)
+        
+        # Position based on settings
+        img_width = result.width()
+        img_height = result.height()
+        
+        x = (img_width - max_width) // 2  # Center horizontally
+        
+        if subs.position == "bottom":
+            y = img_height - 20 - total_height + subs.vertical_offset
+        elif subs.position == "top":
+            y = 20 + metrics.height() - subs.vertical_offset
+        else:  # center
+            y = (img_height - total_height) // 2
+        
+        # Draw shadow if enabled (drawn first, behind everything)
+        if subs.shadow_enabled and subs.shadow_opacity > 0:
+            shadow_color = QColor(subs.shadow_color)
+            shadow_color.setAlpha(int(subs.shadow_opacity * 255))
+            shadow_x = x + subs.shadow_offset_x
+            shadow_y = y + subs.shadow_offset_y
+            painter.setPen(shadow_color)
+            painter.drawText(shadow_x, shadow_y, max_width, total_height,
+                           Qt.AlignLeft | Qt.AlignTop, text)
+        
+        # Draw background if opacity > 0
+        if subs.bg_opacity > 0:
+            bg_color = QColor(subs.bg_color)
+            bg_color.setAlpha(int(subs.bg_opacity * 255))
+            painter.fillRect(x - 10, y - metrics.height() + 5,
+                           max_width + 20, total_height + 10, bg_color)
+        
+        # Draw outline
+        outline_color = QColor(subs.outline_color)
+        text_color = QColor(subs.color)
+        
+        # Draw text with simple outline effect
+        for dx in range(-subs.outline_width, subs.outline_width + 1):
+            for dy in range(-subs.outline_width, subs.outline_width + 1):
+                if dx != 0 or dy != 0:
+                    painter.setPen(outline_color)
+                    painter.drawText(x + dx, y + dy, max_width, total_height,
+                                   Qt.AlignLeft | Qt.AlignTop, text)
+        
+        # Draw main text
+        painter.setPen(text_color)
+        painter.drawText(x, y, max_width, total_height,
+                        Qt.AlignLeft | Qt.AlignTop, text)
+        
+        painter.end()
+        return result
     
     def paintEvent(self, event):
         """Draw the processed frame and subtitle on the overlay"""
@@ -625,9 +696,8 @@ class VideoPreview(QWidget):
         processed_stacked_layout.addWidget(self.processed_label)
         
         # Filter overlay widget (for displaying QMediaPlayer frames with filters applied) - index 1
-        self.filter_overlay = FilterOverlay()
+        self.filter_overlay = FilterOverlay(self.app_state)
         self.filter_overlay.setMinimumSize(self.preview_width, self.preview_height)
-        self.filter_overlay.app_state = self.app_state  # Pass app_state for subtitle settings
         processed_stacked_layout.addWidget(self.filter_overlay)
         
         processed_layout.addWidget(self.processed_container)
