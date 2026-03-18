@@ -494,25 +494,9 @@ class FilterOverlay(QWidget):
         # Get subtitle settings
         subs = self.app_state.subtitles
         
-        # Calculate font scale factor based on image vs reference dimensions
-        # Reference is 1920x1080 - user sets font size assuming this resolution
-        img_width = result.width()
-        img_height = result.height()
-        
-        # Scale font relative to 1920x1080 reference
-        ref_width = 1920
-        ref_height = 1080
-        width_scale = img_width / ref_width if ref_width > 0 else 1.0
-        height_scale = img_height / ref_height if ref_height > 0 else 1.0
-        # Use the larger scale to maintain proportions
-        font_scale = max(width_scale, height_scale)
-        
-        # Set up font (scale pixel size based on preview vs reference)
+        # Set up font (use pixel size as configured - no scaling in preview)
         font = QFont(subs.font)
-        base_size = subs.size
-        # Ensure minimum readable size (at least 8px)
-        scaled_size = max(int(base_size * font_scale), 8)
-        font.setPixelSize(scaled_size)
+        font.setPixelSize(subs.size)
         painter.setFont(font)
         
         # Calculate text rect
@@ -520,6 +504,9 @@ class FilterOverlay(QWidget):
         lines = text.split('\n')
         max_width = max(metrics.horizontalAdvance(line) for line in lines)
         total_height = metrics.height() * len(lines)
+        
+        img_width = result.width()
+        img_height = result.height()
         
         x = (img_width - max_width) // 2  # Center horizontally
         
