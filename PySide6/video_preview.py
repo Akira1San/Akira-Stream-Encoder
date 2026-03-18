@@ -494,19 +494,27 @@ class FilterOverlay(QWidget):
         # Get subtitle settings
         subs = self.app_state.subtitles
         
-        # Set up font (use pixel size as configured - no scaling in preview)
-        font = QFont(subs.font)
-        font.setPixelSize(subs.size)
-        painter.setFont(font)
-        
-        # Calculate text rect
-        metrics = painter.fontMetrics()
-        lines = text.split('\n')
-        max_width = max(metrics.horizontalAdvance(line) for line in lines)
-        total_height = metrics.height() * len(lines)
-        
+        # Calculate font scale - image is displayed at preview size (320x180)
+        # so we need to scale font up proportionally
         img_width = result.width()
         img_height = result.height()
+        
+        # Reference preview size
+        ref_preview_width = 320
+        ref_preview_height = 180
+        
+        # Scale font so it appears proportional after widget scaling
+        # If video is 1920x960 and preview is 320x180, scale by ~6x
+        width_scale = img_width / ref_preview_width
+        height_scale = img_height / ref_preview_height
+        font_scale = min(width_scale, height_scale)
+        
+        # Set up font with scaled pixel size
+        font = QFont(subs.font)
+        scaled_size = max(int(subs.size * font_scale), 12)
+        font.setPixelSize(scaled_size)
+        painter.setFont(font)
+        painter.setFont(font)
         
         x = (img_width - max_width) // 2  # Center horizontally
         
