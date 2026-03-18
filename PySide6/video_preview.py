@@ -453,11 +453,25 @@ class FilterOverlay(QWidget):
         # Current processed frame to display
         self._current_image: Optional[QImage] = None
         self._subtitle_text: str = ""
+        
+        # Video dimensions for font scaling
+        self._video_width: int = 1920
+        self._video_height: int = 1080
+    
+    def set_video_size(self, width: int, height: int):
+        """Set video dimensions for proper font scaling"""
+        if width > 0 and height > 0:
+            self._video_width = width
+            self._video_height = height
     
     def set_image(self, image: QImage):
         """Set the processed frame to display"""
         if not image.isNull():
             self._current_image = image.copy()
+            # Auto-detect video size from image if not set
+            if self._video_width == 1920 and self._video_height == 1080:
+                self._video_width = image.width()
+                self._video_height = image.height()
             self.update()
     
     def set_subtitle(self, text: str):
@@ -480,9 +494,25 @@ class FilterOverlay(QWidget):
         # Get subtitle settings
         subs = self.app_state.subtitles
         
-        # Set up font (use pixel size to match FFmpeg)
+        # Calculate font scale factor based on image vs reference dimensions
+        # Reference is 1920x1080 - user sets font size assuming this resolution
+        img_width = result.width()
+        img_height = result.height()
+        
+        # Scale font relative to 1920x1080 reference
+        ref_width = 1920
+        ref_height = 1080
+        width_scale = img_width / ref_width if ref_width > 0 else 1.0
+        height_scale = img_height / ref_height if ref_height > 0 else 1.0
+        # Use the larger scale to maintain proportions
+        font_scale = max(width_scale, height_scale)
+        
+        # Set up font (scale pixel size based on preview vs reference)
         font = QFont(subs.font)
-        font.setPixelSize(subs.size)
+        base_size = subs.size
+        # Ensure minimum readable size (at least 8px)
+        scaled_size = max(int(base_size * font_scale), 8)
+        font.setPixelSize(scaled_size)
         painter.setFont(font)
         
         # Calculate text rect
@@ -490,10 +520,6 @@ class FilterOverlay(QWidget):
         lines = text.split('\n')
         max_width = max(metrics.horizontalAdvance(line) for line in lines)
         total_height = metrics.height() * len(lines)
-        
-        # Position based on settings
-        img_width = result.width()
-        img_height = result.height()
         
         x = (img_width - max_width) // 2  # Center horizontally
         
