@@ -5,11 +5,10 @@ This widget displays a simplified timeline showing layer duration bars
 with a draggable playhead and zoom controls.
 """
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QScrollArea, QSlider, QToolButton, QSizePolicy,
-    QMenu
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QFrame, QScrollArea, QSlider, QToolButton
 )
-from PySide6.QtCore import Qt, Signal, QTimer, QRect, QPoint
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QMouseEvent, QPolygon
 
 from composition.models import Layer, Composition
@@ -285,6 +284,13 @@ class Playhead(QWidget):
         """Handle mouse press"""
         if event.button() == Qt.LeftButton:
             self._dragging = True
+            # Also handle simple click-to-seek
+            parent = self.parentWidget()
+            if parent:
+                local_pos = parent.mapFromGlobal(self.mapToGlobal(event.pos()))
+                new_time = local_pos.x() / self.pixels_per_second
+                self.set_position(new_time)
+                self.position_changed.emit(self._position)
             
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle mouse move"""
@@ -445,6 +451,49 @@ class CompositionTimeline(QWidget):
         self.playhead = Playhead(30.0, self._pixels_per_second, self.timeline_content)
         self.playhead.position_changed.connect(self._on_playhead_moved)
         
+        # Install event filter on scroll area and viewport for click-to-seek
+        self._scroll.installEventFilter(self)
+        self._scroll.viewport().installEventFilter(self)
+        self.time_ruler.installEventFilter(self)
+    
+    def eventFilter(self, obj, event):
+        """
+        Event filter to handle clicks on timeline for seeking.
+        """
+        # Only process mouse press events
+        if event.type() != event.Type.MouseButtonPress:
+            return super().eventFilter(obj, event)
+        
+        # Check if click is on scroll area, viewport, time ruler, or track
+        if obj in (self._scroll, self._scroll.viewport(), self.time_ruler) or obj in self._tracks.values():
+            self._handle_timeline_click(event)
+            return True
+        return super().eventFilter(obj, event)
+    
+    def _handle_timeline_click(self, event):
+        """
+        Handle click on timeline area to seek to position.
+        This allows users to click anywhere on the timeline to move the playhead.
+        """
+        # Get the x position - handle both QMouseEvent positions
+        if hasattr(event, 'position'):
+            # Qt 6 / PySide6
+            x_pos = event.position().x()
+        else:
+            # Qt 5 / PySide2
+            x_pos = event.localPos().x()
+        
+        # Calculate time from x position
+        click_time = x_pos / self._pixels_per_second
+        
+        # Clamp to valid range
+        duration = self._composition.duration if self._composition else 30.0
+        click_time = max(0, min(click_time, duration))
+        
+        # Move playhead to clicked position
+        self.playhead.set_position(click_time)
+        self._on_playhead_moved(click_time)
+    
     def set_composition(self, composition: Composition):
         """Set the composition to display"""
         self._composition = composition
@@ -477,6 +526,9 @@ class CompositionTimeline(QWidget):
         track = TimelineTrack(layer, self._pixels_per_second)
         track.timing_changed.connect(self._on_layer_timing_changed)
         track.layer_selected.connect(self.layer_selected.emit)
+        
+        # Install event filter on track for click-to-seek
+        track.installEventFilter(self)
         
         # Insert before stretch
         self.tracks_layout.insertWidget(self.tracks_layout.count() - 1, track)
