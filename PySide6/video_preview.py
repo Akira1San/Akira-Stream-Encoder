@@ -510,6 +510,12 @@ class FilterOverlay(QWidget):
         outline_width = 2
         outline_color = "black"
         vertical_offset = 0
+        # Shadow settings
+        shadow_enabled = False
+        shadow_color = "black"
+        shadow_offset_x = 2
+        shadow_offset_y = 2
+        shadow_opacity = 0.5
         
         # Try to get settings from AppState if available
         if hasattr(self, 'app_state') and self.app_state:
@@ -523,6 +529,12 @@ class FilterOverlay(QWidget):
             outline_width = subs.outline_width
             outline_color = subs.outline_color
             vertical_offset = subs.vertical_offset
+            # Get shadow settings
+            shadow_enabled = getattr(subs, 'shadow_enabled', False)
+            shadow_color = getattr(subs, 'shadow_color', 'black')
+            shadow_offset_x = getattr(subs, 'shadow_offset_x', 2)
+            shadow_offset_y = getattr(subs, 'shadow_offset_y', 2)
+            shadow_opacity = getattr(subs, 'shadow_opacity', 0.5)
         
         # Set up font
         font = QFont(font_family)
@@ -545,6 +557,16 @@ class FilterOverlay(QWidget):
         else:  # center
             x = img_x + (img_width - max_width) // 2
             y = img_y + (img_height - total_height) // 2
+        
+        # Draw shadow if enabled (drawn first, behind everything)
+        if shadow_enabled and shadow_opacity > 0:
+            shadow = QColor(shadow_color)
+            shadow.setAlpha(int(shadow_opacity * 255))
+            shadow_x = x + shadow_offset_x
+            shadow_y = y + shadow_offset_y
+            painter.setPen(shadow)
+            painter.drawText(shadow_x, shadow_y, max_width, total_height,
+                          Qt.AlignLeft | Qt.AlignTop, self._subtitle_text)
         
         # Draw background if opacity > 0
         if bg_opacity > 0:
