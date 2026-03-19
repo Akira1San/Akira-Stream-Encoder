@@ -881,7 +881,12 @@ class VideoController:
             style.append(f"Shadow={shadow_distance}")
         elif subs.shadow_enabled:
             # Shadow only (no background) - use BorderStyle=2
+            # Shadow color is controlled by OutlineColour in BorderStyle=2
             style.append("BorderStyle=2")  # 2 = outline + drop shadow
+            
+            # Set outline colour to shadow colour (for BorderStyle=2, shadow uses outline colour)
+            outline_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+            style.append(f"OutlineColour={outline_ass}")
             
             # Shadow is the offset distance (not a color)
             shadow_distance = max(subs.shadow_offset_x, subs.shadow_offset_y, 2)
