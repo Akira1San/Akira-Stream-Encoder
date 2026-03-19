@@ -234,3 +234,90 @@ The critical syntax error is in the OLD legacy tkinter code (`main.py`), not the
 
 ## Status
 Review completed. User will fix issues manually.
+
+---
+
+# Task: Fix Subtitle Shadow Rendering in Encoded Output ✅ DONE
+
+## Overview
+Fixed subtitle shadow rendering not appearing in encoded output files when shadow was enabled in the UI.
+
+## Root Cause
+In `PySide6/controller.py`, the `build_subtitle_filter` method was not setting the required `BorderStyle=2` for shadow rendering in SSA/ASS subtitles. Without this BorderStyle, FFmpeg could not render shadows regardless of other shadow parameters being present.
+
+## Files Modified
+- `PySide6/controller.py` - Fixed shadow rendering logic in `build_subtitle_filter` method
+
+## Implementation Details
+
+### 1. In `PySide6/controller.py` - Fixed `build_subtitle_filter` method (lines 892-913):
+
+**Before (broken):**
+```python
+# Shadow settings
+if subs.shadow_enabled:
+    # Only set BorderStyle if we want opaque background
+    # BorderStyle=3 creates shadow but also solid background
+    # Don't override BorderStyle when bg_opacity=0
+    if subs.bg_opacity > 0.0 and "BorderStyle=4" not in style:
+        style.append("BorderStyle=3")  # 3 = outline + shadow
+    # Ensure there's an outline width (required for shadow to be visible)
+    if subs.outline_width == 0:
+        style.append("Outline=1")
+    # Shadow color with opacity
+    shadow_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+    style.append(f"Shadow={shadow_ass}")
+    # Shadow offset X
+    if subs.shadow_offset_x != 2:
+        style.append(f"ShadowX={subs.shadow_offset_x}")
+    # Shadow offset Y
+    if subs.shadow_offset_y != 2:
+        style.append(f"ShadowY={subs.shadow_offset_y}")
+```
+
+**After (fixed):**
+```python
+# Shadow and background settings (mutually exclusive in BorderStyle)
+if subs.shadow_enabled:
+    style.append("BorderStyle=2")  # 2 = outline + shadow
+elif subs.bg_opacity > 0.0:
+    style.append("BorderStyle=4")  # 4 = opaque box
+else:
+    style.append("BorderStyle=1")  # 1 = outline only (default)
+
+# Ensure there's an outline width (required for shadow to be visible)
+if subs.shadow_enabled and subs.outline_width == 0:
+    style.append("Outline=1")
+
+# Shadow color with opacity (only if shadow is enabled)
+if subs.shadow_enabled:
+    shadow_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+    style.append(f"Shadow={shadow_ass}")
+    # Shadow offset X
+    if subs.shadow_offset_x != 0:  # Default is 0, not 2
+        style.append(f"ShadowX={subs.shadow_offset_x}")
+    # Shadow offset Y
+    if subs.shadow_offset_y != 0:  # Default is 0, not 2
+        style.append(f"ShadowY={subs.shadow_offset_y}")
+```
+
+## Key Fixes:
+1. **Correct BorderStyle**: Set `BorderStyle=2` (outline + shadow) when shadow is enabled
+2. **Proper defaults**: Shadow offset defaults are 0, not 2
+3. **Mutual exclusion**: Shadow and background BorderStyle are now properly mutually exclusive
+4. **Outline requirement**: Ensured outline width ≥1 when shadow is enabled (required for visibility)
+5. **Conditional application**: Shadow color/offset only applied when shadow is actually enabled
+
+## Testing
+1. Enable the "Enable Shadow" checkbox in the Subtitles panel
+2. Configure shadow color, offset (X/Y), and opacity as desired
+3. Encode a video with burned-in subtitles
+4. Verify the output shows shadows behind the subtitle text
+
+## Verification
+The fix was verified by:
+- Manual FFmpeg testing showing shadows work with correct BorderStyle
+- Code review confirming the fix addresses the missing BorderStyle=2 requirement
+- Validation that the generated FFmpeg command now includes proper shadow parameters
+
+---

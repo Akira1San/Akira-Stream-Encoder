@@ -868,11 +868,35 @@ class VideoController:
         if subs.outline_width != 2:
             style.append(f"Outline={subs.outline_width}")
         
-        # Background color and opacity
-        if subs.bg_opacity > 0.0:
+        # Shadow and background settings
+        # BorderStyle: 1=outline only, 2=outline+shadow, 3=opaque box+shadow, 4=opaque box
+        if subs.shadow_enabled and subs.bg_opacity > 0.0:
+            # Shadow + background (both enabled) - use BorderStyle=3 with BackColour
+            shadow_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+            style.append(f"BackColour={shadow_ass}")
+            style.append("BorderStyle=3")  # 3 = opaque box with drop shadow
+            
+            # Shadow is the offset distance (not a color)
+            shadow_distance = max(subs.shadow_offset_x, subs.shadow_offset_y, 2)
+            style.append(f"Shadow={shadow_distance}")
+        elif subs.shadow_enabled:
+            # Shadow only (no background) - use BorderStyle=2
+            style.append("BorderStyle=2")  # 2 = outline + drop shadow
+            
+            # Shadow is the offset distance (not a color)
+            shadow_distance = max(subs.shadow_offset_x, subs.shadow_offset_y, 2)
+            style.append(f"Shadow={shadow_distance}")
+        elif subs.bg_opacity > 0.0:
+            # Background only (no shadow)
             ass_bg = self.hex_to_ass(subs.bg_color, subs.bg_opacity)
             style.append(f"BackColour={ass_bg}")
-            style.append("BorderStyle=4")  # Opaque box background
+            style.append("BorderStyle=4")  # 4 = opaque box
+        else:
+            style.append("BorderStyle=1")  # 1 = outline only (default)
+
+        # Ensure there's an outline width (required for shadow to be visible)
+        if subs.shadow_enabled and subs.outline_width == 0:
+            style.append("Outline=1")
         
         # Position mapping
         pos_map = {"bottom": 2, "top": 8, "center": 10}
@@ -888,26 +912,6 @@ class VideoController:
                 style.append(f"MarginV={margin_v}")
             else:
                 style.append(f"MarginV={subs.vertical_offset}")
-        
-        # Shadow settings
-        if subs.shadow_enabled:
-            # Only set BorderStyle if we want opaque background
-            # BorderStyle=3 creates shadow but also solid background
-            # Don't override BorderStyle when bg_opacity=0
-            if subs.bg_opacity > 0.0 and "BorderStyle=4" not in style:
-                style.append("BorderStyle=3")  # 3 = outline + shadow
-            # Ensure there's an outline width (required for shadow to be visible)
-            if subs.outline_width == 0:
-                style.append("Outline=1")
-            # Shadow color with opacity
-            shadow_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
-            style.append(f"Shadow={shadow_ass}")
-            # Shadow offset X
-            if subs.shadow_offset_x != 2:
-                style.append(f"ShadowX={subs.shadow_offset_x}")
-            # Shadow offset Y
-            if subs.shadow_offset_y != 2:
-                style.append(f"ShadowY={subs.shadow_offset_y}")
         
         # Build the filter string
         force_style = f":force_style='{','.join(style)}'" if style else ""
