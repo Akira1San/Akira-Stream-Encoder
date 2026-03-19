@@ -514,7 +514,12 @@ class FilterOverlay(QWidget):
         scaled_size = max(int(subs.size * font_scale), 12)
         font.setPixelSize(scaled_size)
         painter.setFont(font)
-        painter.setFont(font)
+        
+        # Calculate text rect
+        metrics = painter.fontMetrics()
+        lines = text.split('\n')
+        max_width = max(metrics.horizontalAdvance(line) for line in lines)
+        total_height = metrics.height() * len(lines)
         
         x = (img_width - max_width) // 2  # Center horizontally
         
