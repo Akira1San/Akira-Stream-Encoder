@@ -264,22 +264,27 @@ class VideoController:
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-t", duration])
                 
+                # Build full filter chain including AR conversion and all video filters
+                video_filters, audio_filters = self.build_filter_complex(input_path)
+                
                 subs_filter = self.build_subtitle_filter(sub_path)
                 if subs_filter:
-                    # Build filter chain - include subtitle only
-                    filter_parts = [subs_filter]
+                    # Build filter chain with subtitle burn + all video filters
+                    filter_parts = []
                     
-                    # Add scale to filter chain if resolution is set
-                    if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
-                        filter_parts.append(f"scale={self.app_state.encoding.resolution}")
-                        self.app_state.log(f"Including scale {self.app_state.encoding.resolution} in filter chain", "INFO")
+                    # Add video filters first (AR conversion, scale, etc.)
+                    if video_filters:
+                        filter_parts.append(video_filters)
+                    
+                    # Add subtitle burn
+                    filter_parts.append(subs_filter)
                     
                     filter_parts.append("setpts=PTS-STARTPTS")
                     vf_chain = ",".join(filter_parts)
                     
                     cmd.extend(["-vf", vf_chain])
                     cmd.extend(["-af", "asetpts=PTS-STARTPTS"])
-                    self.app_state.log(f"Burning subtitles from: {os.path.basename(sub_path)}", "INFO")
+                    self.app_state.log(f"Burning subtitles with video filters (including AR conversion)", "INFO")
             else:
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", input_path])
@@ -297,8 +302,15 @@ class VideoController:
                 
                 cmd.extend(["-t", duration])
                 
-                # Add scale if needed
-                if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
+                # Build video filters (includes AR conversion, scale, deinterlace, etc.)
+                video_filters, audio_filters = self.build_filter_complex(input_path)
+                
+                # Apply video filters if any
+                if video_filters:
+                    cmd.extend(["-vf", video_filters])
+                    self.app_state.log(f"Applying video filters (including AR conversion)", "INFO")
+                elif self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
+                    # Fallback: use -s for resolution if no complex filters
                     cmd.extend(["-s", self.app_state.encoding.resolution])
                     self.app_state.log(f"Scale output to {self.app_state.encoding.resolution}", "INFO")
                 
@@ -325,9 +337,14 @@ class VideoController:
                     if self.app_state.encoding.cpu_tune != "none":
                         cmd.extend(["-tune", self.app_state.encoding.cpu_tune])
                 
-                # Resolution
+                # Resolution - ONLY add -s if video filters are NOT applied (they handle scaling)
+                # If video_filters were applied via -vf, don't override with -s
                 if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
-                    cmd.extend(["-s", self.app_state.encoding.resolution])
+                    if video_filters:
+                        # Video filters already applied - they include scale, don't add -s
+                        self.app_state.log(f"Resolution handled by video filters (not adding -s)", "INFO")
+                    else:
+                        cmd.extend(["-s", self.app_state.encoding.resolution])
                 
                 # Pixel format for compatibility
                 cmd.extend(["-pix_fmt", "yuv420p"])
@@ -465,9 +482,15 @@ class VideoController:
                 if self.app_state.encoding.cpu_tune != "none":
                     cmd.extend(["-tune", self.app_state.encoding.cpu_tune])
             
-            # Resolution - only use -s if scale_mode is off (otherwise use filter)
+            # Resolution - only use -s if scale_mode is off
+            # Note: When AR conversion is used, the filter chain handles dimensions - don't use -s
             if self.app_state.encoding.resolution != "none" and self.app_state.encoding.scale_mode == "off":
-                cmd.extend(["-s", self.app_state.encoding.resolution])
+                # Only add -s if AR conversion is NOT enabled (filter handles it)
+                ar_enabled = getattr(self.app_state.filters, 'ar_convert_enabled', False)
+                if ar_enabled:
+                    self.app_state.log(f"AR conversion enabled - using filter dimensions (not adding -s)", "INFO")
+                else:
+                    cmd.extend(["-s", self.app_state.encoding.resolution])
                 
             # Framerate
             cmd.extend(["-r", self.app_state.encoding.framerate])
@@ -600,9 +623,6 @@ class VideoController:
         video_filters = []
         audio_filters = []
         
-        # Force SAR to 1:1 FIRST for HLS streaming compatibility (before any other filters)
-        video_filters.append("setsar=1:1")
-        
         # Scale filter with algorithm (when scale_mode is "on")
         if self.app_state.encoding.scale_mode == "on" and self.app_state.encoding.resolution != "none":
             res = self.app_state.encoding.resolution
@@ -695,18 +715,20 @@ class VideoController:
 
             if ar_method == "crop":
                 # Crop to target aspect ratio (centered)
-                # Expression: crop to match target AR, keeping the same visual area
-                video_filters.append(f"crop=iw:ow/{target_ar}:0:(ih-ow/{target_ar})/2")
+                # Output width = ih * target_ar, centered horizontally
+                video_filters.append(f"crop=ih*{target_ar:.4f}:ih:(ih*{target_ar:.4f}-iw)/2:0")
             elif ar_method == "pad":
-                # Add black bars to reach target AR
-                video_filters.append(f"pad=ih*{target_ar}:ih:(ow-ih*{target_ar})/2:0:black")
+                # Add black bars to reach target AR (centered)
+                video_filters.append(f"pad=ih*{target_ar:.4f}:ih:(ih*{target_ar:.4f}-iw)/2:0:black")
             elif ar_method == "scale_2step":
-                # Two-step scaling 4:3 to 16:9 (preserves all content without distortion)
-                # First scale to intermediate, then to final with neighbor (fast) algorithm
-                video_filters.append("scale=540:400,scale=720:400:flags=neighbor,setsar=1")
+                # Two-step scaling to preserve all content without distortion
+                video_filters.append(f"scale=iw*min({target_ar:.4f}*(ih/iw),1):ih*min(1,({target_ar:.4f})/(ih/iw)),setsar=1")
             else:  # stretch
                 # Stretch to fill target AR (may distort)
-                video_filters.append(f"scale=iw:iw/{target_ar}")
+                video_filters.append(f"scale=iw*{target_ar:.4f}:ih")
+            
+            # Force SAR to 1:1 after AR conversion for clean output
+            video_filters.append("setsar=1:1")
 
         # Delogo (Logo/Watermark Removal)
         if getattr(self.app_state.filters, 'delogo_enabled', False):
