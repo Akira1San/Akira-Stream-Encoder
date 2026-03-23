@@ -312,9 +312,10 @@ class TrimPanel(QGroupBox):
             self.segments_count_label.setText("Parts to Export: 0")
             return
         
-        # If only deleted segments (no cuts), show what remains
+        # If deleted segments exist (no cuts), show single remaining video
         if has_deleted and not self.app_state.cut.points:
-            segments = self._build_segments_from_deleted(deleted_segments)
+            # Show one segment representing full remaining video
+            segments = [(0.0, -1)]  # 0 to end (encoding will handle skipping)
         else:
             # Get segments from cut points
             sorted_cuts = self.app_state.cut.get_sorted_points()
@@ -335,13 +336,16 @@ class TrimPanel(QGroupBox):
             start_str = self._format_time(seg_start)
             if seg_end == -1:
                 end_str = "End"
-                duration_str = "?"
+                if has_deleted:
+                    duration_str = "(remaining video)"
+                else:
+                    duration_str = "?"
             else:
                 end_str = self._format_time(seg_end)
                 duration = seg_end - seg_start
                 duration_str = self._format_time(duration)
             
-            display_text = f"Part {i:02d}: {start_str} - {end_str} ({duration_str})"
+            display_text = f"Part {i:02d}: {start_str} - {end_str} {duration_str}"
             
             item = QListWidgetItem()
             checkbox = QCheckBox(display_text)
@@ -360,27 +364,6 @@ class TrimPanel(QGroupBox):
         self.execute_btn.setEnabled(True)
         
         self._update_segments_count()
-    
-    def _build_segments_from_deleted(self, deleted_segments: list) -> list:
-        """Build segments remaining after deleting segments"""
-        segments = []
-        
-        # Sort deleted segments by start time
-        sorted_del = sorted(deleted_segments, key=lambda x: x[0])
-        
-        # Start from beginning
-        current_start = 0.0
-        
-        for del_start, del_end in sorted_del:
-            # Add segment from current start to deleted segment start
-            if current_start < del_start:
-                segments.append((current_start, del_start))
-            current_start = del_end
-        
-        # Add final segment to end of video
-        segments.append((current_start, -1))  # -1 means end
-        
-        return segments
     
     def _on_segment_checkbox_changed(self, state):
         """Handle segment checkbox state change"""

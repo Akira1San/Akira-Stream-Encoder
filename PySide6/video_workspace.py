@@ -467,35 +467,53 @@ class VideoWorkspace(QWidget):
         
         self.app_state.log(f"Video duration: {duration:.2f} seconds ({duration/60:.2f} minutes)", "INFO")
         
-        # Check if segments were deleted (need to join) or just exporting parts
-        # If we have gaps between segments OR we're joining them, use join mode
-        segments_clean = []
-        for seg_start, seg_end, seg_name in segments_data:
-            if seg_end == -1:
-                seg_end = duration
-            segments_clean.append((seg_start, seg_end))
+        # Check for deleted segments - need to exclude them during encoding
+        deleted_segments = self.app_state.cut.deleted_segments
+        has_deleted = deleted_segments and len(deleted_segments) > 0
         
-        # Check if segments are contiguous (no gaps = can use fast cut or normal encode)
-        # If there are gaps, we need to join
-        needs_join = False
-        segments_clean.sort()
-        for i in range(len(segments_clean) - 1):
-            current_end = segments_clean[i][1]
-            next_start = segments_clean[i + 1][0]
-            if current_end != next_start:
-                needs_join = True
-                break
+        # If deleted segments exist, build segments that exclude them
+        if has_deleted:
+            # Sort deleted segments
+            sorted_del = sorted(deleted_segments, key=lambda x: x[0])
+            segments_to_encode = []
+            current_start = 0.0
+            
+            for del_start, del_end in sorted_del:
+                if current_start < del_start:
+                    segments_to_encode.append((current_start, del_start))
+                current_start = del_end
+            
+            # Add final segment to end
+            if current_start < duration:
+                segments_to_encode.append((current_start, duration))
+            
+            self.app_state.log(f"Deleted segments: {len(deleted_segments)} - will be excluded from output", "INFO")
+            needs_join = True  # Must join because we have gaps
+        else:
+            # Normal case: use segments from UI
+            segments_to_encode = []
+            for seg_start, seg_end, seg_name in segments_data:
+                if seg_end == -1:
+                    seg_end = duration
+                segments_to_encode.append((seg_start, seg_end))
+            
+            # Check if segments are contiguous (no gaps = can use fast cut or normal encode)
+            # If there are gaps, we need to join
+            segments_to_encode.sort()
+            needs_join = False
+            for i in range(len(segments_to_encode) - 1):
+                current_end = segments_to_encode[i][1]
+                next_start = segments_to_encode[i + 1][0]
+                if abs(current_end - next_start) > 0.1:
+                    needs_join = True
+                    break
+            
+            # If only 1 segment OR segments are contiguous, use fast cut/encode
+            if len(segments_to_encode) == 1:
+                needs_join = False
         
         # If only 1 segment OR segments are contiguous, use fast cut/encode
         # If multiple non-contiguous segments, need join mode
-        if len(segments_clean) == 1:
-            needs_join = False
-        elif not needs_join and len(segments_clean) > 1:
-            # Check if they're truly contiguous (adjacent)
-            for i in range(len(segments_clean) - 1):
-                if abs(segments_clean[i][1] - segments_clean[i + 1][0]) > 0.1:
-                    needs_join = True
-                    break
         
         # Check if we can do fast cut (stream copy) - only when no filters or re-encoding needed
         # Note: External audio requires re-encoding, so we can't use fast cut
@@ -527,7 +545,7 @@ class VideoWorkspace(QWidget):
         container = self.app_state.encoding.container
         
         # Single output path for joined output
-        if needs_join or len(segments_clean) > 1:
+        if needs_join or len(segments_to_encode) > 1:
             output_path = os.path.join(output_folder, f"{base_name}_joined.{container}")
         else:
             output_path = os.path.join(output_folder, f"{base_name}_{segments_data[0][2]}.{container}")
@@ -540,7 +558,7 @@ class VideoWorkspace(QWidget):
         
         # Handle join mode (deleted segment case)
         if needs_join:
-            self.app_state.log(f"Segments have gaps - using join mode to merge {len(segments_clean)} parts", "INFO")
+            self.app_state.log(f"Segments have gaps - using join mode to merge {len(segments_to_encode)} parts", "INFO")
             
             video_settings = {
                 "codec": "libx264" if not self.app_state.encoding.use_gpu else "h264_nvenc",
@@ -555,7 +573,7 @@ class VideoWorkspace(QWidget):
             success = controller.join_segments(
                 input_file,
                 output_path,
-                segments_clean,
+                segments_to_encode,
                 video_settings,
                 audio_settings
             )
