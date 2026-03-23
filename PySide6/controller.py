@@ -1219,24 +1219,22 @@ class VideoController:
         
         cmd = [self.app_state.ffmpeg_path]
         
-        input_args = []
+        # Add input file multiple times with segment seek parameters
         for seg_start, seg_end in segments:
             duration = seg_end - seg_start
             cmd.extend(["-ss", str(seg_start), "-t", str(duration), "-i", input_path])
         
+        # Build filter_complex with both video and audio streams
         filter_parts = []
-        audio_parts = []
-        map_count = 0
         
         for i in range(len(segments)):
             filter_parts.append(f"[{i}:v]")
-            audio_parts.append(f"[{i}:a]")
+            filter_parts.append(f"[{i}:a]")
         
         filter_complex = f"{''.join(filter_parts)}concat=n={len(segments)}:v=1:a=1[outv][outa]"
         cmd.extend(["-filter_complex", filter_complex])
         
         cmd.extend(["-map", "[outv]"])
-        
         cmd.extend(["-map", "[outa]"])
         
         video_codec = video_settings.get("codec", "libx264")
