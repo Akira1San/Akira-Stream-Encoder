@@ -1070,19 +1070,6 @@ class VideoController:
         Returns:
             True if successful, False otherwise
         """
-        cmd = [self.app_state.ffmpeg_path]
-        
-        # Seek to start position before input (faster)
-        if start_time:
-            cmd.extend(["-ss", start_time])
-        
-        cmd.extend(["-i", input_path])
-        
-        # Generate PTS if missing (fixes "pts has no value" warnings)
-        cmd.extend(["-fflags", "+genpts+igndts"])
-        
-        # Use -copyts to preserve original timestamps (helps with playback issues)
-        cmd.extend(["-copyts"])
         
         # Duration
         if duration:
@@ -1197,3 +1184,106 @@ class VideoController:
             counter += 1
             
         return output_path
+    
+    def join_segments(self, input_path: str, output_path: str, 
+                      segments: List[tuple], video_settings: dict, audio_settings: dict) -> bool:
+        """
+        Join multiple video segments into one file using FFmpeg filter_complex.
+        Requires re-encoding (cannot use stream copy for joining).
+        
+        Args:
+            input_path: Source video path
+            output_path: Output file path
+            segments: List of (start_time, end_time) tuples to join
+            video_settings: Dict with video encoding settings
+            audio_settings: Dict with audio encoding settings
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        import os
+        
+        if not segments or len(segments) < 1:
+            self.app_state.log("No segments to join", "ERROR")
+            return False
+        
+        if len(segments) == 1:
+            self.app_state.log("Single segment - using encode instead of join", "INFO")
+            seg_start, seg_end = segments[0]
+            duration = seg_end - seg_start
+            return self.encode_file(
+                input_path, output_path,
+                start_time=str(seg_start),
+                duration=str(duration)
+            )
+        
+        cmd = [self.app_state.ffmpeg_path]
+        
+        input_args = []
+        for seg_start, seg_end in segments:
+            duration = seg_end - seg_start
+            cmd.extend(["-ss", str(seg_start), "-t", str(duration), "-i", input_path])
+        
+        filter_parts = []
+        audio_parts = []
+        map_count = 0
+        
+        for i in range(len(segments)):
+            filter_parts.append(f"[{i}:v]")
+            audio_parts.append(f"[{i}:a]")
+        
+        filter_complex = f"{''.join(filter_parts)}concat=n={len(segments)}:v=1:a=1[outv][outa]"
+        cmd.extend(["-filter_complex", filter_complex])
+        
+        cmd.extend(["-map", "[outv]"])
+        
+        cmd.extend(["-map", "[outa]"])
+        
+        video_codec = video_settings.get("codec", "libx264")
+        cmd.extend(["-c:v", video_codec])
+        
+        crf = video_settings.get("crf", 23)
+        cmd.extend(["-crf", str(crf)])
+        
+        preset = video_settings.get("preset", "medium")
+        cmd.extend(["-preset", preset])
+        
+        audio_codec = audio_settings.get("codec", "aac")
+        bitrate = audio_settings.get("bitrate", "128k")
+        cmd.extend(["-c:a", audio_codec, "-b:a", bitrate])
+        
+        cmd.extend(["-y", output_path])
+        
+        self.app_state.log(f"Joining {len(segments)} segments into one file", "INFO")
+        self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        
+        try:
+            self.is_encoding = True
+            self.current_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+            
+            for line in self.current_process.stdout:
+                line = line.strip()
+                if line:
+                    self.app_state.log(f"Join: {line}", "DEBUG")
+            
+            self.current_process.wait()
+            
+            if self.current_process.returncode == 0:
+                self.app_state.log(f"✅ Join complete: {os.path.basename(output_path)}", "SUCCESS")
+                return True
+            else:
+                self.app_state.log(f"❌ Join failed with code {self.current_process.returncode}", "ERROR")
+                return False
+                
+        except Exception as e:
+            self.app_state.log(f"❌ Join error: {e}", "ERROR")
+            return False
+        finally:
+            self.is_encoding = False
+            self.current_process = None

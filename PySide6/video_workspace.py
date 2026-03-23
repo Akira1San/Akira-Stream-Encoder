@@ -155,6 +155,7 @@ class VideoWorkspace(QWidget):
         self.trim_panel.execute_cuts.connect(self.on_execute_cuts)
         self.trim_panel.cut_removed.connect(self.on_cut_removed)
         self.trim_panel.clear_all_cuts.connect(self.on_clear_all_cuts)
+        self.trim_panel.delete_segment.connect(self.on_delete_segment)
         trim_layout.addWidget(self.trim_panel)
         
         # Connect timeline marker clicks to select cuts
@@ -355,6 +356,35 @@ class VideoWorkspace(QWidget):
         self.trim_panel._update_segments_list()
         self.app_state.log("Cleared all cut points", "INFO")
     
+    def on_delete_segment(self, start_cut_id: str, end_cut_id: str):
+        """Handle delete segment between 2 cuts"""
+        # Find the cut points
+        start_cut = None
+        end_cut = None
+        for cut in self.app_state.cut.points:
+            if cut.cut_id == start_cut_id:
+                start_cut = cut
+            elif cut.cut_id == end_cut_id:
+                end_cut = cut
+        
+        if not start_cut or not end_cut:
+            self.app_state.log("Could not find selected cuts", "ERROR")
+            return
+        
+        # Log what we're removing
+        self.app_state.log(f"Deleting segment between {start_cut.time_display} and {end_cut.time_display}", "INFO")
+        
+        # Remove both cut points (the segment between them is deleted)
+        self.app_state.cut.remove_point(start_cut_id)
+        self.app_state.cut.remove_point(end_cut_id)
+        
+        # Update UI
+        self.trim_panel.remove_cuts_from_list([start_cut_id, end_cut_id])
+        self._update_timeline_markers()
+        self.trim_panel._update_segments_list()
+        
+        self.app_state.log("Segment removed - cuts deleted and remaining parts will be joined during encoding", "INFO")
+    
     def _get_segment_info_for_cut(self, cut_point, sorted_cuts):
         """Get segment duration info for a cut point"""
         # Find the index of this cut
@@ -422,13 +452,45 @@ class VideoWorkspace(QWidget):
         
         self.app_state.log(f"Video duration: {duration:.2f} seconds ({duration/60:.2f} minutes)", "INFO")
         
+        # Check if segments were deleted (need to join) or just exporting parts
+        # If we have gaps between segments OR we're joining them, use join mode
+        segments_clean = []
+        for seg_start, seg_end, seg_name in segments_data:
+            if seg_end == -1:
+                seg_end = duration
+            segments_clean.append((seg_start, seg_end))
+        
+        # Check if segments are contiguous (no gaps = can use fast cut or normal encode)
+        # If there are gaps, we need to join
+        needs_join = False
+        segments_clean.sort()
+        for i in range(len(segments_clean) - 1):
+            current_end = segments_clean[i][1]
+            next_start = segments_clean[i + 1][0]
+            if current_end != next_start:
+                needs_join = True
+                break
+        
+        # If only 1 segment OR segments are contiguous, use fast cut/encode
+        # If multiple non-contiguous segments, need join mode
+        if len(segments_clean) == 1:
+            needs_join = False
+        elif not needs_join and len(segments_clean) > 1:
+            # Check if they're truly contiguous (adjacent)
+            for i in range(len(segments_clean) - 1):
+                if abs(segments_clean[i][1] - segments_clean[i + 1][0]) > 0.1:
+                    needs_join = True
+                    break
+        
         # Check if we can do fast cut (stream copy) - only when no filters or re-encoding needed
         # Note: External audio requires re-encoding, so we can't use fast cut
+        # Also: join mode requires re-encode
         external_audio_enabled = getattr(self.app_state.tracks, 'external_audio_enabled', False)
         external_audio_path = getattr(self.app_state.tracks, 'external_audio_path', '')
         has_external_audio = external_audio_enabled and external_audio_path
         
         can_fast_cut = (
+            not needs_join and
             self.app_state.encoding.resolution == "none" and
             not self.app_state.filters.deinterlace and
             not self.app_state.filters.denoise and
@@ -449,7 +511,47 @@ class VideoWorkspace(QWidget):
         output_folder = self.app_state.output_folder or os.path.dirname(input_file)
         container = self.app_state.encoding.container
         
-        # Encode each selected segment
+        # Single output path for joined output
+        if needs_join or len(segments_clean) > 1:
+            output_path = os.path.join(output_folder, f"{base_name}_joined.{container}")
+        else:
+            output_path = os.path.join(output_folder, f"{base_name}_{segments_data[0][2]}.{container}")
+        
+        # Handle duplicates
+        counter = 1
+        while os.path.exists(output_path):
+            output_path = os.path.join(output_folder, f"{base_name}_joined_{counter}.{container}")
+            counter += 1
+        
+        # Handle join mode (deleted segment case)
+        if needs_join:
+            self.app_state.log(f"Segments have gaps - using join mode to merge {len(segments_clean)} parts", "INFO")
+            
+            video_settings = {
+                "codec": "libx264" if not self.app_state.encoding.use_gpu else "h264_nvenc",
+                "crf": self.app_state.encoding.cq,
+                "preset": self.app_state.encoding.cpu_preset if not self.app_state.encoding.use_gpu else self.app_state.encoding.gpu_preset
+            }
+            audio_settings = {
+                "codec": "aac",
+                "bitrate": "128k"
+            }
+            
+            success = controller.join_segments(
+                input_file,
+                output_path,
+                segments_clean,
+                video_settings,
+                audio_settings
+            )
+            
+            if success:
+                self.app_state.log(f"Successfully joined {len(segments_clean)} segment(s)!", "SUCCESS")
+            else:
+                self.app_state.log(f"Failed to join segments", "ERROR")
+            return
+        
+        # Encode each selected segment (original behavior for non-join case)
         all_success = True
         for i, (seg_start, seg_end, seg_name) in enumerate(segments_data, 1):
             # Handle end = -1 (end of video)

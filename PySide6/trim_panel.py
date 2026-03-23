@@ -17,6 +17,7 @@ class TrimPanel(QGroupBox):
     execute_cuts = Signal(list)  # List of (start, end, segment_name) tuples to encode
     cut_removed = Signal(str)  # cut_id
     clear_all_cuts = Signal()
+    delete_segment = Signal(str, str)  # cut_id_start, cut_id_end (delete segment between these)
     
     def __init__(self, app_state: AppState, get_timeline_position_callback=None, parent=None):
         super().__init__("Trim/Cut Video", parent)
@@ -42,7 +43,8 @@ class TrimPanel(QGroupBox):
         # Cut Points List
         self.cuts_list = QListWidget()
         self.cuts_list.setMaximumHeight(100)
-        self.cuts_list.setToolTip("Click on a cut to jump to that position")
+        self.cuts_list.setToolTip("Ctrl+Click to select multiple cuts, or select 2 to delete a segment")
+        self.cuts_list.setSelectionMode(QListWidget.MultiSelection)
         layout.addWidget(self.cuts_list)
         
         # Cut Buttons
@@ -57,6 +59,12 @@ class TrimPanel(QGroupBox):
         self.delete_cut_btn.setEnabled(False)
         self.delete_cut_btn.clicked.connect(self.on_delete_cut_clicked)
         cut_btn_layout.addWidget(self.delete_cut_btn)
+        
+        self.delete_segment_btn = QPushButton("Delete Segment")
+        self.delete_segment_btn.setToolTip("Delete segment between 2 selected cuts")
+        self.delete_segment_btn.setEnabled(False)
+        self.delete_segment_btn.clicked.connect(self.on_delete_segment_clicked)
+        cut_btn_layout.addWidget(self.delete_segment_btn)
         
         self.clear_all_btn = QPushButton("Clear All")
         self.clear_all_btn.setToolTip("Remove all cut points")
@@ -136,6 +144,41 @@ class TrimPanel(QGroupBox):
             cut_id = current_item.data(256)  # Qt.UserRole = 256
             self.cut_removed.emit(cut_id)
     
+    def on_delete_segment_clicked(self):
+        """Handle delete segment button - requires 2 cuts selected"""
+        selected_items = self.cuts_list.selectedItems()
+        if len(selected_items) != 2:
+            QMessageBox.warning(self, "Select 2 Cuts", "Please select exactly 2 cut points to delete the segment between them.")
+            return
+        
+        # Get cut IDs in order (by position in video)
+        cut_ids = []
+        for item in selected_items:
+            cut_id = item.data(256)
+            cut_ids.append(cut_id)
+        
+        # Find cut positions and sort them
+        cuts_map = {c.cut_id: c.position for c in self.app_state.cut.points if c.cut_id in cut_ids}
+        sorted_ids = sorted(cut_ids, key=lambda cid: cuts_map.get(cid, 0))
+        
+        start_cut_id = sorted_ids[0]
+        end_cut_id = sorted_ids[1]
+        
+        # Confirm with user
+        start_pos = self.app_state.cut.points[self.app_state.cut.points.index(next(c for c in self.app_state.cut.points if c.cut_id == start_cut_id))].time_display
+        end_pos = self.app_state.cut.points[self.app_state.cut.points.index(next(c for c in self.app_state.cut.points if c.cut_id == end_cut_id))].time_display
+        
+        reply = QMessageBox.question(
+            self,
+            "Delete Segment",
+            f"Delete segment between {start_pos} and {end_pos}?\n\nThe cuts at these positions will be removed and the surrounding parts will be joined during encoding.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.delete_segment.emit(start_cut_id, end_cut_id)
+    
     def on_clear_all_clicked(self):
         """Handle clear all cuts button with confirmation"""
         if self.app_state.cut.points:
@@ -194,7 +237,10 @@ class TrimPanel(QGroupBox):
     def on_selection_changed(self):
         """Handle selection change in list"""
         has_selection = self.cuts_list.currentItem() is not None
+        selected_count = len(self.cuts_list.selectedItems())
+        
         self.delete_cut_btn.setEnabled(has_selection)
+        self.delete_segment_btn.setEnabled(selected_count == 2 and selected_count >= 2)
     
     def add_cut_to_list(self, cut_point: CutPoint, segment_info: str = ""):
         """Add a cut point to the visual list"""
@@ -214,6 +260,19 @@ class TrimPanel(QGroupBox):
             if item and item.data(256) == cut_id:
                 self.cuts_list.takeItem(i)
                 break
+        
+        self._renumber_cuts()
+        self.update_ui_state()
+        self._update_segments_list()
+    
+    def remove_cuts_from_list(self, cut_ids: list):
+        """Remove multiple cut points from the visual list"""
+        for cut_id in cut_ids:
+            for i in range(self.cuts_list.count()):
+                item = self.cuts_list.item(i)
+                if item and item.data(256) == cut_id:
+                    self.cuts_list.takeItem(i)
+                    break
         
         self._renumber_cuts()
         self.update_ui_state()
