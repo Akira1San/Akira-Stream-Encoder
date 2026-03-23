@@ -579,7 +579,7 @@ class VideoWorkspace(QWidget):
             )
             
             if success:
-                self.app_state.log(f"Successfully joined {len(segments_clean)} segment(s)!", "SUCCESS")
+                self.app_state.log(f"Successfully joined {len(segments_to_encode)} segment(s)!", "SUCCESS")
             else:
                 self.app_state.log(f"Failed to join segments", "ERROR")
             return
