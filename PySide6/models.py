@@ -215,6 +215,7 @@ class CutSettings:
     """Cut/trim settings - supports multiple cut points"""
     points: List[CutPoint] = field(default_factory=list)
     next_id: int = 1  # Counter for generating unique IDs
+    deleted_segments: List[tuple] = field(default_factory=list)  # List of (start, end) tuples for deleted segments
     
     def add_point(self, position: float, time_display: str) -> CutPoint:
         """Add a new cut point and return it"""
@@ -235,6 +236,14 @@ class CutSettings:
     def clear_all(self):
         """Remove all cut points"""
         self.points.clear()
+    
+    def add_deleted_segment(self, start: float, end: float):
+        """Add a deleted segment"""
+        self.deleted_segments.append((start, end))
+    
+    def clear_deleted_segments(self):
+        """Clear all deleted segments"""
+        self.deleted_segments.clear()
     
     def get_sorted_points(self) -> List[CutPoint]:
         """Return points sorted by position"""

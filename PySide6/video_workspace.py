@@ -351,9 +351,11 @@ class VideoWorkspace(QWidget):
     def on_clear_all_cuts(self):
         """Handle clearing all cut points"""
         self.app_state.cut.clear_all()
+        self.app_state.cut.clear_deleted_segments()
         self.trim_panel.clear_all_cuts_from_list()
         self._update_timeline_markers()
         self.trim_panel._update_segments_list()
+        self.preview.clear_deleted_segments()
         self.app_state.log("Cleared all cut points", "INFO")
     
     def on_delete_segment(self, start_cut_id: str, end_cut_id: str):
@@ -371,8 +373,18 @@ class VideoWorkspace(QWidget):
             self.app_state.log("Could not find selected cuts", "ERROR")
             return
         
+        # Sort by position to get correct start/end
+        if start_cut.position > end_cut.position:
+            start_cut, end_cut = end_cut, start_cut
+        
+        deleted_start = start_cut.position
+        deleted_end = end_cut.position
+        
         # Log what we're removing
         self.app_state.log(f"Deleting segment between {start_cut.time_display} and {end_cut.time_display}", "INFO")
+        
+        # Track the deleted segment for preview playback
+        self.app_state.cut.add_deleted_segment(deleted_start, deleted_end)
         
         # Remove both cut points (the segment between them is deleted)
         self.app_state.cut.remove_point(start_cut_id)
@@ -382,6 +394,9 @@ class VideoWorkspace(QWidget):
         self.trim_panel.remove_cuts_from_list([start_cut_id, end_cut_id])
         self._update_timeline_markers()
         self.trim_panel._update_segments_list()
+        
+        # Update preview to skip deleted segments
+        self.preview.update_deleted_segments(self.app_state.cut.deleted_segments)
         
         self.app_state.log("Segment removed - cuts deleted and remaining parts will be joined during encoding", "INFO")
     

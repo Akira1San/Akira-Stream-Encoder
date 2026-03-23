@@ -101,6 +101,7 @@ class TimelineSlider(QSlider):
     def __init__(self, orientation, parent=None):
         super().__init__(orientation, parent)
         self.cut_points = []  # List of (position_seconds, cut_id)
+        self.deleted_segments = []  # List of (start_time, end_time) tuples
         self.duration = 0.0
         self.hovered_cut = None  # Currently hovered cut for visual feedback
         self._slider_max = 1000  # Current slider maximum
@@ -146,45 +147,76 @@ class TimelineSlider(QSlider):
             self.set_duration(duration)
         self.update()
     
+    def set_deleted_segments(self, deleted_segments: list):
+        """
+        Set deleted segments to display (regions that will be removed in final output)
+        Args:
+            deleted_segments: List of (start_time, end_time) tuples
+        """
+        self.deleted_segments = deleted_segments
+        self.update()
+    
+    def clear_deleted_segments(self):
+        """Clear all deleted segment markers"""
+        self.deleted_segments = []
+        self.update()
+    
     def clear_cut_points(self):
         """Clear all cut markers"""
         self.cut_points = []
         self.update()
     
     def paintEvent(self, event):
-        """Override paintEvent to draw cut markers"""
+        """Override paintEvent to draw cut markers and deleted segments"""
         # Call parent paintEvent first (draws slider handle and groove)
         super().paintEvent(event)
         
-        if not self.cut_points or self.duration <= 0:
+        if self.duration <= 0:
             return
         
         # Create painter
         painter = QPainter(self)
         
-        for cut_pos, cut_id in self.cut_points:
-            # Convert seconds to slider position using dynamic range
-            if self.duration > 0:
-                slider_val = self.time_to_value(cut_pos)
-                x = self._value_to_pixel(slider_val)
+        # Draw deleted segments first (as red background regions)
+        if self.deleted_segments:
+            for seg_start, seg_end in self.deleted_segments:
+                if seg_start >= seg_end:
+                    continue
                 
-                # Check if this cut is hovered
-                is_hovered = (self.hovered_cut == cut_id)
+                start_x = self._value_to_pixel(self.time_to_value(seg_start))
+                end_x = self._value_to_pixel(self.time_to_value(seg_end))
                 
-                # Draw wider marker with border for better visibility
-                if is_hovered:
-                    # Highlighted marker when hovered
-                    painter.setPen(QPen(QColor(255, 255, 255), 3))  # White border
-                    painter.setBrush(QColor(0, 255, 0))  # Bright green
-                    marker_width = 14
-                else:
-                    # Normal marker
-                    painter.setPen(Qt.PenStyle.NoPen)
-                    painter.setBrush(QColor(0, 200, 0))  # Green
-                    marker_width = 10
-                
-                # Draw vertical line/marker - full height of slider with slight margin
-                painter.drawRect(int(x) - marker_width//2, 0, marker_width, self.height())
+                # Draw semi-transparent red overlay
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(200, 50, 50, 100))  # Red with alpha
+                width = max(4, int(end_x - start_x))
+                painter.drawRect(int(start_x), 0, width, self.height())
+        
+        # Draw cut point markers
+        if self.cut_points:
+            for cut_pos, cut_id in self.cut_points:
+                # Convert seconds to slider position using dynamic range
+                if self.duration > 0:
+                    slider_val = self.time_to_value(cut_pos)
+                    x = self._value_to_pixel(slider_val)
+                    
+                    # Check if this cut is hovered
+                    is_hovered = (self.hovered_cut == cut_id)
+                    
+                    # Draw wider marker with border for better visibility
+                    if is_hovered:
+                        # Highlighted marker when hovered
+                        painter.setPen(QPen(QColor(255, 255, 255), 3))  # White border
+                        painter.setBrush(QColor(0, 255, 0))  # Bright green
+                        marker_width = 14
+                    else:
+                        # Normal marker
+                        painter.setPen(Qt.PenStyle.NoPen)
+                        painter.setBrush(QColor(0, 200, 0))  # Green
+                        marker_width = 10
+                    
+                    # Draw vertical line/marker - full height of slider with slight margin
+                    painter.drawRect(int(x) - marker_width//2, 0, marker_width, self.height())
         
         painter.end()
     
@@ -614,6 +646,9 @@ class VideoPreview(QWidget):
         self.playback_speed: float = 1.0  # 1.0 = normal speed
         self._playback_time: float = 0.0  # Current playback position in seconds
         
+        # Deleted segments (will be removed in final output)
+        self._deleted_segments: list = []
+        
         # Frame loader thread
         self._loader_thread: Optional[QThread] = None
         self._frame_loader: Optional[FrameLoader] = None
@@ -888,11 +923,15 @@ class VideoPreview(QWidget):
         self.duration = 0.0
         self.current_frame = None
         self._playback_time = 0.0
+        self._deleted_segments = []
         
         # Reset timeline
         self.timeline_slider.set_duration(0)
         self.timeline_slider.setValue(0)
         self.time_label.setText("00:00")
+        
+        # Clear deleted segments display
+        self.timeline_slider.deleted_segments = []
         
         # Reset view: show placeholder labels (index 0) using stacked layout
         self.original_container.layout().setCurrentIndex(0)
@@ -901,6 +940,32 @@ class VideoPreview(QWidget):
         
         # Clear any pending frame loader
         self._cleanup_thread()
+    
+    def update_deleted_segments(self, deleted_segments: list):
+        """Update the deleted segments for preview playback"""
+        self._deleted_segments = deleted_segments
+        self.timeline_slider.deleted_segments = deleted_segments
+        self.timeline_slider.update()
+    
+    def clear_deleted_segments(self):
+        """Clear deleted segments"""
+        self._deleted_segments = []
+        self.timeline_slider.deleted_segments = []
+        self.timeline_slider.update()
+    
+    def _is_position_in_deleted_segment(self, position: float) -> bool:
+        """Check if a position falls within any deleted segment"""
+        for seg_start, seg_end in self._deleted_segments:
+            if seg_start <= position < seg_end:
+                return True
+        return False
+    
+    def _get_next_valid_position(self, position: float) -> float:
+        """Get the next position after any deleted segment"""
+        for seg_start, seg_end in self._deleted_segments:
+            if seg_start <= position < seg_end:
+                return seg_end
+        return position
         
     def _on_video_position_changed(self, position_sec: float):
         """Handle video player position change - update timeline and processed preview"""
@@ -909,6 +974,15 @@ class VideoPreview(QWidget):
             return
         
         self._playback_time = position_sec
+        
+        # Skip deleted segments during playback
+        if self._deleted_segments and self.is_playing:
+            if self._is_position_in_deleted_segment(position_sec):
+                # Jump past the deleted segment
+                next_pos = self._get_next_valid_position(position_sec)
+                self._video_player.seek(next_pos)
+                self._playback_time = next_pos
+                position_sec = next_pos
         
         # Update timeline slider
         if self.duration > 0:
@@ -1068,6 +1142,16 @@ class VideoPreview(QWidget):
         """Handle timeline slider change while dragging"""
         if self.duration > 0:
             timestamp = self.timeline_slider.value_to_time(value)
+            
+            # Skip deleted segments when user drags into them
+            if self._deleted_segments and self._is_position_in_deleted_segment(timestamp):
+                timestamp = self._get_next_valid_position(timestamp)
+                # Update slider to match the adjusted position
+                adjusted_value = self.timeline_slider.time_to_value(timestamp)
+                self.timeline_slider.blockSignals(True)
+                self.timeline_slider.setValue(adjusted_value)
+                self.timeline_slider.blockSignals(False)
+            
             mins, secs = divmod(int(timestamp), 60)
             hours = mins // 60
             mins = mins % 60
