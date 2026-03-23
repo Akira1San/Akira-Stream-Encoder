@@ -299,7 +299,12 @@ class TrimPanel(QGroupBox):
         self.segments_list.clear()
         self.segment_checkboxes = []
         
-        if not self.app_state.cut.points:
+        # Get deleted segments
+        deleted_segments = self.app_state.cut.deleted_segments
+        has_deleted = deleted_segments and len(deleted_segments) > 0
+        
+        # If no cuts and no deleted segments, show placeholder
+        if not self.app_state.cut.points and not has_deleted:
             self.segments_list.addItem("Add cuts to see parts")
             self.select_all_btn.setEnabled(False)
             self.deselect_all_btn.setEnabled(False)
@@ -307,19 +312,23 @@ class TrimPanel(QGroupBox):
             self.segments_count_label.setText("Parts to Export: 0")
             return
         
-        # Get segments from cut points
-        sorted_cuts = self.app_state.cut.get_sorted_points()
-        
-        # Generate segments (start, end) pairs
-        segments = []
-        start = 0.0
-        
-        for cut in sorted_cuts:
-            segments.append((start, cut.position))
-            start = cut.position
-        
-        # Final segment to end (use placeholder duration, will be updated when encoding)
-        segments.append((start, -1))  # -1 means "end of video"
+        # If only deleted segments (no cuts), show what remains
+        if has_deleted and not self.app_state.cut.points:
+            segments = self._build_segments_from_deleted(deleted_segments)
+        else:
+            # Get segments from cut points
+            sorted_cuts = self.app_state.cut.get_sorted_points()
+            
+            # Generate segments (start, end) pairs
+            segments = []
+            start = 0.0
+            
+            for cut in sorted_cuts:
+                segments.append((start, cut.position))
+                start = cut.position
+            
+            # Final segment to end (use placeholder duration, will be updated when encoding)
+            segments.append((start, -1))  # -1 means "end of video"
         
         # Add segments to list with checkboxes
         for i, (seg_start, seg_end) in enumerate(segments, 1):
@@ -351,6 +360,27 @@ class TrimPanel(QGroupBox):
         self.execute_btn.setEnabled(True)
         
         self._update_segments_count()
+    
+    def _build_segments_from_deleted(self, deleted_segments: list) -> list:
+        """Build segments remaining after deleting segments"""
+        segments = []
+        
+        # Sort deleted segments by start time
+        sorted_del = sorted(deleted_segments, key=lambda x: x[0])
+        
+        # Start from beginning
+        current_start = 0.0
+        
+        for del_start, del_end in sorted_del:
+            # Add segment from current start to deleted segment start
+            if current_start < del_start:
+                segments.append((current_start, del_start))
+            current_start = del_end
+        
+        # Add final segment to end of video
+        segments.append((current_start, -1))  # -1 means end
+        
+        return segments
     
     def _on_segment_checkbox_changed(self, state):
         """Handle segment checkbox state change"""
