@@ -220,6 +220,11 @@ class VideoController:
         
         cmd = [self.app_state.ffmpeg_path]
         
+        # Add hardware decoder for GPU encoding in clip extraction mode
+        encoder = self.app_state.encoding.encoder
+        if self.app_state.encoding.use_gpu and "nvenc" in encoder:
+            cmd.extend(["-hwaccel", "cuda"])
+        
         # Check if this is a DVD concat source
         is_dvd_source = self.app_state.dvd.is_dvd_source and input_path.endswith('.txt')
         
@@ -261,6 +266,7 @@ class VideoController:
                 else:
                     self._external_audio_enabled = False
                 
+                # Move -ss and -t AFTER -i for accurate seeking with AV1 and other codecs
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-t", duration])
                 
@@ -286,7 +292,6 @@ class VideoController:
                     cmd.extend(["-af", "asetpts=PTS-STARTPTS"])
                     self.app_state.log(f"Burning subtitles with video filters (including AR conversion)", "INFO")
             else:
-                cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", input_path])
                 
                 # Handle external audio file for extract clip mode
@@ -300,6 +305,8 @@ class VideoController:
                 else:
                     self._external_audio_enabled = False
                 
+                # Move -ss and -t AFTER -i for accurate seeking with AV1 and other codecs
+                cmd.extend(["-ss", start_time])
                 cmd.extend(["-t", duration])
                 
                 # Build video filters (includes AR conversion, scale, deinterlace, etc.)
@@ -369,16 +376,19 @@ class VideoController:
             # Map video from first input (external audio would be second input if present)
             if self.app_state.tracks.video_selected:
                 if self._external_audio_enabled:
-                    cmd.extend(["-map", "0:v"])
+                    cmd.extend(["-map", "0:v:0"])
                 else:
-                    cmd.extend(["-map", "0:v"])
+                    cmd.extend(["-map", "0:v:0"])
             
             # Map audio - either from external or from input file
             if self.app_state.tracks.audio_selected:
                 if self._external_audio_enabled:
-                    cmd.extend(["-map", "1:a"])
+                    cmd.extend(["-map", "1:a:0"])
                 else:
-                    cmd.extend(["-map", "0:a"])  # Map audio from input file
+                    audio_stream_idx = self.app_state.tracks.audio_stream_index
+                    if audio_stream_idx is None or audio_stream_idx < 0:
+                        audio_stream_idx = 0
+                    cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
             
             # Build audio filters for extract clip mode
             _, audio_filters = self.build_filter_complex(input_path)
@@ -405,14 +415,17 @@ class VideoController:
                 cmd.extend(["-shortest"])
                 
             elif self.app_state.tracks.audio_copy_mode:
-                # Cannot apply audio filters in copy mode - warn user
-                if audio_filters:
-                    self.app_state.log("Audio: Copy mode - audio filters (volume, denoise, etc.) will not be applied", "WARN")
+                audio_stream_idx = self.app_state.tracks.audio_stream_index
+                if audio_stream_idx is None or audio_stream_idx < 0:
+                    audio_stream_idx = 0
                 cmd.extend(["-c:a", "copy"])
-                self.app_state.log("Audio: Copy original stream", "INFO")
+                self.app_state.log(f"Audio: Copy original stream (track {audio_stream_idx})", "INFO")
             else:
+                audio_stream_idx = self.app_state.tracks.audio_stream_index
+                if audio_stream_idx is None or audio_stream_idx < 0:
+                    audio_stream_idx = 0
                 cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
-                self.app_state.log("Audio: Re-encode to AAC stereo", "INFO")
+                self.app_state.log(f"Audio: Re-encode to AAC stereo (track {audio_stream_idx})", "INFO")
                 # Apply audio filters when re-encoding
                 if audio_filters:
                     cmd.extend(["-af", audio_filters])
