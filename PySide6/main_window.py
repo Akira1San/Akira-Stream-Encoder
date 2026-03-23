@@ -17,7 +17,6 @@ from models import AppState
 from config import SETTINGS_FILE
 from config_tab import ConfigTab
 from video_workspace import VideoWorkspace
-from composition import CompositionTab
 from tracks_tab import TracksTab
 
 
@@ -101,10 +100,6 @@ class MainWindow(QMainWindow):
         # Tracks Tab
         self.tracks_tab = TracksTab(self.app_state)
         self.tab_widget.addTab(self.tracks_tab, "📊 Tracks")
-        
-        # Composition tab
-        self.composition_tab = CompositionTab(self.app_state)
-        self.tab_widget.addTab(self.composition_tab, "🎨 Composition")
         
         # === STATUS BAR ===
         self.statusBar().showMessage("Ready")
