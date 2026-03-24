@@ -1071,6 +1071,8 @@ class VideoController:
             True if successful, False otherwise
         """
         
+        cmd = [self.app_state.ffmpeg_path, "-i", input_path]
+        
         # Duration
         if duration:
             cmd.extend(["-t", duration])
