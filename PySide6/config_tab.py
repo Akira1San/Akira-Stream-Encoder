@@ -824,6 +824,18 @@ class ConfigTab(QWidget):
         
     def extract_subtitles(self):
         """Extract all subtitles from video or DVD folder"""
+        selected = self.files_list.selectedItems()
+        
+        if selected:
+            file_path = selected[0].data(Qt.UserRole)
+            source_type = selected[0].data(Qt.UserRole + 1)
+            
+            if source_type == "dvd":
+                self._extract_subs_from_dvd(self.app_state.dvd.dvd_folder_path)
+            else:
+                self._extract_subs_from_video(file_path)
+            return
+        
         # Let user choose between video file or DVD folder
         msg = QMessageBox(self)
         msg.setWindowTitle("Extract Subtitles")
@@ -837,7 +849,6 @@ class ConfigTab(QWidget):
         msg.exec()
         
         if msg.clickedButton() == btn_video:
-            # Select video file
             file_path, _ = QFileDialog.getOpenFileName(
                 self, "Select Video File",
                 "",
@@ -846,7 +857,6 @@ class ConfigTab(QWidget):
             if file_path:
                 self._extract_subs_from_video(file_path)
         elif msg.clickedButton() == btn_dvd:
-            # Select DVD folder
             folder_path = QFileDialog.getExistingDirectoryUrl(
                 self, "Select DVD Folder (VIDEO_TS)"
             )
@@ -992,7 +1002,13 @@ class ConfigTab(QWidget):
     
     def extract_track(self):
         """Extract video or audio track from video file"""
-        # Select video file
+        selected = self.files_list.selectedItems()
+        
+        if selected:
+            file_path = selected[0].data(Qt.UserRole)
+            self._extract_track_from_video(file_path)
+            return
+        
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Video File",
             "",
