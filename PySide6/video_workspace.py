@@ -524,6 +524,7 @@ class VideoWorkspace(QWidget):
         
         can_fast_cut = (
             not needs_join and
+            self.app_state.encoding.video_mode == "copy" and
             self.app_state.encoding.resolution == "none" and
             not self.app_state.filters.deinterlace and
             not self.app_state.filters.denoise and
