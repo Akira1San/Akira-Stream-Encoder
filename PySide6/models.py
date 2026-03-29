@@ -29,6 +29,8 @@ class EncodingSettings:
     scale_mode: str = "off"  # off / on
     scale_algorithm: str = "bilinear"  # bilinear / bicubic / lanczos / spline / area
     scale_quality: str = "speed"  # speed / quality
+    # Pixel format
+    pixel_format: str = "yuv420p"  # yuv420p (8-bit), yuv420p10le (10-bit)
 
 
 @dataclass

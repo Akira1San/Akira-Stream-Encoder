@@ -383,6 +383,30 @@ class EncodingPanel(QWidget):
         bframes_layout.addStretch()
         advanced_layout.addLayout(bframes_layout)
         
+        # Pixel Format
+        pix_fmt_layout = QHBoxLayout()
+        pix_fmt_layout.addWidget(QLabel("Pixel Format:"))
+        self.pix_fmt_combo = QComboBox()
+        self.pix_fmt_combo.addItems(["yuv420p (8-bit)", "yuv420p10le (10-bit)", "yuv444p (8-bit)", "yuv444p10le (10-bit)"])
+        current_pix_fmt = getattr(self.app_state.encoding, 'pixel_format', 'yuv420p')
+        display_text = f"{current_pix_fmt} (8-bit)" if current_pix_fmt == "yuv420p" else f"{current_pix_fmt} (10-bit)" if current_pix_fmt == "yuv420p10le" else current_pix_fmt
+        if "yuv444p10le" in current_pix_fmt:
+            display_text = f"{current_pix_fmt} (10-bit)"
+        elif "yuv444p" in current_pix_fmt:
+            display_text = f"{current_pix_fmt} (8-bit)"
+        self.pix_fmt_combo.setCurrentText(display_text)
+        self.pix_fmt_combo.setMinimumWidth(140)
+        self.pix_fmt_combo.setToolTip(
+            "Pixel format for encoding:\n"
+            "yuv420p: 8-bit (standard, max compatibility)\n"
+            "yuv420p10le: 10-bit (better color, less compatible)\n"
+            "yuv444p: 8-bit (no chroma subsampling)\n"
+            "yuv444p10le: 10-bit (best color, less compatible)"
+        )
+        pix_fmt_layout.addWidget(self.pix_fmt_combo)
+        pix_fmt_layout.addStretch()
+        advanced_layout.addLayout(pix_fmt_layout)
+        
         # Audio Mode
         audio_mode_layout = QHBoxLayout()
         audio_mode_layout.addWidget(QLabel("Audio Mode:"))
@@ -505,6 +529,7 @@ class EncodingPanel(QWidget):
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
         self.cpu_preset_combo.currentTextChanged.connect(self.on_cpu_preset_changed)
         self.cpu_tune_combo.currentTextChanged.connect(self.on_cpu_tune_changed)
+        self.pix_fmt_combo.currentTextChanged.connect(self.on_pix_fmt_changed)
         
         # External audio signals
         self.external_audio_check.toggled.connect(self.on_external_audio_toggled)
@@ -882,4 +907,10 @@ class EncodingPanel(QWidget):
     def on_scale_quality_changed(self, text):
         """Handle scale quality change"""
         self.app_state.encoding.scale_quality = text
+        self.settings_changed.emit()
+        
+    def on_pix_fmt_changed(self, text):
+        """Handle pixel format change"""
+        pix_fmt = text.split()[0]  # Extract just the format name (before the space and bit depth)
+        self.app_state.encoding.pixel_format = pix_fmt
         self.settings_changed.emit()

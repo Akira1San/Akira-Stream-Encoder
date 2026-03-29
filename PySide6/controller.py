@@ -354,7 +354,8 @@ class VideoController:
                         cmd.extend(["-s", self.app_state.encoding.resolution])
                 
                 # Pixel format for compatibility
-                cmd.extend(["-pix_fmt", "yuv420p"])
+                pix_fmt = getattr(self.app_state.encoding, 'pixel_format', 'yuv420p')
+                cmd.extend(["-pix_fmt", pix_fmt])
                 
                 # --- STRICT STREAMER FLAGS for extract clip ---
                 # H.265 (libx265) requires x265-params for keyframe and level control
@@ -519,7 +520,8 @@ class VideoController:
                 cmd.extend(["-g", "144"])  # GOP size
                 cmd.extend(["-bf", "0"])  # No B-frames
             
-            cmd.extend(["-pix_fmt", "yuv420p"])  # Pixel format
+            pix_fmt = getattr(self.app_state.encoding, 'pixel_format', 'yuv420p')
+            cmd.extend(["-pix_fmt", pix_fmt])  # Pixel format
             
             # Profile and level - handle differently for H.265
             if encoder == "libx265":
@@ -637,31 +639,38 @@ class VideoController:
         audio_filters = []
         
         # Scale filter with algorithm (when scale_mode is "on")
-        if self.app_state.encoding.scale_mode == "on" and self.app_state.encoding.resolution != "none":
+        # "none" means use original resolution, but still apply algorithm if scale_mode is on
+        if self.app_state.encoding.scale_mode == "on":
             res = self.app_state.encoding.resolution
             algorithm = self.app_state.encoding.scale_algorithm
             quality = self.app_state.encoding.scale_quality
             
             interl = "1" if quality == "quality" else "0"
             
+            # Use original resolution if "none" is selected
+            if res == "none" or not res:
+                res_spec = "-1"  # -1 means "use original dimension"
+            else:
+                res_spec = res
+            
             if algorithm == "bilinear":
                 if quality == "quality":
-                    scale_filter = f"scale={res}:flags=lanczos:interl={interl}"
+                    scale_filter = f"scale={res_spec}:flags=lanczos:interl={interl}"
                 else:
-                    scale_filter = f"scale={res}"
+                    scale_filter = f"scale={res_spec}"
             elif algorithm == "bicubic":
-                scale_filter = f"scale={res}:flags=bicubic:interl={interl}"
+                scale_filter = f"scale={res_spec}:flags=bicubic:interl={interl}"
             elif algorithm == "lanczos":
-                scale_filter = f"scale={res}:flags=lanczos:interl={interl}"
+                scale_filter = f"scale={res_spec}:flags=lanczos:interl={interl}"
             elif algorithm == "spline":
-                scale_filter = f"scale={res}:flags=spline:interl={interl}"
+                scale_filter = f"scale={res_spec}:flags=spline:interl={interl}"
             elif algorithm == "area":
-                scale_filter = f"scale={res}:flags=area:interl={interl}"
+                scale_filter = f"scale={res_spec}:flags=area:interl={interl}"
             else:
-                scale_filter = f"scale={res}"
+                scale_filter = f"scale={res_spec}"
             
             video_filters.append(scale_filter)
-            self.app_state.log(f"Scale: {res} with {algorithm} ({quality})", "INFO")
+            self.app_state.log(f"Scale: {res if res != 'none' else 'original'} with {algorithm} ({quality})", "INFO")
         
         # Deinterlace
         if self.app_state.filters.deinterlace:
