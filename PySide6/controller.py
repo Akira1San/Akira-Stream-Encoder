@@ -685,6 +685,22 @@ class VideoController:
                         scale_filter = f"scale_cuda=w={w}:h={h}"
                     else:
                         scale_filter = "scale_cuda"
+                elif algorithm == "scale_vulkan":
+                    # scale_vulkan: Vulkan/GPU accelerated scaling
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        scale_filter = f"scale_vulkan=w={w}:h={h}"
+                    else:
+                        scale_filter = "scale_vulkan"
+                elif algorithm == "libplacebo":
+                    # libplacebo: Advanced GPU filter with better algorithms
+                    # Map quality to libplacebo upscaler
+                    upscaler = "ewa_lanczos" if quality == "quality" else "bilinear"
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        scale_filter = f"libplacebo=w={w}:h={h}:upscaler={upscaler}"
+                    else:
+                        scale_filter = f"libplacebo=upscaler={upscaler}"
                 else:
                     scale_filter = f"scale={res_spec}"
                 
