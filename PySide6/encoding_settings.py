@@ -149,13 +149,27 @@ class EncodingPanel(QWidget):
         
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems([
-            "none", "1920x1080", "1280x720", "720x480",
-            "720x404", "720x400", "640x480", "640x368"
+            "original", "1920x1080", "1280x720", "720x480",
+            "720x404", "720x400", "640x480", "640x368", "Custom"
         ])
-        self.resolution_combo.setCurrentText(self.app_state.encoding.resolution)
+        current_res = self.app_state.encoding.resolution
+        if current_res == "none":
+            self.resolution_combo.setCurrentText("original")
+        elif current_res == "Custom":
+            self.resolution_combo.setCurrentText("Custom")
+        else:
+            self.resolution_combo.setCurrentText(current_res)
         self.resolution_combo.setMinimumWidth(120)
-        self.resolution_combo.setToolTip("Output video resolution.\n'none' keeps original resolution.\nLower resolutions create smaller files.")
+        self.resolution_combo.setToolTip("Output video resolution.\n'original' keeps original resolution.\n'Custom' allows custom width x height.\nLower resolutions create smaller files.")
         res_layout.addWidget(self.resolution_combo)
+        
+        # Custom resolution input (width x height)
+        self.custom_res_edit = QLineEdit(getattr(self.app_state.encoding, 'custom_resolution', '1280x720'))
+        self.custom_res_edit.setMaximumWidth(90)
+        self.custom_res_edit.setPlaceholderText("WxH")
+        self.custom_res_edit.setToolTip("Custom resolution (e.g., 1920x1080, 854x480)")
+        self.custom_res_edit.setEnabled(self.resolution_combo.currentText() == "Custom")
+        res_layout.addWidget(self.custom_res_edit)
         
         res_layout.addSpacing(20)
         res_layout.addWidget(QLabel("Framerate:"))
@@ -514,6 +528,7 @@ class EncodingPanel(QWidget):
         self.encoder_combo.currentTextChanged.connect(self.on_encoder_changed)
         self.video_mode_combo.currentTextChanged.connect(self.on_video_mode_changed)
         self.resolution_combo.currentTextChanged.connect(self.on_resolution_changed)
+        self.custom_res_edit.textChanged.connect(self.on_custom_res_changed)
         # Framerate is fixed at 23.976 fps - no signal connection needed
         self.cq_slider.valueChanged.connect(self.on_cq_changed)
         self.bitrate_mode_combo.currentTextChanged.connect(self.on_bitrate_mode_changed)
@@ -834,7 +849,20 @@ class EncodingPanel(QWidget):
         
     def on_resolution_changed(self, text):
         """Handle resolution change"""
-        self.app_state.encoding.resolution = text
+        if text == "original":
+            self.app_state.encoding.resolution = "none"
+        elif text == "Custom":
+            self.app_state.encoding.resolution = "Custom"
+        else:
+            self.app_state.encoding.resolution = text
+        
+        # Enable/disable custom resolution input
+        self.custom_res_edit.setEnabled(text == "Custom")
+        self.settings_changed.emit()
+    
+    def on_custom_res_changed(self, text):
+        """Handle custom resolution text change"""
+        self.app_state.encoding.custom_resolution = text
         self.settings_changed.emit()
         
     # Framerate is fixed at 23.976 fps - method removed

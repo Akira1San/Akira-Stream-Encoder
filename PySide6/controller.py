@@ -639,38 +639,42 @@ class VideoController:
         audio_filters = []
         
         # Scale filter with algorithm (when scale_mode is "on")
-        # "none" means use original resolution, but still apply algorithm if scale_mode is on
+        # Skip scale filter entirely when resolution is "none" (original) - encoder handles it
         if self.app_state.encoding.scale_mode == "on":
             res = self.app_state.encoding.resolution
             algorithm = self.app_state.encoding.scale_algorithm
             quality = self.app_state.encoding.scale_quality
             
-            interl = "1" if quality == "quality" else "0"
-            
-            # Use original resolution if "none" is selected
+            # Skip scale filter entirely for "none" (original resolution)
             if res == "none" or not res:
-                res_spec = "-1"  # -1 means "use original dimension"
+                self.app_state.log(f"Scale: original resolution (no scale filter)", "INFO")
             else:
-                res_spec = res
-            
-            if algorithm == "bilinear":
-                if quality == "quality":
+                # Use custom resolution if selected
+                if res == "Custom":
+                    res_spec = getattr(self.app_state.encoding, 'custom_resolution', '1280x720')
+                else:
+                    res_spec = res
+                
+                interl = "1" if quality == "quality" else "0"
+                
+                if algorithm == "bilinear":
+                    if quality == "quality":
+                        scale_filter = f"scale={res_spec}:flags=lanczos:interl={interl}"
+                    else:
+                        scale_filter = f"scale={res_spec}"
+                elif algorithm == "bicubic":
+                    scale_filter = f"scale={res_spec}:flags=bicubic:interl={interl}"
+                elif algorithm == "lanczos":
                     scale_filter = f"scale={res_spec}:flags=lanczos:interl={interl}"
+                elif algorithm == "spline":
+                    scale_filter = f"scale={res_spec}:flags=spline:interl={interl}"
+                elif algorithm == "area":
+                    scale_filter = f"scale={res_spec}:flags=area:interl={interl}"
                 else:
                     scale_filter = f"scale={res_spec}"
-            elif algorithm == "bicubic":
-                scale_filter = f"scale={res_spec}:flags=bicubic:interl={interl}"
-            elif algorithm == "lanczos":
-                scale_filter = f"scale={res_spec}:flags=lanczos:interl={interl}"
-            elif algorithm == "spline":
-                scale_filter = f"scale={res_spec}:flags=spline:interl={interl}"
-            elif algorithm == "area":
-                scale_filter = f"scale={res_spec}:flags=area:interl={interl}"
-            else:
-                scale_filter = f"scale={res_spec}"
-            
-            video_filters.append(scale_filter)
-            self.app_state.log(f"Scale: {res if res != 'none' else 'original'} with {algorithm} ({quality})", "INFO")
+                
+                video_filters.append(scale_filter)
+                self.app_state.log(f"Scale: {res_spec} with {algorithm} ({quality})", "INFO")
         
         # Deinterlace
         if self.app_state.filters.deinterlace:

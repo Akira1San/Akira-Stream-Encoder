@@ -31,6 +31,8 @@ class EncodingSettings:
     scale_quality: str = "speed"  # speed / quality
     # Pixel format
     pixel_format: str = "yuv420p"  # yuv420p (8-bit), yuv420p10le (10-bit)
+    # Custom resolution (e.g., "1920x1080")
+    custom_resolution: str = ""
 
 
 @dataclass
