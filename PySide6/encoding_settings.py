@@ -323,9 +323,18 @@ class EncodingPanel(QWidget):
         scale_layout.addWidget(QLabel("Algorithm:"))
         
         self.algorithm_combo = QComboBox()
-        self.algorithm_combo.addItems(["bilinear", "bicubic", "lanczos", "spline", "area"])
+        self.algorithm_combo.addItems(["bilinear", "bicubic", "lanczos", "spline", "area", "zscale", "scale_cuda"])
         self.algorithm_combo.setCurrentText(self.app_state.encoding.scale_algorithm)
-        self.algorithm_combo.setToolTip("Scaling algorithm:\nBilinear: Fast, basic quality\nBicubic: Good balance of speed/quality\nLanczos: High quality, slower\nSpline: Smooth scaling\nArea: Best for downscaling")
+        self.algorithm_combo.setToolTip(
+            "Scaling algorithm:\n"
+            "Bilinear: Fast, basic quality\n"
+            "Bicubic: Good balance of speed/quality\n"
+            "Lanczos: High quality, slower\n"
+            "Spline: Smooth scaling\n"
+            "Area: Best for downscaling\n"
+            "zscale: Modern resizer, better quality\n"
+            "scale_cuda: NVIDIA GPU accelerated"
+        )
         scale_layout.addWidget(self.algorithm_combo)
         
         scale_layout.addStretch()

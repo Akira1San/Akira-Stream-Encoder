@@ -670,6 +670,21 @@ class VideoController:
                     scale_filter = f"scale={res_spec}:flags=spline:interl={interl}"
                 elif algorithm == "area":
                     scale_filter = f"scale={res_spec}:flags=area:interl={interl}"
+                elif algorithm == "zscale":
+                    # zscale: modern resizer with better quality algorithms
+                    # Parse resolution for zscale
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        scale_filter = f"zscale=w={w}:h={h}:filter=lanczos"
+                    else:
+                        scale_filter = f"zscale=filter=lanczos"
+                elif algorithm == "scale_cuda":
+                    # scale_cuda: NVIDIA GPU accelerated scaling
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        scale_filter = f"scale_cuda=w={w}:h={h}"
+                    else:
+                        scale_filter = "scale_cuda"
                 else:
                     scale_filter = f"scale={res_spec}"
                 
