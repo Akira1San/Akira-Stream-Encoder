@@ -165,10 +165,11 @@ class EncodingPanel(QWidget):
         
         # Custom resolution input (width x height)
         self.custom_res_edit = QLineEdit(getattr(self.app_state.encoding, 'custom_resolution', '1280x720'))
-        self.custom_res_edit.setMaximumWidth(90)
+        self.custom_res_edit.setMaximumWidth(120)
         self.custom_res_edit.setPlaceholderText("WxH")
         self.custom_res_edit.setToolTip("Custom resolution (e.g., 1920x1080, 854x480)")
         self.custom_res_edit.setEnabled(self.resolution_combo.currentText() == "Custom")
+        res_layout.addWidget(QLabel("Custom:"))
         res_layout.addWidget(self.custom_res_edit)
         
         res_layout.addSpacing(20)
