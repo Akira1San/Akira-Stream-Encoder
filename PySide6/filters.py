@@ -3,9 +3,10 @@ Video and Audio Filters Panel (PySide6)
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QLineEdit, QGroupBox, QFrame, QSpinBox, QComboBox
+    QLineEdit, QGroupBox, QFrame, QSpinBox, QComboBox, QSlider,
+    QPushButton
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt
 
 from models import AppState
 
@@ -40,6 +41,54 @@ class FiltersPanel(QWidget):
         self.denoise_check.setChecked(self.app_state.filters.denoise)
         self.denoise_check.setToolTip("Reduce video noise/grain using HQDN3D filter.\nGood for grainy or noisy sources.\nMay slightly soften the image.")
         video_layout.addWidget(self.denoise_check)
+
+        # Sharpen filter
+        self.sharpen_check = QCheckBox("Sharpen (Unsharp)")
+        self.sharpen_check.setChecked(self.app_state.filters.sharpen)
+        self.sharpen_check.setToolTip(
+            "Sharpen video using unsharp mask filter.\n"
+            "Adds contrast to edges for increased clarity.\n"
+            "Useful for blurry or soft video sources."
+        )
+        video_layout.addWidget(self.sharpen_check)
+
+        sharpen_layout = QHBoxLayout()
+        sharpen_layout.addWidget(QLabel("  Strength:"))
+        self.sharpen_amount_slider = QSlider(Qt.Horizontal)
+        self.sharpen_amount_slider.setRange(30, 200)
+        self.sharpen_amount_slider.setValue(int(self.app_state.filters.sharpen_amount * 100))
+        self.sharpen_amount_slider.setMaximumWidth(120)
+        self.sharpen_amount_slider.setEnabled(self.app_state.filters.sharpen)
+        self.sharpen_amount_slider.setToolTip("Sharpen strength: 0.3 = light, 1.0 = normal, 2.0 = strong")
+        sharpen_layout.addWidget(self.sharpen_amount_slider)
+        self.sharpen_amount_label = QLabel(f"{self.app_state.filters.sharpen_amount:.1f}")
+        sharpen_layout.addWidget(self.sharpen_amount_label)
+        sharpen_layout.addStretch()
+        video_layout.addLayout(sharpen_layout)
+
+        # Deblock filter
+        self.deblock_check = QCheckBox("Deblock")
+        self.deblock_check.setChecked(self.app_state.filters.deblock)
+        self.deblock_check.setToolTip(
+            "Reduce block artifacts from compression.\n"
+            "Good for low-quality or highly compressed video.\n"
+            "Uses FFmpeg's deblock filter."
+        )
+        video_layout.addWidget(self.deblock_check)
+
+        deblock_layout = QHBoxLayout()
+        deblock_layout.addWidget(QLabel("  Strength:"))
+        self.deblock_strength_slider = QSlider(Qt.Horizontal)
+        self.deblock_strength_slider.setRange(10, 100)
+        self.deblock_strength_slider.setValue(int(self.app_state.filters.deblock_strength * 100))
+        self.deblock_strength_slider.setMaximumWidth(120)
+        self.deblock_strength_slider.setEnabled(self.app_state.filters.deblock)
+        self.deblock_strength_slider.setToolTip("Deblock strength: 0.1 = light, 0.5 = normal, 1.0 = strong")
+        deblock_layout.addWidget(self.deblock_strength_slider)
+        self.deblock_strength_label = QLabel(f"{self.app_state.filters.deblock_strength:.1f}")
+        deblock_layout.addWidget(self.deblock_strength_label)
+        deblock_layout.addStretch()
+        video_layout.addLayout(deblock_layout)
 
         # === Smart Crop (Black Bar Removal) ===
         smart_crop_group = QGroupBox("Smart Crop (Black Bar Removal)")
@@ -336,12 +385,26 @@ class FiltersPanel(QWidget):
         
         layout.addWidget(audio_group)
         
+        # Reset button
+        reset_layout = QHBoxLayout()
+        reset_layout.addStretch()
+        self.reset_btn = QPushButton("Reset All Filters")
+        self.reset_btn.clicked.connect(self.reset_filters)
+        self.reset_btn.setToolTip("Reset all video and audio filters to default values")
+        reset_layout.addWidget(self.reset_btn)
+        reset_layout.addStretch()
+        layout.addLayout(reset_layout)
+        
         layout.addStretch()
         
     def connect_signals(self):
         """Connect UI signals to handlers"""
         self.deint_check.toggled.connect(self.on_deint_changed)
         self.denoise_check.toggled.connect(self.on_denoise_changed)
+        self.sharpen_check.toggled.connect(self.on_sharpen_changed)
+        self.sharpen_amount_slider.valueChanged.connect(self.on_sharpen_amount_changed)
+        self.deblock_check.toggled.connect(self.on_deblock_changed)
+        self.deblock_strength_slider.valueChanged.connect(self.on_deblock_strength_changed)
         # Smart Crop signals
         self.smart_crop_check.toggled.connect(self.on_smart_crop_changed)
         self.smart_crop_mode_combo.currentTextChanged.connect(self.on_smart_crop_mode_changed)
@@ -377,6 +440,30 @@ class FiltersPanel(QWidget):
     def on_denoise_changed(self, checked):
         """Handle denoise checkbox change"""
         self.app_state.filters.denoise = checked
+        self.settings_changed.emit()
+
+    def on_sharpen_changed(self, checked):
+        """Handle sharpen checkbox change"""
+        self.app_state.filters.sharpen = checked
+        self.sharpen_amount_slider.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_sharpen_amount_changed(self, value):
+        """Handle sharpen amount slider change"""
+        self.app_state.filters.sharpen_amount = value / 100.0
+        self.sharpen_amount_label.setText(f"{self.app_state.filters.sharpen_amount:.1f}")
+        self.settings_changed.emit()
+
+    def on_deblock_changed(self, checked):
+        """Handle deblock checkbox change"""
+        self.app_state.filters.deblock = checked
+        self.deblock_strength_slider.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_deblock_strength_changed(self, value):
+        """Handle deblock strength slider change"""
+        self.app_state.filters.deblock_strength = value / 100.0
+        self.deblock_strength_label.setText(f"{self.app_state.filters.deblock_strength:.1f}")
         self.settings_changed.emit()
 
     # Smart Crop handlers
@@ -529,4 +616,100 @@ class FiltersPanel(QWidget):
     def on_compressor_changed(self, checked):
         """Handle audio compressor checkbox change"""
         self.app_state.filters.audio_compressor = checked
+        self.settings_changed.emit()
+        
+    def reset_filters(self):
+        """Reset all filter settings to defaults"""
+        # Video filters
+        self.app_state.filters.deinterlace = False
+        self.app_state.filters.denoise = False
+        self.app_state.filters.sharpen = False
+        self.app_state.filters.sharpen_amount = 1.0
+        self.app_state.filters.deblock = False
+        self.app_state.filters.deblock_strength = 0.5
+        
+        # Smart Crop
+        self.app_state.filters.smart_crop_enabled = False
+        self.app_state.filters.smart_crop_mode = "auto"
+        self.app_state.filters.smart_crop_w = 640
+        self.app_state.filters.smart_crop_h = 480
+        self.app_state.filters.smart_crop_x = 0
+        self.app_state.filters.smart_crop_y = 0
+        self.app_state.filters.smart_crop_show_preview = False
+        
+        # Aspect Ratio
+        self.app_state.filters.ar_convert_enabled = False
+        self.app_state.filters.ar_target = "16:9"
+        self.app_state.filters.ar_method = "crop"
+        
+        # Delogo
+        self.app_state.filters.delogo_enabled = False
+        self.app_state.filters.delogo_x = 0
+        self.app_state.filters.delogo_y = 0
+        self.app_state.filters.delogo_w = 100
+        self.app_state.filters.delogo_h = 30
+        self.app_state.filters.delogo_band = 1
+        self.app_state.filters.delogo_show = False
+        
+        # Audio filters
+        self.app_state.filters.audio_denoise = False
+        self.app_state.filters.volume_enabled = False
+        self.app_state.filters.volume_db = 0.0
+        self.app_state.filters.audio_dynnorm = False
+        self.app_state.filters.audio_compressor = False
+        
+        # Update UI controls
+        self.deint_check.setChecked(False)
+        self.denoise_check.setChecked(False)
+        self.sharpen_check.setChecked(False)
+        self.sharpen_amount_slider.setValue(100)
+        self.sharpen_amount_label.setText("1.0")
+        self.sharpen_amount_slider.setEnabled(False)
+        self.deblock_check.setChecked(False)
+        self.deblock_strength_slider.setValue(50)
+        self.deblock_strength_label.setText("0.5")
+        self.deblock_strength_slider.setEnabled(False)
+        
+        self.smart_crop_check.setChecked(False)
+        self.smart_crop_mode_combo.setCurrentText("Auto Detect")
+        self.smart_crop_w_spin.setValue(640)
+        self.smart_crop_h_spin.setValue(480)
+        self.smart_crop_x_spin.setValue(0)
+        self.smart_crop_y_spin.setValue(0)
+        self.smart_crop_preview_check.setChecked(False)
+        self.smart_crop_mode_combo.setEnabled(False)
+        self.smart_crop_w_spin.setEnabled(False)
+        self.smart_crop_h_spin.setEnabled(False)
+        self.smart_crop_x_spin.setEnabled(False)
+        self.smart_crop_y_spin.setEnabled(False)
+        self.smart_crop_preview_check.setEnabled(False)
+        
+        self.ar_check.setChecked(False)
+        self.ar_target_combo.setCurrentText("16:9 (Widescreen)")
+        self.ar_method_combo.setCurrentText("Crop (cut edges)")
+        self.ar_target_combo.setEnabled(False)
+        self.ar_method_combo.setEnabled(False)
+        
+        self.delogo_check.setChecked(False)
+        self.delogo_x_spin.setValue(0)
+        self.delogo_y_spin.setValue(0)
+        self.delogo_w_spin.setValue(100)
+        self.delogo_h_spin.setValue(30)
+        self.delogo_band_spin.setValue(1)
+        self.delogo_show_check.setChecked(False)
+        self.delogo_x_spin.setEnabled(False)
+        self.delogo_y_spin.setEnabled(False)
+        self.delogo_w_spin.setEnabled(False)
+        self.delogo_h_spin.setEnabled(False)
+        self.delogo_band_spin.setEnabled(False)
+        self.delogo_show_check.setEnabled(False)
+        
+        self.audio_denoise_check.setChecked(False)
+        self.vol_check.setChecked(False)
+        self.vol_edit.setText("0.0")
+        self.vol_edit.setEnabled(False)
+        self.dynnorm_check.setChecked(False)
+        self.compressor_check.setChecked(False)
+        
+        self.app_state.log("Filters reset to defaults", "INFO")
         self.settings_changed.emit()

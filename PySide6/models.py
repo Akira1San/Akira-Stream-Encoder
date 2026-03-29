@@ -86,6 +86,10 @@ class FilterSettings:
     """Video and audio filter settings"""
     deinterlace: bool = False
     denoise: bool = False
+    sharpen: bool = False
+    sharpen_amount: float = 1.0
+    deblock: bool = False
+    deblock_strength: float = 0.5
     # Delogo (logo removal)
     delogo_enabled: bool = False
     delogo_x: int = 0  # X position of logo area

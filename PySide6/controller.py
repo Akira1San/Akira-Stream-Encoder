@@ -671,6 +671,18 @@ class VideoController:
         if self.app_state.filters.denoise:
             video_filters.append("hqdn3d")
 
+        # Sharpen
+        if getattr(self.app_state.filters, 'sharpen', False):
+            amount = getattr(self.app_state.filters, 'sharpen_amount', 1.0)
+            video_filters.append(f"unsharp=5:5:{amount}")
+            self.app_state.log(f"Sharpen: {amount}", "INFO")
+
+        # Deblock
+        if getattr(self.app_state.filters, 'deblock', False):
+            strength = getattr(self.app_state.filters, 'deblock_strength', 0.5)
+            video_filters.append(f"deblock=filter=strong:alpha={strength}:beta={strength}")
+            self.app_state.log(f"Deblock: {strength}", "INFO")
+
         # Smart Crop (Black Bar Removal)
         if getattr(self.app_state.filters, 'smart_crop_enabled', False):
             crop_mode = getattr(self.app_state.filters, 'smart_crop_mode', 'manual')
