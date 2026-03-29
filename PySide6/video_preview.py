@@ -1373,6 +1373,24 @@ class VideoPreview(QWidget):
             if eq_params:
                 filters.append(f"eq={':'.join(eq_params)}")
         
+        # Denoise (HQDN3D)
+        if getattr(self.app_state.filters, 'denoise', False):
+            filters.append("hqdn3d")
+        
+        # Sharpen (Unsharp)
+        if getattr(self.app_state.filters, 'sharpen', False):
+            amount = getattr(self.app_state.filters, 'sharpen_amount', 1.0)
+            filters.append(f"unsharp=5:5:{amount}")
+        
+        # Deblock
+        if getattr(self.app_state.filters, 'deblock', False):
+            strength = getattr(self.app_state.filters, 'deblock_strength', 0.5)
+            filters.append(f"deblock=filter=strong:alpha={strength}:beta={strength}")
+        
+        # Deinterlace (Yadif)
+        if getattr(self.app_state.filters, 'deinterlace', False):
+            filters.append("yadif")
+        
         # White Balance (colorbalance filter)
         if self.app_state.eq.white_balance_enabled:
             wb_params = []
