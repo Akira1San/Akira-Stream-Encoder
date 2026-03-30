@@ -1382,6 +1382,11 @@ class VideoPreview(QWidget):
             amount = getattr(self.app_state.filters, 'sharpen_amount', 1.0)
             filters.append(f"unsharp=5:5:{amount}")
         
+        # CAS (Contrast Adaptive Sharpen)
+        if getattr(self.app_state.filters, 'cas_enabled', False):
+            strength = getattr(self.app_state.filters, 'cas_strength', 0.0)
+            filters.append(f"cas={strength}")
+        
         # Deblock
         if getattr(self.app_state.filters, 'deblock', False):
             strength = getattr(self.app_state.filters, 'deblock_strength', 0.5)

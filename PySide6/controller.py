@@ -693,14 +693,25 @@ class VideoController:
                     else:
                         scale_filter = "scale_vulkan"
                 elif algorithm == "libplacebo":
-                    # libplacebo: Advanced GPU filter with better algorithms
+                    # libplacebo: Advanced GPU filter with better algorithms + optional tone mapping
                     # Map quality to libplacebo upscaler
                     upscaler = "ewa_lanczos" if quality == "quality" else "bilinear"
-                    if "x" in res_spec:
-                        w, h = res_spec.split("x")
-                        scale_filter = f"libplacebo=w={w}:h={h}:upscaler={upscaler}"
+                    tone_mapping = getattr(self.app_state.encoding, 'libplacebo_tonemapping', 'none')
+                    
+                    if tone_mapping != "none" and tone_mapping:
+                        # Add tonemapping parameter
+                        if "x" in res_spec:
+                            w, h = res_spec.split("x")
+                            scale_filter = f"libplacebo=w={w}:h={h}:upscaler={upscaler}:tonemapping={tone_mapping}"
+                        else:
+                            scale_filter = f"libplacebo=upscaler={upscaler}:tonemapping={tone_mapping}"
                     else:
-                        scale_filter = f"libplacebo=upscaler={upscaler}"
+                        # No tonemapping (for SDR content)
+                        if "x" in res_spec:
+                            w, h = res_spec.split("x")
+                            scale_filter = f"libplacebo=w={w}:h={h}:upscaler={upscaler}"
+                        else:
+                            scale_filter = f"libplacebo=upscaler={upscaler}"
                 else:
                     scale_filter = f"scale={res_spec}"
                 
@@ -720,6 +731,12 @@ class VideoController:
             amount = getattr(self.app_state.filters, 'sharpen_amount', 1.0)
             video_filters.append(f"unsharp=5:5:{amount}")
             self.app_state.log(f"Sharpen: {amount}", "INFO")
+
+        # CAS (Contrast Adaptive Sharpen)
+        if getattr(self.app_state.filters, 'cas_enabled', False):
+            strength = getattr(self.app_state.filters, 'cas_strength', 0.0)
+            video_filters.append(f"cas={strength}")
+            self.app_state.log(f"CAS: {strength}", "INFO")
 
         # Deblock
         if getattr(self.app_state.filters, 'deblock', False):

@@ -34,13 +34,14 @@ This document outlines planned enhancements for the encoder program leveraging F
 - **Preview Support**: Add to `video_preview.py`
 - **Example**: `deband=filter=strong:threshold=4:range=8`
 
-### 2.2 Add CAS (Contrast Adaptive Sharpen)
+### 2.2 Add CAS (Contrast Adaptive Sharpen) ✅ DONE
 - **Filter**: `cas` (Contrast Adaptive Sharpen)
 - **Use**: Better sharpening than unsharp (edge-aware, no halos)
 - **Parameters**: `cas=0.0` to `3.0` (strength)
 - **Location**: Filters panel → Alternative to Sharpen
 - **Preview Support**: Add to `video_preview.py`
 - **Example**: `cas=1.0`
+- **NOTE**: This is a CPU software filter (NOT GPU). Uses libavfilter, available since FFmpeg 4.3. Different from AMD FidelityFX CAS (GPU).
 
 ---
 
@@ -62,17 +63,31 @@ This document outlines planned enhancements for the encoder program leveraging F
 
 ## Priority 4: Color Enhancement
 
-### 4.1 Add colorcorrect Filter
+### 4.1 Add colorcorrect Filter ⚠️ REDUNDANT
 - **Filter**: `colorcorrect`
 - **Use**: Selective color correction for blacks/whites/gamma
 - **Preview**: Add to `video_preview.py`
 - **Parameters**: `colorcorrect=gamma=1.0:contrast=1.0:saturation=1.0`
+- **NOTE**: Redundant - existing color correction panel already uses `eq` filter with similar functionality (brightness, contrast, saturation, gamma, RGB gamma, white balance)
 
-### 4.2 Add libplacebo Tone Mapping
+### 4.2 Add libplacebo Tone Mapping ✅ DONE
 - **Filter**: `libplacebo` with tone mapping
 - **Use**: HDR to SDR conversion, better colors, film grain
 - **Note**: Advanced feature, requires testing
 - **Example**: `libplacebo=w=1920:h=1080:tonemapping=bt2390`
+- **Options**: bt2390, bt2446, reinhard, mobius, linear, clip, spline
+
+---
+
+## Priority 5: Encoder Settings
+
+### 5.1 HEVC Profile Selection
+- **Current**: Hardcoded to "main" profile
+- **Options**: main (8-bit), main10 (10-bit), mainstill (still images)
+- **Location**: Encoding settings → Profile dropdown
+- **Default**: main
+- **Use**: Allow users to select Main 10 for better color quality (10-bit)
+- **NOTE**: Main 10 may have less compatibility but provides better quality with HDR content
 
 ---
 

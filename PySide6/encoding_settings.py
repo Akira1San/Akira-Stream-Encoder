@@ -338,9 +338,36 @@ class EncodingPanel(QWidget):
             "libplacebo: Advanced GPU with color management"
         )
         scale_layout.addWidget(self.algorithm_combo)
-        
         scale_layout.addStretch()
         layout.addLayout(scale_layout)
+        
+        # Libplacebo tone mapping options (visible only when libplacebo is selected)
+        self.tone_mapping_label = QLabel("Tone Mapping:")
+        self.tone_mapping_combo = QComboBox()
+        self.tone_mapping_combo.addItems(["none", "bt2390", "bt2446", "reinhard", "mobius", "linear", "clip", "spline"])
+        self.tone_mapping_combo.setCurrentText(self.app_state.encoding.libplacebo_tonemapping)
+        self.tone_mapping_combo.setToolTip(
+            "Tone mapping algorithm (for HDR sources):\n"
+            "none: No tone mapping (use for SDR content)\n"
+            "bt2390: HDR to SDR - Best quality\n"
+            "bt2446: HDR to SDR, improved from bt2390\n"
+            "reinhard: Simple reinhard tonemap\n"
+            "mobius: Mobius tone mapping\n"
+            "linear: Linear tone mapping\n"
+            "clip: Simple clip to SDR range\n"
+            "spline: Spline tone mapping"
+        )
+        
+        tone_mapping_layout = QHBoxLayout()
+        tone_mapping_layout.addWidget(self.tone_mapping_label)
+        tone_mapping_layout.addWidget(self.tone_mapping_combo)
+        tone_mapping_layout.addStretch()
+        layout.addLayout(tone_mapping_layout)
+        
+        # Hide tone mapping controls initially based on current algorithm
+        if self.app_state.encoding.scale_algorithm != "libplacebo":
+            self.tone_mapping_label.hide()
+            self.tone_mapping_combo.hide()
         
         # Scale Quality
         scale_quality_layout = QHBoxLayout()
@@ -551,6 +578,7 @@ class EncodingPanel(QWidget):
         self.scale_mode_combo.currentTextChanged.connect(self.on_scale_mode_changed)
         self.algorithm_combo.currentTextChanged.connect(self.on_algorithm_changed)
         self.scale_quality_combo.currentTextChanged.connect(self.on_scale_quality_changed)
+        self.tone_mapping_combo.currentTextChanged.connect(self.on_tone_mapping_changed)
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
@@ -942,6 +970,20 @@ class EncodingPanel(QWidget):
     def on_algorithm_changed(self, text):
         """Handle scale algorithm change"""
         self.app_state.encoding.scale_algorithm = text
+        
+        # Show/hide tone mapping controls based on algorithm
+        if text == "libplacebo":
+            self.tone_mapping_label.show()
+            self.tone_mapping_combo.show()
+        else:
+            self.tone_mapping_label.hide()
+            self.tone_mapping_combo.hide()
+        
+        self.settings_changed.emit()
+        
+    def on_tone_mapping_changed(self, text):
+        """Handle tone mapping algorithm change"""
+        self.app_state.encoding.libplacebo_tonemapping = text
         self.settings_changed.emit()
         
     def on_scale_quality_changed(self, text):

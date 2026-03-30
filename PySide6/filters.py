@@ -66,6 +66,30 @@ class FiltersPanel(QWidget):
         sharpen_layout.addStretch()
         video_layout.addLayout(sharpen_layout)
 
+        # CAS filter (Contrast Adaptive Sharpen)
+        self.cas_check = QCheckBox("CAS (Contrast Adaptive Sharpen)")
+        self.cas_check.setChecked(self.app_state.filters.cas_enabled)
+        self.cas_check.setToolTip(
+            "CAS is an edge-aware sharpening filter.\n"
+            "Better than unsharp - no halos around edges.\n"
+            "Useful for improving video clarity."
+        )
+        video_layout.addWidget(self.cas_check)
+
+        cas_layout = QHBoxLayout()
+        cas_layout.addWidget(QLabel("  Strength:"))
+        self.cas_strength_slider = QSlider(Qt.Horizontal)
+        self.cas_strength_slider.setRange(0, 100)
+        self.cas_strength_slider.setValue(int(self.app_state.filters.cas_strength * 100))
+        self.cas_strength_slider.setMaximumWidth(120)
+        self.cas_strength_slider.setEnabled(self.app_state.filters.cas_enabled)
+        self.cas_strength_slider.setToolTip("CAS strength: 0.0 = off, 1.0 = normal, 2.0+ = strong")
+        cas_layout.addWidget(self.cas_strength_slider)
+        self.cas_strength_label = QLabel(f"{self.app_state.filters.cas_strength:.1f}")
+        cas_layout.addWidget(self.cas_strength_label)
+        cas_layout.addStretch()
+        video_layout.addLayout(cas_layout)
+
         # Deblock filter
         self.deblock_check = QCheckBox("Deblock")
         self.deblock_check.setChecked(self.app_state.filters.deblock)
@@ -403,6 +427,8 @@ class FiltersPanel(QWidget):
         self.denoise_check.toggled.connect(self.on_denoise_changed)
         self.sharpen_check.toggled.connect(self.on_sharpen_changed)
         self.sharpen_amount_slider.valueChanged.connect(self.on_sharpen_amount_changed)
+        self.cas_check.toggled.connect(self.on_cas_changed)
+        self.cas_strength_slider.valueChanged.connect(self.on_cas_strength_changed)
         self.deblock_check.toggled.connect(self.on_deblock_changed)
         self.deblock_strength_slider.valueChanged.connect(self.on_deblock_strength_changed)
         # Smart Crop signals
@@ -446,12 +472,32 @@ class FiltersPanel(QWidget):
         """Handle sharpen checkbox change"""
         self.app_state.filters.sharpen = checked
         self.sharpen_amount_slider.setEnabled(checked)
+        if checked:
+            self.cas_check.setChecked(False)
+            self.app_state.filters.cas_enabled = False
+            self.cas_strength_slider.setEnabled(False)
         self.settings_changed.emit()
 
     def on_sharpen_amount_changed(self, value):
         """Handle sharpen amount slider change"""
         self.app_state.filters.sharpen_amount = value / 100.0
         self.sharpen_amount_label.setText(f"{self.app_state.filters.sharpen_amount:.1f}")
+        self.settings_changed.emit()
+
+    def on_cas_changed(self, checked):
+        """Handle CAS checkbox change"""
+        self.app_state.filters.cas_enabled = checked
+        self.cas_strength_slider.setEnabled(checked)
+        if checked:
+            self.sharpen_check.setChecked(False)
+            self.app_state.filters.sharpen = False
+            self.sharpen_amount_slider.setEnabled(False)
+        self.settings_changed.emit()
+
+    def on_cas_strength_changed(self, value):
+        """Handle CAS strength slider change"""
+        self.app_state.filters.cas_strength = value / 100.0
+        self.cas_strength_label.setText(f"{self.app_state.filters.cas_strength:.1f}")
         self.settings_changed.emit()
 
     def on_deblock_changed(self, checked):
@@ -625,6 +671,8 @@ class FiltersPanel(QWidget):
         self.app_state.filters.denoise = False
         self.app_state.filters.sharpen = False
         self.app_state.filters.sharpen_amount = 1.0
+        self.app_state.filters.cas_enabled = False
+        self.app_state.filters.cas_strength = 0.0
         self.app_state.filters.deblock = False
         self.app_state.filters.deblock_strength = 0.5
         
@@ -665,6 +713,10 @@ class FiltersPanel(QWidget):
         self.sharpen_amount_slider.setValue(100)
         self.sharpen_amount_label.setText("1.0")
         self.sharpen_amount_slider.setEnabled(False)
+        self.cas_check.setChecked(False)
+        self.cas_strength_slider.setValue(0)
+        self.cas_strength_label.setText("0.0")
+        self.cas_strength_slider.setEnabled(False)
         self.deblock_check.setChecked(False)
         self.deblock_strength_slider.setValue(50)
         self.deblock_strength_label.setText("0.5")

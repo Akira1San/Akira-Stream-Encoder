@@ -33,6 +33,9 @@ class EncodingSettings:
     pixel_format: str = "yuv420p"  # yuv420p (8-bit), yuv420p10le (10-bit)
     # Custom resolution (e.g., "1920x1080")
     custom_resolution: str = ""
+    # Libplacebo tone mapping settings
+    libplacebo_tonemapping: str = "none"  # none, bt2390, bt2446, reinhard, mobius, linear, clip, spline
+    libplacebo_tonemapping_mode: str = "auto"  # auto, rgb, max, lum
 
 
 @dataclass
@@ -92,6 +95,8 @@ class FilterSettings:
     denoise: bool = False
     sharpen: bool = False
     sharpen_amount: float = 1.0
+    cas_enabled: bool = False
+    cas_strength: float = 0.0
     deblock: bool = False
     deblock_strength: float = 0.5
     # Delogo (logo removal)
