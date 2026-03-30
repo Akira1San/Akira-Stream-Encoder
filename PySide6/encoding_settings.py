@@ -152,6 +152,7 @@ class EncodingPanel(QWidget):
             "original", "1920x1080", "1280x720", "720x480",
             "720x404", "720x400", "640x480", "640x368", "Custom"
         ])
+        # Move Custom to end (it's already at end, but ensure it stays)
         current_res = self.app_state.encoding.resolution
         if current_res == "none":
             self.resolution_combo.setCurrentText("original")
@@ -173,17 +174,7 @@ class EncodingPanel(QWidget):
         res_layout.addWidget(self.custom_res_edit)
         
         res_layout.addSpacing(20)
-        res_layout.addWidget(QLabel("Framerate:"))
-        
-        # Framerate - fixed at 23.976 fps
-        self.framerate_label = QLabel("23.976 fps")
-        self.framerate_label.setStyleSheet("color: gray;")
-        self.framerate_label.setToolTip("Framerate is fixed at 23.976 fps (24000/1001)")
-        res_layout.addWidget(self.framerate_label)
-        
-        # Always set framerate to 23.976
-        self.app_state.encoding.framerate = "24000/1001"
-            
+             
         res_layout.addStretch()
         layout.addWidget(res_frame)
         
@@ -556,6 +547,19 @@ class EncodingPanel(QWidget):
         gop_layout.addWidget(self.gop_combo)
         gop_layout.addStretch()
         advanced_layout.addLayout(gop_layout)
+        
+        # Framerate - fixed at 23.976 fps
+        framerate_layout = QHBoxLayout()
+        framerate_layout.addWidget(QLabel("Framerate:"))
+        self.framerate_label = QLabel("23.976 fps")
+        self.framerate_label.setStyleSheet("color: gray;")
+        self.framerate_label.setToolTip("Framerate is fixed at 23.976 fps (24000/1001)")
+        framerate_layout.addWidget(self.framerate_label)
+        framerate_layout.addStretch()
+        advanced_layout.addLayout(framerate_layout)
+        
+        # Always set framerate to 23.976
+        self.app_state.encoding.framerate = "24000/1001"
         
         layout.addWidget(advanced_collapsible)
         
