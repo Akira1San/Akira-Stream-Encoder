@@ -63,7 +63,6 @@ class VideoWorkspace(QWidget):
         
         # Create log widget
         self.log_widget = LogWidget()
-        self.app_state.log_message.connect(self.on_log_message)
         
         self.setup_ui()
         self.connect_signals()
@@ -247,10 +246,6 @@ class VideoWorkspace(QWidget):
     def connect_signals(self):
         """Connect signals"""
         self.app_state.current_video_changed.connect(self.on_video_changed)
-        
-    def on_log_message(self, message: str, level: str):
-        """Handle log messages from app state"""
-        self.log_widget.log(message, level)
         
     def clear_log(self):
         """Clear the log widget"""
