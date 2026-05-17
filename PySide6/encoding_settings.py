@@ -373,6 +373,24 @@ class EncodingPanel(QWidget):
         scale_quality_layout.addStretch()
         layout.addLayout(scale_quality_layout)
         
+        # Aspect Ratio Mode (for GPU scalers)
+        aspect_layout = QHBoxLayout()
+        aspect_layout.addWidget(QLabel("Aspect Ratio:"))
+        
+        self.aspect_ratio_combo = QComboBox()
+        self.aspect_ratio_combo.addItems(["Fit (Preserve)", "Stretch"])
+        self.aspect_ratio_combo.setCurrentText("Fit (Preserve)" if self.app_state.encoding.aspect_ratio_mode == "fit" else "Stretch")
+        self.aspect_ratio_combo.setToolTip(
+            "Aspect ratio handling for scaling:\n"
+            "Fit (Preserve): Auto-calculates height to keep original aspect ratio\n"
+            "Stretch: Scales to exact dimensions (may distort image)\n"
+            "Note: Recommended for GPU scalers (scale_cuda, scale_vulkan)"
+        )
+        aspect_layout.addWidget(self.aspect_ratio_combo)
+        
+        aspect_layout.addStretch()
+        layout.addLayout(aspect_layout)
+        
         # Set initial state of algorithm and quality based on scale mode
         if self.app_state.encoding.scale_mode == "off":
             self.algorithm_combo.setEnabled(False)
@@ -583,6 +601,7 @@ class EncodingPanel(QWidget):
         self.algorithm_combo.currentTextChanged.connect(self.on_algorithm_changed)
         self.scale_quality_combo.currentTextChanged.connect(self.on_scale_quality_changed)
         self.tone_mapping_combo.currentTextChanged.connect(self.on_tone_mapping_changed)
+        self.aspect_ratio_combo.currentTextChanged.connect(self.on_aspect_ratio_changed)
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
@@ -988,6 +1007,11 @@ class EncodingPanel(QWidget):
     def on_tone_mapping_changed(self, text):
         """Handle tone mapping algorithm change"""
         self.app_state.encoding.libplacebo_tonemapping = text
+        self.settings_changed.emit()
+        
+    def on_aspect_ratio_changed(self, text):
+        """Handle aspect ratio mode change"""
+        self.app_state.encoding.aspect_ratio_mode = "fit" if "Fit" in text else "stretch"
         self.settings_changed.emit()
         
     def on_scale_quality_changed(self, text):

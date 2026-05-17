@@ -200,8 +200,14 @@ class TrackSelectionPanel(QGroupBox):
                     
                     if codec_type == 'video':
                         has_video = True
+                        width = stream.get('width', 0)
+                        height = stream.get('height', 0)
                         dar = stream.get('display_aspect_ratio', 'N/A')
-                        video_info = f"{codec_name}, {dar}"
+                        video_info = f"{codec_name}, {width}x{height}, {dar}"
+                        # Store source video dimensions
+                        self.app_state.tracks.video_width = width
+                        self.app_state.tracks.video_height = height
+                        self.app_state.tracks.video_dar = dar
                     elif codec_type == 'audio':
                         has_audio = True
                         channels = stream.get('channels', 2)

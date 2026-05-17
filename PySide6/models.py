@@ -29,6 +29,7 @@ class EncodingSettings:
     scale_mode: str = "off"  # off / on
     scale_algorithm: str = "bilinear"  # bilinear / bicubic / lanczos / spline / area
     scale_quality: str = "speed"  # speed / quality
+    aspect_ratio_mode: str = "fit"  # fit (preserve aspect), stretch
     # Pixel format
     pixel_format: str = "yuv420p"  # yuv420p (8-bit), yuv420p10le (10-bit)
     # Custom resolution (e.g., "1920x1080")
@@ -205,6 +206,9 @@ class TrackSettings:
     subtitle_available: bool = False
     subtitle_selected: bool = False
     video_info: str = ""
+    video_width: int = 0  # Source video width
+    video_height: int = 0  # Source video height
+    video_dar: str = ""  # Display aspect ratio (e.g., "16:9")
     audio_info: str = ""  # Summary info of selected track
     subtitle_info: str = ""
     available_audio_tracks: List[AudioTrackInfo] = field(default_factory=list)

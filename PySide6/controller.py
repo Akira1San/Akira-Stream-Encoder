@@ -644,6 +644,20 @@ class VideoController:
             res = self.app_state.encoding.resolution
             algorithm = self.app_state.encoding.scale_algorithm
             quality = self.app_state.encoding.scale_quality
+            aspect_mode = getattr(self.app_state.encoding, 'aspect_ratio_mode', 'fit')
+            
+            # Get source dimensions for aspect ratio calculation
+            src_width = getattr(self.app_state.tracks, 'video_width', 0)
+            src_height = getattr(self.app_state.tracks, 'video_height', 0)
+            
+            def calculate_fit_height(target_width):
+                """Calculate height to preserve aspect ratio"""
+                if src_width and src_height and target_width:
+                    # Calculate new height preserving aspect ratio
+                    # Round to even number (required by most codecs)
+                    new_height = int(round(target_width * src_height / src_width / 2) * 2)
+                    return new_height
+                return None
             
             # Skip scale filter entirely for "none" (original resolution)
             if res == "none" or not res:
@@ -682,6 +696,13 @@ class VideoController:
                     # scale_cuda: NVIDIA GPU accelerated scaling
                     if "x" in res_spec:
                         w, h = res_spec.split("x")
+                        w = int(w)
+                        # Calculate correct height for aspect ratio
+                        if aspect_mode == "fit":
+                            new_h = calculate_fit_height(w)
+                            if new_h:
+                                h = new_h
+                                res_spec = f"{w}x{h}"
                         scale_filter = f"scale_cuda=w={w}:h={h}"
                     else:
                         scale_filter = "scale_cuda"
@@ -689,6 +710,13 @@ class VideoController:
                     # scale_vulkan: Vulkan/GPU accelerated scaling
                     if "x" in res_spec:
                         w, h = res_spec.split("x")
+                        w = int(w)
+                        # Calculate correct height for aspect ratio
+                        if aspect_mode == "fit":
+                            new_h = calculate_fit_height(w)
+                            if new_h:
+                                h = new_h
+                                res_spec = f"{w}x{h}"
                         scale_filter = f"scale_vulkan=w={w}:h={h}"
                     else:
                         scale_filter = "scale_vulkan"
@@ -698,18 +726,23 @@ class VideoController:
                     upscaler = "ewa_lanczos" if quality == "quality" else "bilinear"
                     tone_mapping = getattr(self.app_state.encoding, 'libplacebo_tonemapping', 'none')
                     
-                    if tone_mapping != "none" and tone_mapping:
-                        # Add tonemapping parameter
-                        if "x" in res_spec:
-                            w, h = res_spec.split("x")
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        w = int(w)
+                        # Calculate correct height for aspect ratio
+                        if aspect_mode == "fit":
+                            new_h = calculate_fit_height(w)
+                            if new_h:
+                                h = new_h
+                                res_spec = f"{w}x{h}"
+                        # Build filter with optional tonemapping
+                        if tone_mapping != "none" and tone_mapping:
                             scale_filter = f"libplacebo=w={w}:h={h}:upscaler={upscaler}:tonemapping={tone_mapping}"
                         else:
-                            scale_filter = f"libplacebo=upscaler={upscaler}:tonemapping={tone_mapping}"
-                    else:
-                        # No tonemapping (for SDR content)
-                        if "x" in res_spec:
-                            w, h = res_spec.split("x")
                             scale_filter = f"libplacebo=w={w}:h={h}:upscaler={upscaler}"
+                    else:
+                        if tone_mapping != "none" and tone_mapping:
+                            scale_filter = f"libplacebo=upscaler={upscaler}:tonemapping={tone_mapping}"
                         else:
                             scale_filter = f"libplacebo=upscaler={upscaler}"
                 else:

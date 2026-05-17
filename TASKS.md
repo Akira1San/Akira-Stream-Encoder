@@ -91,6 +91,29 @@ This document outlines planned enhancements for the encoder program leveraging F
 
 ---
 
+## Priority 6: DVD Support (Future)
+
+### 6.1 DVD Preview Fix
+- **Issue**: DVD preview not showing in Original window, errors not visible
+- **Location**: `video_preview.py:load_frame()`
+- **Problem**: DVD frame extraction fails silently, no proper error display
+- **Fix**: Improve error handling and logging when loading DVD frames
+
+### 6.2 DVD Subtitle Extraction Fix
+- **Issue**: DVD subtitle extraction fails
+- **Location**: `dvd_handler.py:extract_subtitle()`
+- **Methods**: MKV intermediate, mplayer, FFmpeg direct
+- **Problem**: All methods can fail depending on DVD structure
+- **Fix**: Debug and improve extraction reliability
+
+### 6.3 DVD Subtitle Burning
+- **Status**: NOT SUPPORTED (by design)
+- **Reason**: DVD subtitles are bitmap images, not text
+- **Current behavior**: Shows warning message, skips burning
+- **Note**: Recommend HandBrake or mencoder for DVD subtitle burning
+
+---
+
 ## Implementation Checklist
 
 ### Files to Modify:

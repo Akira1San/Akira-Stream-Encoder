@@ -59,6 +59,7 @@ class VideoWorkspace(QWidget):
     def __init__(self, app_state: AppState, parent=None):
         super().__init__(parent)
         self.app_state = app_state
+        self.controller = None
         
         # Create log widget
         self.log_widget = LogWidget()

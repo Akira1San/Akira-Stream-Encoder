@@ -1,4 +1,4 @@
 {
-  "ffmpeg_path": "ffmpeg",
-  "output_folder": "C:/Users/Admin/Desktop"
+  "ffmpeg_path": "/home/akira/Downloads/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffmpeg",
+  "output_folder": ""
 }
