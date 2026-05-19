@@ -262,7 +262,7 @@ class TrackSelectionDialog(QDialog):
             for track in video_tracks:
                 item_text = f"Track {track['index']}: {track['codec']} {track.get('resolution', '')}"
                 item = QListWidgetItem(item_text)
-                item.setData(Qt.UserRole, {'type': 'video', 'index': track['index'], 'info': item_text})
+                item.setData(Qt.UserRole, {'type': 'video', 'index': track['index'], 'video_index': track['video_index'], 'info': item_text})
                 self.video_list.addItem(item)
             
             layout.addWidget(self.video_list)
@@ -283,7 +283,7 @@ class TrackSelectionDialog(QDialog):
                 lang = track.get('language', 'unknown')
                 item_text = f"Track {track['index']}: {track['codec']} - {track['channels']}ch ({lang})"
                 item = QListWidgetItem(item_text)
-                item.setData(Qt.UserRole, {'type': 'audio', 'index': track['index'], 'info': item_text})
+                item.setData(Qt.UserRole, {'type': 'audio', 'index': track['index'], 'audio_index': track['audio_index'], 'info': item_text})
                 self.audio_list.addItem(item)
             
             layout.addWidget(self.audio_list)
@@ -1056,12 +1056,14 @@ class ConfigTab(QWidget):
                     resolution = f"{width}x{height}" if width and height else ""
                     video_tracks.append({
                         'index': stream.get('index'),
+                        'video_index': len(video_tracks),  # 0-based position among video streams
                         'codec': stream.get('codec_name', 'unknown').upper(),
                         'resolution': resolution
                     })
                 elif codec_type == 'audio':
                     audio_tracks.append({
                         'index': stream.get('index'),
+                        'audio_index': len(audio_tracks),  # 0-based position among audio streams
                         'codec': stream.get('codec_name', 'unknown').upper(),
                         'channels': 'Stereo',
                         'language': stream.get('tags', {}).get('language', 'unknown')
@@ -1126,7 +1128,7 @@ class ConfigTab(QWidget):
                 self.app_state.ffmpeg_path,
                 "-y",
                 "-i", video_path,
-                "-map", f"0:v:{track_idx}",
+                "-map", f"0:v:{track_info['video_index']}",
                 "-c", "copy",
                 os.path.join(output_folder, output_filename)
             ]
@@ -1135,7 +1137,7 @@ class ConfigTab(QWidget):
             cmd_probe = [
                 self.app_state.ffprobe_path,
                 "-v", "error",
-                "-select_streams", f"a:{track_idx}",
+                "-select_streams", f"a:{track_info['audio_index']}",
                 "-show_entries", "stream=codec_name",
                 "-of", "json",
                 video_path
@@ -1164,7 +1166,7 @@ class ConfigTab(QWidget):
                 self.app_state.ffmpeg_path,
                 "-y",
                 "-i", video_path,
-                "-map", f"0:a:{track_idx}",
+                "-map", f"0:a:{track_info['audio_index']}",
                 "-c", "copy",
                 os.path.join(output_folder, output_filename)
             ]
