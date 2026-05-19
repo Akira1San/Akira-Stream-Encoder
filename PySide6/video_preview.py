@@ -574,10 +574,12 @@ class FilterOverlay(QWidget):
         
         # Draw background if opacity > 0
         if subs.bg_opacity > 0:
+            painter.save()
+            painter.setOpacity(subs.bg_opacity)
             bg_color = QColor(subs.bg_color)
-            bg_color.setAlpha(int(subs.bg_opacity * 255))
             painter.fillRect(x - 10, y - metrics.height() + 5,
                            max_width + 20, total_height + 10, bg_color)
+            painter.restore()
         
         # Draw outline
         outline_color = QColor(subs.outline_color)
@@ -1521,10 +1523,12 @@ class VideoPreview(QWidget):
         
         # Draw background if opacity > 0
         if subs.bg_opacity > 0:
+            painter.save()
+            painter.setOpacity(subs.bg_opacity)
             bg_color = QColor(subs.bg_color)
-            bg_color.setAlpha(int(subs.bg_opacity * 255))
             painter.fillRect(x - 10, y - metrics.height() + 5,
                            max_width + 20, total_height + 10, bg_color)
+            painter.restore()
         
         # Draw outline
         outline_color = QColor(subs.outline_color)
