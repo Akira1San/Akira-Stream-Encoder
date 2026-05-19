@@ -324,6 +324,8 @@ class AppState(QObject):
     preview_refresh_needed = Signal()
     dvd_titles_changed = Signal(list)  # List of DVD titles detected
     tracks_updated = Signal(list)  # List of Track objects
+    handbrake_path_changed = Signal(str)
+    handbrake_available_changed = Signal(bool)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -335,6 +337,10 @@ class AppState(QObject):
         self._ffprobe_path: str = "ffprobe"
         self._current_video_path: Optional[str] = None
         
+        # HandBrake
+        self._handbrake_path: str = "HandBrakeCLI"
+        self._handbrake_available: bool = False
+
         # Custom filename
         self._use_custom_filename: bool = False
         self._custom_filename: str = ""
@@ -406,6 +412,26 @@ class AppState(QObject):
             self._current_video_path = value
             self.current_video_changed.emit(value)
     
+    @Property(str, notify=handbrake_path_changed)
+    def handbrake_path(self):
+        return self._handbrake_path
+
+    @handbrake_path.setter
+    def handbrake_path(self, value):
+        if self._handbrake_path != value:
+            self._handbrake_path = value
+            self.handbrake_path_changed.emit(value)
+
+    @Property(bool, notify=handbrake_available_changed)
+    def handbrake_available(self):
+        return self._handbrake_available
+
+    @handbrake_available.setter
+    def handbrake_available(self, value):
+        if self._handbrake_available != value:
+            self._handbrake_available = value
+            self.handbrake_available_changed.emit(value)
+
     @Property(bool)
     def use_custom_filename(self):
         return self._use_custom_filename

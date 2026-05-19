@@ -382,6 +382,26 @@ class ConfigTab(QWidget):
         
         paths_layout.addLayout(ffprobe_layout)
         
+        # HandBrake Path
+        hb_layout = QHBoxLayout()
+        hb_layout.addWidget(QLabel("HandBrake Path:"))
+        
+        self.handbrake_edit = QLineEdit(self.app_state.handbrake_path)
+        hb_layout.addWidget(self.handbrake_edit)
+        
+        browse_hb_btn = QPushButton("Browse...")
+        browse_hb_btn.clicked.connect(self.browse_handbrake)
+        hb_layout.addWidget(browse_hb_btn)
+        
+        auto_hb_btn = QPushButton("Auto Detect")
+        auto_hb_btn.clicked.connect(self.auto_detect_handbrake)
+        hb_layout.addWidget(auto_hb_btn)
+        
+        self.hb_status_label = QLabel("")
+        hb_layout.addWidget(self.hb_status_label)
+        
+        paths_layout.addLayout(hb_layout)
+        
         layout.addWidget(paths_group)
         
         # === Output Settings Group ===
@@ -501,6 +521,8 @@ class ConfigTab(QWidget):
         self.output_edit.textChanged.connect(self.on_output_changed)
         self.custom_name_check.toggled.connect(self.on_custom_name_toggled)
         self.custom_name_edit.textChanged.connect(self.on_custom_name_changed)
+        self.handbrake_edit.textChanged.connect(self.on_handbrake_changed)
+        self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
         
     def on_ffmpeg_changed(self, text):
         """Handle FFmpeg path change"""
@@ -572,6 +594,37 @@ class ConfigTab(QWidget):
                     
         if not ffmpeg_path and not self.ffmpeg_edit.text():
             QMessageBox.warning(self, "Not Found", "Could not auto-detect FFmpeg. Please browse manually.")
+            
+    def browse_handbrake(self):
+        """Browse for HandBrakeCLI executable"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select HandBrakeCLI Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.handbrake_edit.setText(file_path)
+            
+    def auto_detect_handbrake(self):
+        """Auto-detect HandBrakeCLI in common locations"""
+        import shutil
+        path = shutil.which("HandBrakeCLI")
+        if path:
+            self.handbrake_edit.setText(path)
+        else:
+            QMessageBox.warning(self, "Not Found", "HandBrakeCLI not found on PATH.")
+            
+    def on_handbrake_changed(self, text):
+        """Handle HandBrake path change"""
+        self.app_state.handbrake_path = text
+        
+    def on_handbrake_available_changed(self, available):
+        """Update HandBrake status label"""
+        if available:
+            self.hb_status_label.setText("✓ Available")
+            self.hb_status_label.setStyleSheet("color: green; font-size: 10px;")
+        else:
+            self.hb_status_label.setText("✗ Not Found")
+            self.hb_status_label.setStyleSheet("color: red; font-size: 10px;")
             
     def browse_output_folder(self):
         """Browse for output folder"""

@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from models import AppState
+from handbrake_handler import HandBrakeHandler
 
 
 class VideoController:
@@ -1103,12 +1104,28 @@ class VideoController:
         Returns:
             True if successful, False otherwise
         """
-        # Check for DVD subtitle burning - NOT SUPPORTED (dvd_subtitle is bitmap format)
+        # Check for DVD subtitle burning via HandBrake
         is_dvd_source = self.app_state.dvd.is_dvd_source and input_path.endswith('.txt')
-        if is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0:
+        burning_dvd_subs = is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0
+        video_mode = getattr(self.app_state.encoding, 'video_mode', 'encode')
+        
+        use_handbrake = (
+            burning_dvd_subs
+            and self.app_state.handbrake_available
+            and video_mode != "copy"
+        )
+        
+        if use_handbrake:
+            return self._encode_with_handbrake(
+                input_path, output_path, progress_callback
+            )
+        
+        if burning_dvd_subs:
             self.app_state.log("DVD subtitle burning is not supported (bitmap format). Skipping subtitle burn.", "WARN")
-            self.app_state.log("Tip: Use HandBrake or mencoder for DVD subtitle burning.", "INFO")
-            # Disable subtitle selection to prevent confusion
+            if not self.app_state.handbrake_available:
+                self.app_state.log("Tip: Install HandBrakeCLI for DVD subtitle burning.", "INFO")
+            elif video_mode == "copy":
+                self.app_state.log("Tip: HandBrake does not support stream copy. Switch to encode mode.", "INFO")
             self.app_state.dvd.selected_subtitle_index = -1
         
         cmd = self.build_ffmpeg_command(input_path, output_path, start_time, duration)
@@ -1156,6 +1173,92 @@ class VideoController:
                 
         except Exception as e:
             self.app_state.log(f"❌ Encode error: {e}", "ERROR")
+            return False
+        finally:
+            self.is_encoding = False
+            self.current_process = None
+
+    def _encode_with_handbrake(self, input_path: str, output_path: str,
+                               progress_callback=None) -> bool:
+        """Encode a DVD source with subtitle burn-in using HandBrakeCLI"""
+        handler = HandBrakeHandler(
+            self.app_state.handbrake_path,
+            self.app_state.log
+        )
+        
+        dvd_folder = self.app_state.dvd.dvd_folder_path
+        title_number = self.app_state.dvd.selected_title_number
+        subtitle_track = self.app_state.dvd.selected_subtitle_index
+        
+        encoder = self.app_state.encoding.encoder
+        quality = self.app_state.encoding.cq
+        
+        # Parse resolution for HandBrake
+        width, height = 0, 0
+        res = self.app_state.encoding.resolution
+        if res and res != "none" and 'x' in res:
+            parts = res.split('x')
+            width = int(parts[0])
+            height = int(parts[1])
+        
+        container = self.app_state.encoding.container
+        if container == "avi":
+            container = "av_avi"
+        
+        self.app_state.log(f"Using HandBrakeCLI for DVD subtitle burn-in", "INFO")
+        self.app_state.log(f"DVD folder: {dvd_folder}, Title: {title_number}, Subtitle track: {subtitle_track + 1}", "INFO")
+        
+        try:
+            self.is_encoding = True
+            self.current_process = handler.encode_with_subs(
+                input_path=dvd_folder,
+                output_path=output_path,
+                title_number=title_number,
+                subtitle_track=subtitle_track,
+                burn=True,
+                video_encoder=encoder,
+                quality=quality,
+                audio_track=1,
+                framerate=self.app_state.encoding.framerate,
+                width=width,
+                height=height,
+                target_bitrate=self.app_state.encoding.target_bitrate,
+                container=container,
+                audio_mode=self.app_state.encoding.audio_mode,
+            )
+            
+            # Parse HandBrake progress from stderr
+            hb_duration = self.get_video_duration(input_path)
+            
+            for line in self.current_process.stderr:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                if 'Encoding:' in line:
+                    self.app_state.log(f"HandBrake: {line}", "DEBUG")
+                    
+                    if progress_callback and hb_duration > 0:
+                        pct_match = re.search(r"(\d+\.?\d*)\s*%", line)
+                        if pct_match:
+                            progress = min(100, int(float(pct_match.group(1))))
+                            progress_callback(progress)
+            
+            self.current_process.wait()
+            
+            if self.current_process.returncode == 0:
+                self.app_state.log(f"✅ HandBrake encode complete: {os.path.basename(output_path)}", "SUCCESS")
+                return True
+            else:
+                # Read any remaining stderr for error details
+                remaining = self.current_process.stderr.read() if self.current_process.stderr else ""
+                self.app_state.log(f"❌ HandBrake encode failed with code {self.current_process.returncode}", "ERROR")
+                if remaining:
+                    self.app_state.log(f"HandBrake error: {remaining.strip()[:500]}", "ERROR")
+                return False
+                
+        except Exception as e:
+            self.app_state.log(f"❌ HandBrake encode error: {e}", "ERROR")
             return False
         finally:
             self.is_encoding = False

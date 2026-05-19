@@ -4,6 +4,7 @@ from pathlib import Path
 # Paths
 FFMPEG = "/home/akira/Downloads/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffmpeg"
 FFPROBE = "/home/akira/Downloads/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffprobe"
+HANDBRAKE = "HandBrakeCLI"
 
 # App directories
 APP_DIR = Path(__file__).parent.resolve()

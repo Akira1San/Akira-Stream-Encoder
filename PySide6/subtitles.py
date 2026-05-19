@@ -64,6 +64,11 @@ class SubtitlesPanel(QWidget):
         self.dvd_info_label.setStyleSheet("color: gray; font-size: 10px; font-style: italic;")
         dvd_layout.addWidget(self.dvd_info_label)
         
+        # HandBrake availability label
+        self.hb_avail_label = QLabel("")
+        self.hb_avail_label.setStyleSheet("font-size: 10px; font-style: italic;")
+        dvd_layout.addWidget(self.hb_avail_label)
+        
         self.dvd_subtitle_group.setLayout(dvd_layout)
         layout.addWidget(self.dvd_subtitle_group)
         
@@ -272,6 +277,10 @@ class SubtitlesPanel(QWidget):
         self.bg_color_btn.clicked.connect(self.on_bg_color_clicked)
         self.ol_slider.valueChanged.connect(self.on_outline_width_changed)
         self.bg_op_slider.valueChanged.connect(self.on_bg_opacity_changed)
+        # HandBrake availability
+        self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
+        self.on_handbrake_available_changed(self.app_state.handbrake_available)
+        
         # Shadow controls
         self.shadow_check.toggled.connect(self.on_shadow_changed)
         self.shadow_color_btn.clicked.connect(self.on_shadow_color_clicked)
@@ -295,6 +304,15 @@ class SubtitlesPanel(QWidget):
             self.dvd_subtitle_changed.emit()
             self.settings_changed.emit()
     
+    def on_handbrake_available_changed(self, available):
+        """Update HandBrake availability label"""
+        if available:
+            self.hb_avail_label.setText("HandBrakeCLI ✓ — DVD subtitle burning supported")
+            self.hb_avail_label.setStyleSheet("color: green; font-size: 10px; font-style: italic;")
+        else:
+            self.hb_avail_label.setText("HandBrakeCLI ✗ — DVD subtitles will be skipped")
+            self.hb_avail_label.setStyleSheet("color: red; font-size: 10px; font-style: italic;")
+
     def update_dvd_subtitles(self):
         """Update DVD subtitle combobox based on current DVD source"""
         if self.app_state.dvd.is_dvd_source and self.app_state.dvd.subtitle_tracks:

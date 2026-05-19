@@ -18,6 +18,7 @@ from config import SETTINGS_FILE
 from config_tab import ConfigTab
 from video_workspace import VideoWorkspace
 from tracks_tab import TracksTab
+from handbrake_handler import HandBrakeHandler
 
 
 class LogWidget(QTextEdit):
@@ -71,6 +72,18 @@ class MainWindow(QMainWindow):
         
         # Load settings
         self.load_settings()
+
+        # Check HandBrake availability
+        self.check_handbrake_available()
+
+    def check_handbrake_available(self):
+        self.app_state.handbrake_available = HandBrakeHandler.check_available(
+            self.app_state.handbrake_path
+        )
+        if self.app_state.handbrake_available:
+            self.log("HandBrakeCLI is available for DVD subtitle burning", "INFO")
+        else:
+            self.log("HandBrakeCLI not found - DVD subtitle burning will be skipped", "INFO")
         
     def setup_ui(self):
         """Setup the main UI layout"""
@@ -134,6 +147,8 @@ class MainWindow(QMainWindow):
                     self.app_state.ffmpeg_path = settings['ffmpeg_path']
                 if 'output_folder' in settings:
                     self.app_state.output_folder = settings['output_folder']
+                if 'handbrake_path' in settings:
+                    self.app_state.handbrake_path = settings['handbrake_path']
                     
                 self.log("Settings loaded", "INFO")
         except Exception as e:
@@ -145,6 +160,7 @@ class MainWindow(QMainWindow):
             settings = {
                 'ffmpeg_path': self.app_state.ffmpeg_path,
                 'output_folder': self.app_state.output_folder,
+                'handbrake_path': self.app_state.handbrake_path,
             }
             
             import json
