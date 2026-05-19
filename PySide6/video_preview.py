@@ -485,10 +485,16 @@ class FilterOverlay(QWidget):
         # Current processed frame to display
         self._current_image: Optional[QImage] = None
         self._subtitle_text: str = ""
+        self._frozen: bool = False
         
         # Video dimensions for font scaling
         self._video_width: int = 1920
         self._video_height: int = 1080
+    
+    def set_frozen(self, frozen: bool):
+        """Set frozen state - shows message that preview is paused during playback"""
+        self._frozen = frozen
+        self.update()
     
     def set_video_size(self, width: int, height: int):
         """Set video dimensions for proper font scaling"""
@@ -625,6 +631,12 @@ class FilterOverlay(QWidget):
         
         # Draw the image
         painter.drawPixmap(0, 0, scaled)
+        
+        if self._frozen:
+            painter.setPen(QColor(128, 128, 128, 180))
+            painter.setFont(QFont("Arial", 10))
+            painter.drawText(self.rect(), Qt.AlignCenter,
+                "Preview frozen during playback\nChanges apply on pause")
         
         painter.end()
     
@@ -1042,7 +1054,7 @@ class VideoPreview(QWidget):
         Handle captured frame from QMediaPlayer.
         Apply filters and update the overlay display.
         """
-        if frame.isNull():
+        if frame.isNull() or self.is_playing:
             return
         
         # Apply filters to the captured frame
@@ -1592,8 +1604,9 @@ class VideoPreview(QWidget):
         # Start playback
         self._video_player.play()
         
-        # Start overlay update timer (for filter preview updates)
-        self._overlay_timer.start()
+        # Stop overlay timer during playback to prevent FFmpeg blocking the UI
+        self._overlay_timer.stop()
+        self.filter_overlay.set_frozen(True)
         
         self.is_playing = True
         self.play_btn.setEnabled(False)
@@ -1645,9 +1658,14 @@ class VideoPreview(QWidget):
         
         # Stop overlay timer
         self._overlay_timer.stop()
+        self.filter_overlay.set_frozen(False)
         
         # Use QMediaPlayer for smooth playback
         self._video_player.pause()
+        
+        # Refresh processed preview at paused position
+        current_pos = self._video_player.get_position()
+        self.seek_preview(current_pos)
         
         self.play_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
