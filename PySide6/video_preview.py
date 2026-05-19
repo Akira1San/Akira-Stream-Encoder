@@ -1427,27 +1427,7 @@ class VideoPreview(QWidget):
             if wb_params:
                 filters.append(f"colorbalance={':'.join(wb_params)}")
         
-        # Get subtitle text BEFORE processing with FFmpeg (we need the timestamp)
-        sub_text = ""
-        sub_path = None
-        if self.app_state.subtitles.burn_subs and self.current_video_path:
-            # Look for external subtitle file
-            base = os.path.splitext(self.current_video_path)[0]
-            for ext in [".srt", ".ass", ".ssa", ".sub"]:
-                test_path = base + ext
-                if os.path.exists(test_path):
-                    sub_path = test_path
-                    break
-            
         if not filters:
-            # No FFmpeg filters to apply, just draw subtitles if needed
-            if sub_path and self.app_state.subtitles.burn_subs and self.duration > 0:
-                value = self.timeline_slider.value()
-                timestamp = self.timeline_slider.value_to_time(value)
-                sub_text = get_subtitle_text(sub_path, timestamp)
-                if sub_text:
-                    self.app_state.log(f"Preview: Drawing subtitle at {timestamp:.1f}s: {sub_text[:50]}...", "DEBUG")
-                    return self.draw_subtitle_on_image(image.copy(), sub_text)
             return image.copy()
             
         # Use FFmpeg to apply filters
@@ -1493,15 +1473,6 @@ class VideoPreview(QWidget):
                     
         except Exception as e:
             self.app_state.log(f"Filter preview error: {e}", "WARN")
-        
-        # Get subtitle text for current timestamp and draw it
-        if sub_path and self.app_state.subtitles.burn_subs and self.duration > 0:
-            value = self.timeline_slider.value()
-            timestamp = self.timeline_slider.value_to_time(value)
-            sub_text = get_subtitle_text(sub_path, timestamp)
-            if sub_text:
-                self.app_state.log(f"Preview: Drawing subtitle at {timestamp:.1f}s: {sub_text[:50]}...", "DEBUG")
-                image = self.draw_subtitle_on_image(image, sub_text)
         
         return image
     
