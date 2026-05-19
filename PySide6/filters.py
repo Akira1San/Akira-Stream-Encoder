@@ -407,6 +407,37 @@ class FiltersPanel(QWidget):
         )
         audio_layout.addWidget(self.compressor_check)
         
+        # Audio Delay / Sync
+        delay_layout = QHBoxLayout()
+        self.audio_delay_check = QCheckBox("Audio Delay:")
+        self.audio_delay_check.setChecked(self.app_state.filters.audio_delay_enabled)
+        self.audio_delay_check.setToolTip(
+            "Delay audio to sync with video.\n"
+            "Use when audio plays ahead of video.\n"
+            "Values: 100-500ms for minor sync, 1000ms+ for major offset."
+        )
+        delay_layout.addWidget(self.audio_delay_check)
+        
+        self.audio_delay_spin = QSpinBox()
+        self.audio_delay_spin.setRange(0, 10000)
+        self.audio_delay_spin.setValue(self.app_state.filters.audio_delay_ms)
+        self.audio_delay_spin.setSuffix(" ms")
+        self.audio_delay_spin.setSingleStep(50)
+        self.audio_delay_spin.setEnabled(self.app_state.filters.audio_delay_enabled)
+        self.audio_delay_spin.setMinimumWidth(100)
+        self.audio_delay_spin.setToolTip(
+            "Delay in milliseconds (0 = no delay).\n"
+            "Common values:\n"
+            "  100ms: Very slight sync fix\n"
+            "  250ms: Minor offset\n"
+            "  500ms: Notable offset\n"
+            "  1000ms: Audio is ~1 second ahead\n"
+            "  2000ms+: Major offset"
+        )
+        delay_layout.addWidget(self.audio_delay_spin)
+        delay_layout.addStretch()
+        audio_layout.addLayout(delay_layout)
+        
         layout.addWidget(audio_group)
         
         # Reset button
@@ -457,6 +488,8 @@ class FiltersPanel(QWidget):
         self.vol_edit.textChanged.connect(self.on_vol_changed)
         self.dynnorm_check.toggled.connect(self.on_dynnorm_changed)
         self.compressor_check.toggled.connect(self.on_compressor_changed)
+        self.audio_delay_check.toggled.connect(self.on_audio_delay_changed)
+        self.audio_delay_spin.valueChanged.connect(self.on_audio_delay_value_changed)
         
     def on_deint_changed(self, checked):
         """Handle deinterlace checkbox change"""
@@ -664,6 +697,15 @@ class FiltersPanel(QWidget):
         self.app_state.filters.audio_compressor = checked
         self.settings_changed.emit()
         
+    def on_audio_delay_changed(self, checked):
+        self.app_state.filters.audio_delay_enabled = checked
+        self.audio_delay_spin.setEnabled(checked)
+        self.settings_changed.emit()
+    
+    def on_audio_delay_value_changed(self, value):
+        self.app_state.filters.audio_delay_ms = value
+        self.settings_changed.emit()
+        
     def reset_filters(self):
         """Reset all filter settings to defaults"""
         # Video filters
@@ -705,6 +747,8 @@ class FiltersPanel(QWidget):
         self.app_state.filters.volume_db = 0.0
         self.app_state.filters.audio_dynnorm = False
         self.app_state.filters.audio_compressor = False
+        self.app_state.filters.audio_delay_enabled = False
+        self.app_state.filters.audio_delay_ms = 0
         
         # Update UI controls
         self.deint_check.setChecked(False)
@@ -762,6 +806,9 @@ class FiltersPanel(QWidget):
         self.vol_edit.setEnabled(False)
         self.dynnorm_check.setChecked(False)
         self.compressor_check.setChecked(False)
+        self.audio_delay_check.setChecked(False)
+        self.audio_delay_spin.setValue(0)
+        self.audio_delay_spin.setEnabled(False)
         
         self.app_state.log("Filters reset to defaults", "INFO")
         self.settings_changed.emit()

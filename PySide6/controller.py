@@ -949,6 +949,13 @@ class VideoController:
             audio_filters.append("acompressor=threshold=0.15:ratio=3:attack=20:release=250")
             self.app_state.log("Audio: Applying audio compressor", "INFO")
         
+        # Audio Delay (sync)
+        if getattr(self.app_state.filters, 'audio_delay_enabled', False):
+            delay_ms = self.app_state.filters.audio_delay_ms
+            if delay_ms > 0:
+                audio_filters.append(f"adelay={delay_ms}|{delay_ms}")
+                self.app_state.log(f"Audio: Delaying by {delay_ms}ms", "INFO")
+        
         return (
             ",".join(video_filters) if video_filters else "",
             ",".join(audio_filters) if audio_filters else ""

@@ -127,6 +127,9 @@ class FilterSettings:
     stretch_fill: bool = False
     audio_dynnorm: bool = False
     audio_compressor: bool = False
+    # Audio delay/sync
+    audio_delay_enabled: bool = False
+    audio_delay_ms: int = 0       # milliseconds, 0 = no delay
 
 
 @dataclass
