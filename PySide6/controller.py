@@ -1383,14 +1383,24 @@ class VideoController:
             
     def generate_output_path(self, input_path: str) -> str:
         """Generate output path based on settings"""
+        is_dvd_concat = input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
+
         if self.app_state.use_custom_filename and self.app_state.custom_filename:
             base_name = self.app_state.custom_filename
+        elif is_dvd_concat:
+            base_name = f"dvd_title_{self.app_state.dvd.selected_title_number}"
         else:
             base_name = Path(input_path).stem
-            
+
         container = self.app_state.encoding.container
-        output_folder = self.app_state.output_folder or os.path.dirname(input_path)
-        
+
+        if self.app_state.output_folder:
+            output_folder = self.app_state.output_folder
+        elif is_dvd_concat and self.app_state.dvd.dvd_folder_path:
+            output_folder = os.path.dirname(self.app_state.dvd.dvd_folder_path)
+        else:
+            output_folder = os.path.dirname(input_path)
+
         output_path = os.path.join(output_folder, f"{base_name}.{container}")
         
         # Handle duplicates

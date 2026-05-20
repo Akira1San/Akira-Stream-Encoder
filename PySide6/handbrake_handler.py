@@ -114,14 +114,16 @@ class HandBrakeHandler:
 
         encoder = self.ENCODER_MAP.get(video_encoder, "x264")
         cmd.extend(["-e", encoder])
-        cmd.extend(["-q", str(quality)])
+
+        if target_bitrate:
+            cmd.extend(["-b", target_bitrate])
+        else:
+            cmd.extend(["-q", str(quality)])
 
         if width > 0 and height > 0:
             cmd.extend(["--width", str(width), "--height", str(height)])
         if framerate:
             cmd.extend(["-r", framerate])
-        if target_bitrate:
-            cmd.extend(["-b", target_bitrate])
 
         cmd.extend(["-a", str(audio_track)])
         if audio_mode == "encode":
