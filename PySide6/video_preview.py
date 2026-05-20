@@ -906,7 +906,17 @@ class VideoPreview(QWidget):
         self.filter_overlay.update()
         
         # Load video into QMediaPlayer for smooth playback
-        self._video_player.load_file(video_path)
+        # For DVD sources, use the first VOB file (QMediaPlayer can't parse concat .txt)
+        playback_path = video_path
+        if self.app_state.dvd.is_dvd_source and video_path.endswith('.txt'):
+            for title in self.app_state.dvd.available_titles:
+                if title.title_number == self.app_state.dvd.selected_title_number:
+                    if title.vob_files:
+                        first_vob = title.vob_files[0]
+                        if os.path.exists(first_vob):
+                            playback_path = first_vob
+                    break
+        self._video_player.load_file(playback_path)
         self._video_player.set_volume(self._audio_volume)
         
         # Seek to beginning to show first frame
