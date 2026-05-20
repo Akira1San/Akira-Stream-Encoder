@@ -1206,6 +1206,22 @@ class VideoController:
             container = "av_avi"
         
         self.app_state.log(f"Using HandBrakeCLI for DVD subtitle burn-in", "INFO")
+
+        # Scan titles with HandBrake and match by duration to find correct title number
+        expected_duration = self.get_video_duration(input_path)
+        hb_titles = handler.scan_titles(dvd_folder)
+        if hb_titles:
+            valid = [t for t in hb_titles if t.get('duration_seconds', 0) > 0]
+            if valid:
+                best = min(valid, key=lambda t: abs(t['duration_seconds'] - expected_duration))
+                if best['title_number'] != title_number:
+                    self.app_state.log(
+                        f"Remapping title: app title {title_number} → HandBrake title {best['title_number']} "
+                        f"(duration match: {best['duration_seconds']:.0f}s vs expected {expected_duration:.0f}s)",
+                        "INFO"
+                    )
+                    title_number = best['title_number']
+
         self.app_state.log(f"DVD folder: {dvd_folder}, Title: {title_number}, Subtitle track: {subtitle_track + 1}", "INFO")
         
         try:

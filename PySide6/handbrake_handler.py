@@ -49,8 +49,22 @@ class HandBrakeHandler:
             output = result.stderr
             titles = []
             title_pattern = re.compile(r'\+ title (\d+):')
-            for match in title_pattern.finditer(output):
-                titles.append({'title_number': int(match.group(1))})
+            duration_pattern = re.compile(r'\+ duration:\s+(\d{2}):(\d{2}):(\d{2})')
+
+            current_title = None
+            for line in output.splitlines():
+                title_match = title_pattern.search(line)
+                if title_match:
+                    current_title = {'title_number': int(title_match.group(1))}
+                    titles.append(current_title)
+                    continue
+
+                if current_title is not None:
+                    dur_match = duration_pattern.search(line)
+                    if dur_match:
+                        h, m, s = int(dur_match.group(1)), int(dur_match.group(2)), int(dur_match.group(3))
+                        current_title['duration_seconds'] = h * 3600 + m * 60 + s
+
             self.log(f"HandBrake: found {len(titles)} title(s)", "INFO")
             return titles
         except Exception as e:
