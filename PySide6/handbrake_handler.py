@@ -8,6 +8,21 @@ import shutil
 from typing import List, Dict, Optional, Callable
 
 
+ISO_TO_HB_LANGUAGE = {
+    "en": "English", "bg": "Bulgarian", "es": "Spanish", "pt": "Portuguese",
+    "fr": "French", "de": "German", "it": "Italian", "ja": "Japanese",
+    "zh": "Chinese", "ko": "Korean", "ru": "Russian", "ar": "Arabic",
+    "nl": "Dutch", "sv": "Swedish", "da": "Danish", "fi": "Finnish",
+    "no": "Norwegian", "pl": "Polish", "cs": "Czech", "hu": "Hungarian",
+    "ro": "Romanian", "el": "Greek", "he": "Hebrew", "th": "Thai",
+    "tr": "Turkish", "vi": "Vietnamese", "in": "Indonesian", "ms": "Malay",
+    "hr": "Croatian", "sr": "Serbian", "sk": "Slovak", "sl": "Slovenian",
+    "uk": "Ukrainian", "et": "Estonian", "lv": "Latvian", "lt": "Lithuanian",
+    "ca": "Catalan", "eu": "Basque", "gl": "Galician", "ga": "Irish",
+    "cy": "Welsh", "is": "Icelandic", "mt": "Maltese", "mk": "Macedonian",
+}
+
+
 class HandBrakeHandler:
 
     ENCODER_MAP = {
@@ -114,17 +129,23 @@ class HandBrakeHandler:
                          height: int = 0,
                          target_bitrate: str = "",
                          container: str = "mp4",
-                         audio_mode: str = "encode") -> subprocess.Popen:
+                         audio_mode: str = "encode",
+                         start_time: Optional[str] = None,
+                         duration: Optional[str] = None) -> subprocess.Popen:
         cmd = [self.handbrake_path]
         cmd.extend(["-i", input_path])
         cmd.extend(["-t", str(title_number)])
         cmd.extend(["-o", output_path])
 
         if subtitle_track is not None and subtitle_track >= 0:
-            hb_track = subtitle_track + 1
-            cmd.extend(["--subtitle", str(hb_track)])
+            cmd.extend(["--subtitle", str(subtitle_track)])
             if burn:
                 cmd.extend(["--subtitle-burned"])
+
+        if start_time:
+            cmd.extend(["--start-at", f"duration:{start_time}"])
+        if duration:
+            cmd.extend(["--stop-at", f"duration:{duration}"])
 
         encoder = self.ENCODER_MAP.get(video_encoder, "x264")
         cmd.extend(["-e", encoder])

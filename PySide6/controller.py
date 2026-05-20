@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from models import AppState
-from handbrake_handler import HandBrakeHandler
+from handbrake_handler import HandBrakeHandler, ISO_TO_HB_LANGUAGE
 
 
 class VideoController:
@@ -1104,6 +1104,14 @@ class VideoController:
         Returns:
             True if successful, False otherwise
         """
+        # Handle extract clip mode (applies to both HandBrake and FFmpeg paths)
+        if start_time is None and duration is None and self.app_state.split.extract_clip_enabled:
+            start_min = self.app_state.split.extract_start_min
+            duration_min = self.app_state.split.extract_duration_min
+            start_time = str(int(start_min * 60))
+            duration = str(int(duration_min * 60))
+            self.app_state.log(f"Extract clip: start={start_time}s, duration={duration}s", "INFO")
+
         # Check for DVD subtitle burning via HandBrake
         is_dvd_source = self.app_state.dvd.is_dvd_source and input_path.endswith('.txt')
         burning_dvd_subs = is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0
@@ -1117,7 +1125,8 @@ class VideoController:
         
         if use_handbrake:
             return self._encode_with_handbrake(
-                input_path, output_path, progress_callback
+                input_path, output_path, progress_callback,
+                start_time=start_time, duration=duration
             )
         
         if burning_dvd_subs:
@@ -1179,7 +1188,9 @@ class VideoController:
             self.current_process = None
 
     def _encode_with_handbrake(self, input_path: str, output_path: str,
-                               progress_callback=None) -> bool:
+                               progress_callback=None,
+                               start_time: Optional[str] = None,
+                               duration: Optional[str] = None) -> bool:
         """Encode a DVD source with subtitle burn-in using HandBrakeCLI"""
         handler = HandBrakeHandler(
             self.app_state.handbrake_path,
@@ -1222,7 +1233,47 @@ class VideoController:
                     )
                     title_number = best['title_number']
 
-        self.app_state.log(f"DVD folder: {dvd_folder}, Title: {title_number}, Subtitle track: {subtitle_track + 1}", "INFO")
+        # Map subtitle track by language code using HandBrake's own scan
+        # HandBrake uses 1-based track numbers, app uses 0-based indices.
+        # When mapping succeeds, we use HandBrake's direct track number.
+        # When it fails, we fall back to index + 1.
+        mapped_by_language = False
+        if subtitle_track >= 0 and hasattr(self.app_state.dvd, 'subtitle_tracks'):
+            tracks = self.app_state.dvd.subtitle_tracks
+            if subtitle_track < len(tracks):
+                selected_lang = tracks[subtitle_track].get('language', '')
+                if selected_lang:
+                    hb_subtitles = handler.scan_subtitles(dvd_folder, title_number)
+                    if hb_subtitles:
+                        matched_track = None
+                        for hb_sub in hb_subtitles:
+                            hb_lang = hb_sub.get('language', '')
+                            if hb_lang.lower() == selected_lang.lower():
+                                matched_track = hb_sub['track']
+                                break
+                            hb_name = ISO_TO_HB_LANGUAGE.get(selected_lang, '').lower()
+                            if hb_name and hb_lang.lower() == hb_name:
+                                matched_track = hb_sub['track']
+                                break
+                        if matched_track is not None:
+                            self.app_state.log(
+                                f"Mapped subtitle by language: app '{selected_lang}' → HandBrake track {matched_track}",
+                                "INFO"
+                            )
+                            subtitle_track = matched_track
+                            mapped_by_language = True
+                        else:
+                            self.app_state.log(
+                                f"Could not match subtitle language '{selected_lang}' in HandBrake scan, "
+                                f"falling back to index-based mapping",
+                                "WARN"
+                            )
+
+        # Fall back to index-based mapping (0-based → 1-based)
+        if subtitle_track >= 0 and not mapped_by_language:
+            subtitle_track = subtitle_track + 1
+
+        self.app_state.log(f"DVD folder: {dvd_folder}, Title: {title_number}, Subtitle track: {subtitle_track}", "INFO")
         
         try:
             self.is_encoding = True
@@ -1241,6 +1292,8 @@ class VideoController:
                 target_bitrate=self.app_state.encoding.target_bitrate,
                 container=container,
                 audio_mode=self.app_state.encoding.audio_mode,
+                start_time=start_time,
+                duration=duration,
             )
             
             # Parse HandBrake progress from stderr
