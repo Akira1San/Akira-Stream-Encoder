@@ -1235,14 +1235,13 @@ class VideoController:
                 if not line:
                     continue
                 
-                if 'Encoding:' in line:
-                    self.app_state.log(f"HandBrake: {line}", "DEBUG")
-                    
-                    if progress_callback and hb_duration > 0:
-                        pct_match = re.search(r"(\d+\.?\d*)\s*%", line)
-                        if pct_match:
-                            progress = min(100, int(float(pct_match.group(1))))
-                            progress_callback(progress)
+                self.app_state.log(f"HandBrake: {line}", "DEBUG")
+                
+                if 'Encoding:' in line and progress_callback and hb_duration > 0:
+                    pct_match = re.search(r"(\d+\.?\d*)\s*%", line)
+                    if pct_match:
+                        progress = min(100, int(float(pct_match.group(1))))
+                        progress_callback(progress)
             
             self.current_process.wait()
             

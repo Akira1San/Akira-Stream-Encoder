@@ -365,7 +365,7 @@ class DVDHandler:
                 
                 # Stream ID 0x20-0x3F are subtitle streams
                 # The subtitle index can be derived from stream_id
-                sub_index = stream_id - 0x20
+                sub_index = len(subtitle_tracks)
                 
                 # Get language from IFO if available
                 language = ifo_languages.get(stream_id, f"Track {sub_index}")
