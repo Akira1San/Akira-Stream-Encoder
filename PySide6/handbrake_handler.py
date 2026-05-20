@@ -105,7 +105,7 @@ class HandBrakeHandler:
                     if line.strip().startswith('+ ') and 'subtitle' not in line and 'track' not in line and not re.match(r'^\s+\+ \d+', line):
                         in_subtitle_section = False
                         continue
-                    match = re.match(r'^\s+\+ (\d+), (.+) \(track', line)
+                    match = re.match(r'^\s+\+ (\d+), ([^(]+)', line)
                     if match:
                         subtitles.append({
                             'track': int(match.group(1)),
