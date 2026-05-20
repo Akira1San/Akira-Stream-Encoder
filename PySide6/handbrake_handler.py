@@ -137,7 +137,14 @@ class HandBrakeHandler:
         if width > 0 and height > 0:
             cmd.extend(["--width", str(width), "--height", str(height)])
         if framerate:
-            cmd.extend(["-r", framerate])
+            hb_framerate = framerate
+            if '/' in framerate:
+                try:
+                    num, den = framerate.split('/')
+                    hb_framerate = f"{float(num) / float(den):.3f}"
+                except (ValueError, ZeroDivisionError):
+                    pass
+            cmd.extend(["-r", hb_framerate])
 
         cmd.extend(["-a", str(audio_track)])
         if audio_mode == "encode":

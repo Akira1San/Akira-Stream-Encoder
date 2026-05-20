@@ -1261,7 +1261,7 @@ class VideoController:
             
             self.current_process.wait()
             
-            if self.current_process.returncode == 0:
+            if self.current_process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 self.app_state.log(f"✅ HandBrake encode complete: {os.path.basename(output_path)}", "SUCCESS")
                 return True
             else:
