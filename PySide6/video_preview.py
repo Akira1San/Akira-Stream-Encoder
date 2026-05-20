@@ -4,6 +4,7 @@ Uses native Qt (QImage, QPixmap) instead of PIL/Pillow
 """
 import io
 import os
+import re
 import subprocess
 from typing import Optional
 
@@ -401,7 +402,7 @@ class FrameLoader(QObject):
         self._cancelled = False
         self._is_dvd_source = False
         
-    def load_frame(self, video_path: str, timestamp: float, ffmpeg_path: str, is_dvd_source: bool = False, first_vob_path: str = None):
+    def load_frame(self, video_path: str, timestamp: float, ffmpeg_path: str, is_dvd_source: bool = False, first_vob_path: str = None, subtitle_filter: str = ""):
         """Load a frame from video at specified timestamp
         
         Args:
@@ -410,6 +411,7 @@ class FrameLoader(QObject):
             ffmpeg_path: Path to ffmpeg executable
             is_dvd_source: True if this is a DVD concat source
             first_vob_path: Path to first VOB file for DVD preview fallback
+            subtitle_filter: FFmpeg subtitle filter string (e.g., "subtitles=file.srt")
         """
         self._cancelled = False
         self._is_dvd_source = is_dvd_source
@@ -422,17 +424,22 @@ class FrameLoader(QObject):
             preview_timestamp = min(timestamp, 600.0)  # Cap at 10 minutes
             cmd = [ffmpeg_path, "-ss", str(preview_timestamp)]
             cmd.extend(["-i", first_vob_path])
-            cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
         elif is_dvd_source:
             # Fallback to concat demuxer
             cmd = [ffmpeg_path, "-ss", str(timestamp)]
             cmd.extend(["-f", "concat", "-safe", "0"])
             cmd.extend(["-i", video_path])
-            cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
         else:
             # Standard seeking for regular video files
             cmd = [ffmpeg_path, "-ss", str(timestamp)]
-            cmd.extend(["-i", video_path, "-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
+            cmd.extend(["-i", video_path])
+        
+        # Add subtitle filter if provided (burns subtitles during extraction)
+        if subtitle_filter:
+            cmd.extend(["-vf", subtitle_filter])
+        
+        # Output as single PNG frame to pipe
+        cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
         
         try:
             # Use longer timeout for DVD sources (VOB files can be slow)
@@ -444,7 +451,24 @@ class FrameLoader(QObject):
             
             if self._cancelled:
                 return
-                
+            
+            # If first attempt failed with subtitle filter, retry without it
+            # (handles bitmap subtitle formats that FFmpeg's subtitles filter rejects)
+            if result.returncode != 0 and subtitle_filter:
+                retry_cmd = []
+                i = 0
+                while i < len(cmd):
+                    if cmd[i] == "-vf":
+                        i += 2
+                        continue
+                    retry_cmd.append(cmd[i])
+                    i += 1
+                if retry_cmd != cmd:
+                    result = subprocess.run(
+                        retry_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        timeout=timeout
+                    )
+            
             if result.returncode == 0 and result.stdout:
                 # Load image from bytes using QImage
                 image = QImage()
@@ -455,9 +479,11 @@ class FrameLoader(QObject):
                 else:
                     self.error_occurred.emit("Failed to decode image")
             else:
-                # Log the error for debugging
+                # Log the error for debugging (last lines contain the actual error after FFmpeg banner)
                 error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
-                self.error_occurred.emit(f"FFmpeg failed: {error_msg[:200]}")
+                lines = error_msg.strip().split('\n')
+                last_lines = '\n'.join(lines[-5:]) if len(lines) > 5 else error_msg
+                self.error_occurred.emit(f"FFmpeg failed: {last_lines[:500]}")
                 
         except subprocess.TimeoutExpired:
             self.error_occurred.emit("Frame extraction timed out")
@@ -1115,7 +1141,119 @@ class VideoPreview(QWidget):
         # Get subtitle for current timestamp
         timestamp = self._playback_time
         return get_subtitle_text(sub_path, timestamp)
+    
+    def _find_subtitle_file(self) -> Optional[str]:
+        """Find the subtitle file to use for preview burning"""
+        if not self.app_state.subtitles.burn_subs:
+            return None
         
+        # Check user-selected subtitle file
+        selected = self.app_state.subtitles.selected_subtitle
+        if selected and os.path.exists(selected):
+            return selected
+        
+        if not self.current_video_path:
+            return None
+        
+        # Auto-detect by basename
+        base = os.path.splitext(self.current_video_path)[0]
+        for ext in [".srt", ".ass", ".ssa", ".sub"]:
+            test_path = base + ext
+            if os.path.exists(test_path):
+                return test_path
+        return None
+    
+    def _hex_to_ass(self, hex_color: str, opacity: float = 1.0) -> str:
+        """Convert hex color to ASS format (&HAABBGGRR)"""
+        hex_color = hex_color.lstrip('#')
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        alpha = 255 - int(opacity * 255)
+        return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
+    
+    def _build_subtitle_filter_string(self, sub_path: str) -> str:
+        """Build FFmpeg subtitle filter string for preview with user styling"""
+        subs = self.app_state.subtitles
+        
+        # Escape path for FFmpeg filter syntax
+        escaped_path = sub_path.replace("\\", "/").replace("'", "'\\''")
+        escaped_path = escaped_path.replace("[", "\\[").replace("]", "\\]")
+        escaped_path = re.sub(r'^([A-Z]):/', r'\1\:/', escaped_path, flags=re.IGNORECASE)
+        
+        # For VobSub files - bitmap-based, no force_style supported
+        if sub_path.lower().endswith('.sub'):
+            return f"subtitles='{escaped_path}':original_size=720x576"
+        
+        # Build force_style options for text-based subtitles (SRT/ASS)
+        style = []
+        
+        if subs.font != "Arial":
+            style.append(f"Fontname={subs.font}")
+        style.append(f"Fontsize={subs.size}")
+        if subs.color != "#FFFFFF":
+            style.append(f"PrimaryColour={self._hex_to_ass(subs.color)}")
+        if subs.outline_color != "#000000":
+            style.append(f"OutlineColour={self._hex_to_ass(subs.outline_color)}")
+        if subs.outline_width != 2:
+            style.append(f"Outline={subs.outline_width}")
+        
+        # Shadow and background settings
+        if subs.shadow_enabled and subs.bg_opacity > 0.0:
+            shadow_ass = self._hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+            style.append(f"BackColour={shadow_ass}")
+            style.append("BorderStyle=3")
+            shadow_distance = max(subs.shadow_offset_x, subs.shadow_offset_y, 2)
+            style.append(f"Shadow={shadow_distance}")
+        elif subs.shadow_enabled:
+            style.append("BorderStyle=2")
+            outline_ass = self._hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+            style.append(f"OutlineColour={outline_ass}")
+            shadow_distance = max(subs.shadow_offset_x, subs.shadow_offset_y, 2)
+            style.append(f"Shadow={shadow_distance}")
+        elif subs.bg_opacity > 0.0:
+            ass_bg = self._hex_to_ass(subs.bg_color, subs.bg_opacity)
+            style.append(f"BackColour={ass_bg}")
+            style.append("BorderStyle=4")
+        else:
+            style.append("BorderStyle=1")
+        
+        if subs.shadow_enabled and subs.outline_width == 0:
+            style.append("Outline=1")
+        
+        pos_map = {"bottom": 2, "top": 8, "center": 10}
+        if subs.position != "bottom":
+            style.append(f"Alignment={pos_map.get(subs.position, 2)}")
+        
+        if subs.vertical_offset > 0:
+            if subs.position == "bottom":
+                margin_v = max(0, 20 - subs.vertical_offset)
+                style.append(f"MarginV={margin_v}")
+            else:
+                style.append(f"MarginV={subs.vertical_offset}")
+        
+        force_style = f":force_style='{','.join(style)}'" if style else ""
+        return f"subtitles='{escaped_path}'{force_style}"
+    
+    def _build_dvd_subtitle_filter(self, vob_path: str, sub_idx: int) -> str:
+        """DVD bitmap subtitles are not supported by FFmpeg's subtitles filter.
+        
+        FFmpeg's 'subtitles' filter (which uses libass) only supports text-based
+        subtitle formats (SRT, ASS, SSA). DVD subtitles are bitmap-based
+        (dvd_subtitle codec), which the filter explicitly rejects with:
+        'Only text based subtitles are currently supported'
+        
+        No container format or extraction method can work around this FFmpeg
+        limitation. We fall back to no subtitle overlay in the preview.
+        """
+        self.app_state.log(
+            "DVD subtitle preview not supported: FFmpeg's subtitles filter "
+            "only handles text-based subtitles (SRT/ASS), not DVD bitmap subtitles. "
+            "Subtitles will appear correctly in the final encode via HandBrake.",
+            "WARN"
+        )
+        return ""
+    
     def load_video_metadata(self, video_path: str):
         """Load video metadata using ffprobe"""
         ffprobe_path = self.app_state.ffprobe_path
@@ -1298,7 +1436,18 @@ class VideoPreview(QWidget):
                     if title.vob_files:
                         first_vob_path = title.vob_files[0]
                     break
-            
+        
+        # Build subtitle filter string if burning is enabled
+        subtitle_filter = ""
+        if self.app_state.subtitles.burn_subs:
+            if is_dvd_source and self.app_state.dvd.selected_subtitle_index >= 0 and first_vob_path:
+                sub_idx = self.app_state.dvd.selected_subtitle_index
+                subtitle_filter = self._build_dvd_subtitle_filter(first_vob_path, sub_idx)
+            else:
+                sub_path = self._find_subtitle_file()
+                if sub_path:
+                    subtitle_filter = self._build_subtitle_filter_string(sub_path)
+        
         # Create new loader thread
         self._loader_thread = QThread()
         self._frame_loader = FrameLoader()
@@ -1309,7 +1458,8 @@ class VideoPreview(QWidget):
         self._frame_loader.error_occurred.connect(self.on_frame_error)
         self._loader_thread.started.connect(
             lambda: self._frame_loader.load_frame(
-                self.current_video_path, timestamp, self.app_state.ffmpeg_path, is_dvd_source, first_vob_path
+                self.current_video_path, timestamp, self.app_state.ffmpeg_path,
+                is_dvd_source, first_vob_path, subtitle_filter
             )
         )
         
@@ -1337,9 +1487,20 @@ class VideoPreview(QWidget):
         
         # Apply filters and update the filter overlay (not the hidden label)
         processed = self.apply_filters(image)
-        sub_text = self._get_current_subtitle()
         self.filter_overlay.set_image(processed)
-        self.filter_overlay.set_subtitle(sub_text)
+        
+        # For non-DVD sources, use QPainter overlay for subtitle display.
+        # FFmpeg may also burn subtitles into the frame but the overlay is
+        # the reliable fallback for external SRT/ASS files.
+        # For DVD sources, the overlay can't handle bitmap subs so skip it.
+        is_dvd_source = (self.app_state.dvd.is_dvd_source
+                         and self.current_video_path
+                         and self.current_video_path.endswith('.txt'))
+        if not is_dvd_source:
+            sub_text = self._get_current_subtitle()
+            self.filter_overlay.set_subtitle(sub_text)
+        else:
+            self.filter_overlay.set_subtitle("")
         
         # Debug log to trace processed preview
         self.app_state.log(f"Preview updated: original={image.width()}x{image.height()}, processed={processed.width()}x{processed.height()}", "DEBUG")
