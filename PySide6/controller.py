@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from models import AppState
-from handbrake_handler import HandBrakeHandler, ISO_TO_HB_LANGUAGE
+from handbrake_handler import HandBrakeHandler, ISO639_1_TO_639_2
 
 
 class VideoController:
@@ -1233,44 +1233,55 @@ class VideoController:
                     )
                     title_number = best['title_number']
 
-        # Map subtitle track by language code using HandBrake's own scan
+        # Map subtitle track by ISO language code using HandBrake's own scan
         # HandBrake uses 1-based track numbers, app uses 0-based indices.
-        # When mapping succeeds, we use HandBrake's direct track number.
-        # When it fails, we fall back to index + 1.
+        # The app has ISO 639-1 (2-letter) codes from IFO, HandBrake JSON gives
+        # ISO 639-2 (3-letter) codes. Map app code to 3-letter and find matching track.
         mapped_by_language = False
         if subtitle_track >= 0 and hasattr(self.app_state.dvd, 'subtitle_tracks'):
             tracks = self.app_state.dvd.subtitle_tracks
             if subtitle_track < len(tracks):
                 selected_lang = tracks[subtitle_track].get('language', '')
                 if selected_lang:
-                    hb_subtitles = handler.scan_subtitles(dvd_folder, title_number)
-                    if hb_subtitles:
-                        matched_track = None
-                        for hb_sub in hb_subtitles:
-                            hb_lang = hb_sub.get('language', '')
-                            if hb_lang.lower() == selected_lang.lower():
-                                matched_track = hb_sub['track']
-                                break
-                            hb_name = ISO_TO_HB_LANGUAGE.get(selected_lang, '').lower()
-                            if hb_name and hb_lang.lower() == hb_name:
-                                matched_track = hb_sub['track']
-                                break
-                        if matched_track is not None:
-                            self.app_state.log(
-                                f"Mapped subtitle by language: app '{selected_lang}' → HandBrake track {matched_track}",
-                                "INFO"
-                            )
-                            subtitle_track = matched_track
-                            mapped_by_language = True
-                        else:
-                            self.app_state.log(
-                                f"Could not match subtitle language '{selected_lang}' in HandBrake scan, "
-                                f"falling back to index-based mapping",
-                                "WARN"
-                            )
+                    hb_code = ISO639_1_TO_639_2.get(selected_lang, '')
+                    if hb_code:
+                        self.app_state.log(
+                            f"Looking up subtitle: app code '{selected_lang}' → ISO 639-2 '{hb_code}'",
+                            "INFO"
+                        )
+                        hb_subtitles = handler.scan_subtitles(dvd_folder, title_number)
+                        if hb_subtitles:
+                            matched_track = None
+                            for hb_sub in hb_subtitles:
+                                if hb_sub.get('language_code', '') == hb_code:
+                                    matched_track = hb_sub['track']
+                                    break
+                            if matched_track is not None:
+                                self.app_state.log(
+                                    f"Mapped subtitle by ISO code: app '{selected_lang}' → "
+                                    f"HandBrake track {matched_track} (code '{hb_code}')",
+                                    "INFO"
+                                )
+                                subtitle_track = matched_track
+                                mapped_by_language = True
+                            else:
+                                self.app_state.log(
+                                    f"Could not find HandBrake track with code '{hb_code}' "
+                                    f"(app lang '{selected_lang}'), falling back to index mapping",
+                                    "WARN"
+                                )
+                    else:
+                        self.app_state.log(
+                            f"Unknown language code '{selected_lang}', falling back to index mapping",
+                            "WARN"
+                        )
 
         # Fall back to index-based mapping (0-based → 1-based)
         if subtitle_track >= 0 and not mapped_by_language:
+            self.app_state.log(
+                f"Falling back to index mapping: app index {subtitle_track} → HB track {subtitle_track + 1}",
+                "WARN"
+            )
             subtitle_track = subtitle_track + 1
 
         self.app_state.log(f"DVD folder: {dvd_folder}, Title: {title_number}, Subtitle track: {subtitle_track}", "INFO")
