@@ -219,12 +219,15 @@ class GStreamerBackend(MediaBackend):
                 params.append("nvh265enc")
             else:
                 params.append("nvh264enc")
-            if encoding.use_original_bitrate or (encoding.target_bitrate and encoding.target_bitrate.isdigit()):
+            if encoding.use_original_bitrate or (encoding.target_bitrate and encoding.target_bitrate.isdigit() and encoding.target_bitrate != "0"):
                 br = self.get_video_bitrate(self.app_state.current_video_path or "")
                 if not br:
                     br = int(encoding.target_bitrate) if encoding.target_bitrate and encoding.target_bitrate.isdigit() else 2000
+                params.append("rc-mode=cbr")
                 params.append(f"bitrate={br}")
             else:
+                # const-quality only takes effect when rc-mode=vbr
+                params.append("rc-mode=vbr")
                 params.append(f"const-quality={encoding.cq}")
             params.append(f"preset={encoding.gpu_preset}")
             params.append("gop-size=144")
@@ -239,7 +242,12 @@ class GStreamerBackend(MediaBackend):
                     br = int(encoding.target_bitrate) if encoding.target_bitrate and encoding.target_bitrate.isdigit() else 2000
                 params.append(f"bitrate={br}")
             else:
-                params.append(f"quantizer={encoding.cq}")
+                if "x265" in encoder:
+                    # x265enc uses `qp` (quantization parameter), NOT `quantizer`
+                    params.append(f"qp={encoding.cq}")
+                else:
+                    # x264enc uses `quantizer`
+                    params.append(f"quantizer={encoding.cq}")
             params.append(f"speed-preset={encoding.cpu_preset}")
             if encoding.cpu_tune != "none":
                 tune_flags = {"film": 1, "animation": 2, "grain": 4, "stillimage": 8,
@@ -248,8 +256,14 @@ class GStreamerBackend(MediaBackend):
                 if flag:
                     params.append(f"tune={flag}")
             params.append("key-int-max=144")
-            params.append("bframes=0")
-            params.append("byte-stream=true")
+            if "x264" in encoder:
+                params.append("bframes=0")
+                params.append("byte-stream=true")
+            elif "x265" in encoder:
+                # x265enc outputs byte-stream; mp4mux requires hvc1/hev1 format.
+                # h265parse converts byte-stream to hvc1 for the muxer.
+                params.append("h265parse")
+                params.append("config-interval=-1")
 
         return params
 

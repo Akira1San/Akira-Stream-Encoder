@@ -914,6 +914,15 @@ class EncodingPanel(QWidget):
         """Handle CQ slider change"""
         self.app_state.encoding.cq = value
         self.cq_label.setText(str(value))
+        # CQ mode is mutually exclusive with bitrate mode.
+        # Clear the target bitrate and uncheck "Use Original Bitrate"
+        # so the backend knows to use CQ (const-quality) instead of CBR.
+        self.app_state.encoding.target_bitrate = ""
+        self.app_state.encoding.use_original_bitrate = False
+        self.orig_br_check.setChecked(False)
+        self.bitrate_edit.setText("")
+        self.bitrate_edit.setEnabled(True)
+        self.bitrate_edit.setStyleSheet("")
         self.settings_changed.emit()
         
     def on_bitrate_mode_changed(self, text):
