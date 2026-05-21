@@ -3,7 +3,7 @@ GStreamer CLI Backend - Implements MediaBackend using gst-launch-1.0 / gst-disco
 
 Known limitations (logged as warnings; switch to FFmpeg to resolve):
 - DVD VOB concat files (ffmpeg concat demuxer format)
-- Trim/clip extraction (start_time/duration not supported by gst-launch)
+- Trim/clip extraction falls back to FFmpeg subprocess when requested
 - Fast cut (stream copy not supported by GStreamer)
 - Subtitle burning (DVD via dvdspu+dvdsubdec, SRT/ASS via subparse+textoverlay)
 - Various filters: delogo, sharpen, CAS, deblock, deblock, audio denoise, dynaudnorm, audio compressor, white balance
@@ -14,6 +14,7 @@ import subprocess
 from typing import Optional, List
 
 from backends.base import MediaBackend
+from backends.ffmpeg import FFmpegBackend
 
 
 class GStreamerBackend(MediaBackend):
@@ -382,8 +383,7 @@ class GStreamerBackend(MediaBackend):
             "!", "subparse"
         ]
 
-    def _build_pipeline_list(self, input_path: str, output_path: str,
-                             start_time=None, duration=None) -> List[str]:
+    def _build_pipeline_list(self, input_path: str, output_path: str) -> List[str]:
         encoding = self.app_state.encoding
         tracks = self.app_state.tracks
 
@@ -425,10 +425,6 @@ class GStreamerBackend(MediaBackend):
             self.app_state.log(
                 f"GStreamer: burning text subtitles from {os.path.basename(sub_path) if sub_path else 'unknown'}", "INFO")
 
-        if start_time or duration:
-            self.app_state.log("[GStreamer] Trim/clip extraction not supported. "
-                               "Encoding full file without trimming. Switch to FFmpeg for trim support.", "WARN")
-
         pipeline = [self._gst_path, "-e"]
 
         # Determine source + demuxer
@@ -445,7 +441,17 @@ class GStreamerBackend(MediaBackend):
             aud_pad = "audio_00"
             sub_pad = f"subpicture_{self.app_state.dvd.selected_subtitle_index:02x}"
         else:
-            demuxer = "qtdemux"
+            ext = os.path.splitext(input_path)[1].lower()
+            if ext == ".mkv":
+                demuxer = "matroskademux"
+            elif ext == ".avi":
+                demuxer = "avidemux"
+            elif ext in (".ts", ".mts", ".m2ts"):
+                demuxer = "tsdemux"
+            elif ext in (".webm",):
+                demuxer = "matroskademux"
+            else:
+                demuxer = "qtdemux"  # .mp4, .mov, .m4v etc.
             vid_pad = "video_0"
             aud_pad = "audio_0"
             sub_pad = "subtitle_0"
@@ -564,7 +570,19 @@ class GStreamerBackend(MediaBackend):
 
     def encode(self, input_path: str, output_path: str,
                app_state, start_time=None, duration=None) -> subprocess.Popen:
-        pipeline = self._build_pipeline_list(input_path, output_path, start_time, duration)
+        if start_time and duration:
+            self.app_state.log(
+                "GStreamer: trimming not supported in gst-launch pipeline. "
+                "Falling back to FFmpeg for trim encode.", "WARN")
+            fb = FFmpegBackend(app_state)
+            cmd = fb.build_command(input_path, output_path, start_time, duration)
+            self.app_state.log(f"FFmpeg fallback command: {' '.join(cmd)}", "INFO")
+            return subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                universal_newlines=True, bufsize=1
+            )
+
+        pipeline = self._build_pipeline_list(input_path, output_path)
         self.app_state.log(f"GStreamer pipeline: {' '.join(pipeline)}", "INFO")
         return subprocess.Popen(
             pipeline, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -577,7 +595,10 @@ class GStreamerBackend(MediaBackend):
 
     def build_command(self, input_path: str, output_path: str,
                       start_time=None, duration=None) -> List[str]:
-        return self._build_pipeline_list(input_path, output_path, start_time, duration)
+        if start_time and duration:
+            fb = FFmpegBackend(self.app_state)
+            return fb.build_command(input_path, output_path, start_time, duration)
+        return self._build_pipeline_list(input_path, output_path)
 
     def fast_cut(self, input_path: str, output_path: str,
                  start_time=None, duration=None) -> subprocess.Popen:

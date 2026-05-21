@@ -29,11 +29,17 @@ class EncodingPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        # Engine indicator
+        # Engine selector
         engine_layout = QHBoxLayout()
         engine_label = QLabel("Engine:")
         engine_label.setStyleSheet("font-weight: bold;")
         engine_layout.addWidget(engine_label)
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItems(["FFmpeg", "GStreamer"])
+        current = self.app_state.media_engine
+        self.engine_combo.setCurrentIndex(0 if current == "ffmpeg" else 1)
+        self.engine_combo.setMinimumWidth(120)
+        engine_layout.addWidget(self.engine_combo)
         self.engine_indicator = QLabel("FFmpeg")
         self.engine_indicator.setStyleSheet("color: #4CAF50; font-weight: bold;")
         engine_layout.addWidget(self.engine_indicator)
@@ -597,6 +603,7 @@ class EncodingPanel(QWidget):
     def connect_signals(self):
         """Connect UI signals to handlers"""
         self.app_state.media_engine_changed.connect(self.on_engine_changed)
+        self.engine_combo.currentIndexChanged.connect(self.on_engine_combo_changed)
         self.gpu_check.toggled.connect(self.on_gpu_changed)
         self.encoder_combo.currentTextChanged.connect(self.on_encoder_changed)
         self.video_mode_combo.currentTextChanged.connect(self.on_video_mode_changed)
@@ -783,10 +790,17 @@ class EncodingPanel(QWidget):
         self.settings_changed.emit()
         
     def on_engine_changed(self, engine):
+        idx = 0 if engine == "ffmpeg" else 1
+        if self.engine_combo.currentIndex() != idx:
+            self.engine_combo.setCurrentIndex(idx)
         self.engine_indicator.setText("GStreamer" if engine == "gstreamer" else "FFmpeg")
         self.engine_indicator.setStyleSheet(
             "color: #2196F3; font-weight: bold;" if engine == "gstreamer" else "color: #4CAF50; font-weight: bold;"
         )
+
+    def on_engine_combo_changed(self, index):
+        engine = "gstreamer" if index == 1 else "ffmpeg"
+        self.app_state.media_engine = engine
 
     def on_gpu_changed(self, checked):
         """Handle GPU checkbox change"""

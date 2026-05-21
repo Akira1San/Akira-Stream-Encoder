@@ -197,7 +197,7 @@ Returns JSON with duration, streams (codec, resolution, sample rate), container 
 #### Features NOT supported in GStreamer mode (graceful fallback)
 
 These will log a warning and suggest switching to FFmpeg:
-- Trim/clip extraction (start_time/duration not supported by gst-launch)
+- Trim/clip extraction (falls back to FFmpeg subprocess — gst-launch has no native trim support)
 - Fast cut (stream copy)
 - `sharpen`, `delogo`, `audiocompressor`
 - `dynaudnorm` (dynamic audio normalizer)
@@ -453,13 +453,13 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [ ] **libplacebo tonemap**: `glcolorbalance` + `gltransformation` pipeline
 - [ ] **drawbox / clockoverlay**: preview overlay equivalent
 - [ ] **Video copy mode**: `identity` element or capsfilter passthrough
-- [ ] **Extract clip mode**: `videotrim`/`audiotrim` for segment extraction
+- [ ] **Extract clip mode**: Implement in-process GStreamer pipeline via Python bindings (`gi.repository.Gst`) that sends segment events to `videosegmentclip`/`audiosegmentclip` for native trimming
 - [x] **Refactor**: `video_preview.py`, `trim_controller.py`, `video_validator.py` to route through backend
 - [x] **Refactor remaining files**: `config_tab.py` (detect_and_show_info, _extract_subs_from_video, _extract_track_from_video, _do_extract_track, _get_media_params), `encoding_settings.py` (get_external_audio_info), `tracks_panel.py` (detect_tracks), `dvd_handler.py` (_get_video_duration, _get_title_audio_tracks) — all now route through backend
 - [ ] **GStreamer Python bindings for DVD subtitle preview**: Use `gi.repository.Gst` (python3-gi) to create an in-process pipeline that seeks to a timestamp, composites DVD subtitles via `dvdspu`, and captures a single frame to a buffer. Required packages: `python3-gi`, `gstreamer1.0-plugins-bad`. Similar to how HandBrake renders previews internally instead of using a pipe-to-image subprocess.
 
 ### Unsupported (graceful skip + log warning, already stubbed)
-- [x] Trim/clip extraction (start_time/duration)
+- [x] Trim/clip extraction (falls back to FFmpeg subprocess; native trim via Python bindings is a future task — see Extract clip mode above)
 - [x] Fast cut (stream copy)
 - [x] sharpen, delogo, audiocompressor
 - [x] deblock, audio denoise (afftdn), dynaudnorm
