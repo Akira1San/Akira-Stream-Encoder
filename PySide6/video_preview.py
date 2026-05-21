@@ -1167,20 +1167,16 @@ class VideoPreview(QWidget):
         return f"subtitles='{escaped_path}'{force_style}"
     
     def _build_dvd_subtitle_filter(self, vob_path: str, sub_idx: int) -> str:
-        """DVD bitmap subtitles are not supported by FFmpeg's subtitles filter.
+        """DVD bitmap subtitles cannot be previewed in the capture frame overlay.
         
-        FFmpeg's 'subtitles' filter (which uses libass) only supports text-based
-        subtitle formats (SRT, ASS, SSA). DVD subtitles are bitmap-based
-        (dvd_subtitle codec), which the filter explicitly rejects with:
-        'Only text based subtitles are currently supported'
-        
-        No container format or extraction method can work around this FFmpeg
-        limitation. We fall back to no subtitle overlay in the preview.
+        Frame capture uses FFmpeg pipe-to-image regardless of engine, and
+        FFmpeg's 'subtitles' filter only supports text-based formats (SRT/ASS).
+        DVD subtitles are bitmap-based (dvd_subtitle codec) which the filter
+        explicitly rejects. Subtitles will appear correctly in the final encode.
         """
         self.app_state.log(
-            "DVD subtitle preview not supported: FFmpeg's subtitles filter "
-            "only handles text-based subtitles (SRT/ASS), not DVD bitmap subtitles. "
-            "Subtitles will appear correctly in the final encode via HandBrake.",
+            "DVD subtitle preview not supported: frame capture can't overlay "
+            "DVD bitmap subtitles. They will appear correctly in the final encode.",
             "WARN"
         )
         return ""
