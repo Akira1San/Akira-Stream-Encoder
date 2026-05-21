@@ -504,7 +504,16 @@ class GStreamerBackend(MediaBackend):
                 # Video -> textoverlay
                 pipeline += [f"demux.{vid_pad}", "!", "queue", "!", "decodebin", "!",
                              "videoconvert", "!", "queue", "!",
-                             "textoverlay", "name=txt", f"font-desc={font_desc}"]
+                             "textoverlay", "name=txt", "auto-resize=false",
+                             f"font-desc={font_desc}"]
+                if subs.outline_width > 0:
+                    self.app_state.log(
+                        "GStreamer: outline width not supported by textoverlay "
+                        "(use FFmpeg engine for outline width control)", "WARN")
+                ol_color = subs.outline_color.lstrip("#")
+                if len(ol_color) == 6:
+                    argb = int("ff" + ol_color, 16)
+                    pipeline.append(f"outline-color={argb}")
                 if subs.position == "top":
                     pipeline.append("valignment=top")
                 elif subs.position == "center":
