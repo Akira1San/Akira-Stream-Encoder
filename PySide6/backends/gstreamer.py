@@ -380,7 +380,7 @@ class GStreamerBackend(MediaBackend):
         return [
             "filesrc", f"location={sub_path}",
             "!", "typefind",
-            "!", "subparse"
+            "!", "subparse", "subtitle-encoding=utf-8"
         ]
 
     def _build_pipeline_list(self, input_path: str, output_path: str) -> List[str]:
