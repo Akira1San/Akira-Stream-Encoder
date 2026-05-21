@@ -145,6 +145,7 @@ class SplitSettings:
     """Video splitting settings"""
     enabled: bool = False
     split_duration_min: int = 30
+    split_subs: bool = False
     # Fast comparison split (single split at specific time)
     fast_split_enabled: bool = False
     fast_split_minutes: int = 5  # 1, 2, 5, or 10 minutes

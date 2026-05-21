@@ -55,6 +55,13 @@ class GeometryPanel(QWidget):
         chunk_layout.addStretch()
         split_layout.addLayout(chunk_layout)
         
+        # Include subtitles
+        self.split_subs_check = QCheckBox("Include Subtitles")
+        self.split_subs_check.setChecked(self.app_state.split.split_subs)
+        self.split_subs_check.setToolTip("Split subtitle file alongside video segments")
+        self.split_subs_check.setEnabled(self.app_state.split.enabled)
+        split_layout.addWidget(self.split_subs_check)
+        
         layout.addWidget(split_group)
         
         # === Fast Split Section (for comparison) ===
@@ -143,6 +150,7 @@ class GeometryPanel(QWidget):
         """Connect UI signals to handlers"""
         self.split_check.toggled.connect(self.on_split_toggled)
         self.chunk_spin.valueChanged.connect(self.on_chunk_changed)
+        self.split_subs_check.toggled.connect(self.on_split_subs_toggled)
         self.fast_split_check.toggled.connect(self.on_fast_split_toggled)
         self.fast_split_combo.currentIndexChanged.connect(self.on_fast_split_time_changed)
         self.extract_check.toggled.connect(self.on_extract_toggled)
@@ -153,11 +161,17 @@ class GeometryPanel(QWidget):
         """Handle split checkbox toggle"""
         self.app_state.split.enabled = checked
         self.chunk_spin.setEnabled(checked)
+        self.split_subs_check.setEnabled(checked)
         self.settings_changed.emit()
         
     def on_chunk_changed(self, value):
         """Handle chunk length change"""
         self.app_state.split.split_duration_min = value
+        self.settings_changed.emit()
+        
+    def on_split_subs_toggled(self, checked):
+        """Handle split subtitles toggle"""
+        self.app_state.split.split_subs = checked
         self.settings_changed.emit()
         
     def on_fast_split_toggled(self, checked):

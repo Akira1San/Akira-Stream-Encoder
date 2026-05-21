@@ -1,6 +1,8 @@
 """
 Video Workspace - Main Video Tab layout and panel management (PySide6)
 """
+import os
+import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QScrollArea, QFrame, QLabel, QPushButton, QTextEdit
@@ -649,7 +651,73 @@ class VideoWorkspace(QWidget):
         # Find and select the cut in the list
         self.trim_panel.select_cut_by_id(cut_id)
         self.app_state.log(f"Selected cut at {self._format_time(position)}", "INFO")
-        
+
+    def _split_subtitle_file(self, sub_path: str, output_path: str, start_sec: float, end_sec: float):
+        """Split an SRT subtitle file to only include subtitles within [start_sec, end_sec)"""
+        if not os.path.exists(sub_path):
+            self.app_state.log(f"Subtitle file not found: {sub_path}", "WARN")
+            return
+        ext = os.path.splitext(sub_path)[1].lower()
+        if ext != ".srt":
+            self.app_state.log(f"Subtitle splitting only supports SRT format, got {ext}", "WARN")
+            return
+        try:
+            with open(sub_path, "r", encoding="utf-8-sig") as f:
+                content = f.read()
+        except Exception as e:
+            self.app_state.log(f"Failed to read subtitle file: {e}", "ERROR")
+            return
+
+        def _parse_srt_time(t_str: str) -> float:
+            m = re.match(r"(\d{2}):(\d{2}):(\d{2})[.,](\d{3})", t_str.strip())
+            if not m:
+                return -1
+            h, mn, s, ms = map(int, m.groups())
+            return h * 3600 + mn * 60 + s + ms / 1000
+
+        def _format_srt_time(t: float) -> str:
+            h = int(t // 3600)
+            m = int((t % 3600) // 60)
+            s = int(t % 60)
+            ms = int((t - int(t)) * 1000)
+            return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+        blocks = re.split(r"\n\s*\n", content.strip())
+        new_blocks = []
+        idx = 1
+        for block in blocks:
+            lines = block.strip().split("\n")
+            if len(lines) < 3:
+                continue
+            time_line = lines[1]
+            m = re.match(
+                r"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})",
+                time_line,
+            )
+            if not m:
+                continue
+            sub_start = _parse_srt_time(m.group(1))
+            sub_end = _parse_srt_time(m.group(2))
+            if sub_start < 0 or sub_end < 0:
+                continue
+            if sub_start >= end_sec or sub_end <= start_sec:
+                continue
+            new_start = max(sub_start - start_sec, 0)
+            new_end = min(sub_end, end_sec) - start_sec
+            if new_end <= new_start:
+                continue
+            lines[0] = str(idx)
+            lines[1] = f"{_format_srt_time(new_start)} --> {_format_srt_time(new_end)}"
+            new_blocks.append("\n".join(lines))
+            idx += 1
+
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write("\n\n".join(new_blocks) + "\n")
+            self.app_state.log(f"Split subtitle saved: {output_path}", "INFO")
+        except Exception as e:
+            self.app_state.log(f"Failed to write split subtitle: {e}", "ERROR")
+
     def on_encode_clicked(self):
         """Handle encode button click"""
         if not self.app_state.input_files:
@@ -668,11 +736,45 @@ class VideoWorkspace(QWidget):
         # Start encoding in a separate thread to keep UI responsive
         import threading
         def encode_worker():
+            split = self.app_state.split
+            subs = self.app_state.subtitles
             for input_file in self.app_state.input_files:
-                output_path = self.controller.generate_output_path(input_file)
-                success = self.controller.encode_file(input_file, output_path)
-                if not success:
-                    self.app_state.log(f"Failed to encode: {input_file}", "ERROR")
+                if split.enabled:
+                    # Split by duration
+                    duration = self.controller.get_video_duration(input_file)
+                    if duration <= 0:
+                        self.app_state.log(f"Failed to get duration for {input_file}", "ERROR")
+                        continue
+                    chunk_sec = split.split_duration_min * 60
+                    base = os.path.splitext(input_file)[0]
+                    out_base = os.path.splitext(self.controller.generate_output_path(input_file))[0]
+                    container = self.app_state.encoding.container
+                    n_segments = int((duration + chunk_sec - 1) // chunk_sec)
+                    for i in range(n_segments):
+                        seg_start = i * chunk_sec
+                        seg_end = min(seg_start + chunk_sec, duration)
+                        dur = seg_end - seg_start
+                        seg_output = f"{out_base}_Part{i+1:02d}.{container}"
+                        self.app_state.log(
+                            f"Segment {i+1}/{n_segments}: {self._format_time(seg_start)} - {self._format_time(seg_end)}", "INFO")
+                        # Split subtitles if enabled
+                        if split.split_subs and subs.burn_subs:
+                            sub_path = self.controller.backend.find_subtitle_file(input_file)
+                            if sub_path:
+                                seg_sub = f"{base}_Part{i+1:02d}.srt"
+                                self._split_subtitle_file(sub_path, seg_sub, seg_start, seg_end)
+                                subs.selected_subtitle = seg_sub
+                        success = self.controller.encode_file(
+                            input_file, seg_output,
+                            start_time=str(int(seg_start)), duration=str(int(dur)))
+                        if not success:
+                            self.app_state.log(f"Failed to encode segment {i+1} of {input_file}", "ERROR")
+                            break
+                else:
+                    output_path = self.controller.generate_output_path(input_file)
+                    success = self.controller.encode_file(input_file, output_path)
+                    if not success:
+                        self.app_state.log(f"Failed to encode: {input_file}", "ERROR")
             
             # Re-enable encode button when done
             self.encode_btn.setVisible(True)
