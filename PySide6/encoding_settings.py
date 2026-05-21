@@ -756,69 +756,12 @@ class EncodingPanel(QWidget):
             self.external_audio_info.setStyleSheet("color: red; font-size: 11px;")
             
     def get_external_audio_info(self, file_path: str) -> dict:
-        """Get information about external audio file using ffprobe"""
-        import subprocess
-        import json
-        
-        ffprobe_path = self.app_state.ffprobe_path
-        ffmpeg_path = self.app_state.ffmpeg_path
-        
-        # Try to find ffprobe
-        if ffmpeg_path != "ffmpeg" and os.path.exists(ffmpeg_path):
-            base_dir = os.path.dirname(ffmpeg_path)
-            candidate = os.path.join(base_dir, "ffprobe.exe" if os.name == 'nt' else "ffprobe")
-            if os.path.exists(candidate):
-                ffprobe_path = candidate
-        
-        if not ffprobe_path:
-            ffprobe_path = "ffprobe"
-        
+        """Get information about external audio file via backend"""
         try:
-            cmd = [
-                ffprobe_path,
-                "-v", "error",
-                "-show_entries", "stream=index,codec_name,codec_type,channels,sample_rate:format=duration",
-                "-of", "json",
-                file_path
-            ]
-            
-            result = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, timeout=30
-            )
-            
-            if result.returncode == 0:
-                data = json.loads(result.stdout)
-                
-                # Find audio stream
-                audio_stream = None
-                for stream in data.get('streams', []):
-                    if stream.get('codec_type') == 'audio':
-                        audio_stream = stream
-                        break
-                
-                if audio_stream:
-                    info = {
-                        'codec': audio_stream.get('codec_name', 'unknown'),
-                        'channels': audio_stream.get('channels', 0),
-                        'sample_rate': audio_stream.get('sample_rate', '')
-                    }
-                    
-                    # Get duration from format
-                    if data.get('format') and data['format'].get('duration'):
-                        duration_sec = float(data['format']['duration'])
-                        mins, secs = divmod(int(duration_sec), 60)
-                        hours, mins = divmod(mins, 60)
-                        if hours > 0:
-                            info['duration'] = f"{hours}:{mins:02d}:{secs:02d}"
-                        else:
-                            info['duration'] = f"{mins}:{secs:02d}"
-                    
-                    return info
+            return self.app_state.backend.get_external_audio_info(file_path)
         except Exception as e:
             self.app_state.log(f"Failed to read audio info: {e}", "WARN")
-        
-        return None
+            return None
         
     def on_clear_external_audio(self):
         """Handle clear button click to remove external audio"""

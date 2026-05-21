@@ -737,11 +737,11 @@ class ConfigTab(QWidget):
         if not folder:
             return
             
-        # Initialize DVD handler
         handler = DVDHandler(
             self.app_state.ffmpeg_path,
             self.app_state.ffprobe_path,
-            self.app_state.log
+            self.app_state.log,
+            backend=self.app_state.backend
         )
         
         # Check if it's a valid DVD folder
@@ -885,45 +885,23 @@ class ConfigTab(QWidget):
         self.detect_and_show_info(file_path)
         
     def detect_and_show_info(self, filepath):
-        """Detect and display file information"""
+        """Detect and display file information via backend"""
         self.app_state.log(f"Getting info for {os.path.basename(filepath)}...", "INFO")
         
-        cmd = [
-            self.app_state.ffmpeg_path, "-i", filepath,
-            "-f", "null", "-"
-        ]
-        
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
-            stderr = result.stderr
-            
-            # Parse info lines
+            info = self.app_state.backend.get_file_info(filepath)
             info_text = []
             
-            # Resolution
-            match = re.search(r"\d{3,4}x\d{3,4}", stderr)
-            if match:
-                info_text.append(f"Resolution: {match.group()}")
-
-            # Codec
-            match = re.search(r"Stream #0:0.*Video: (\w+)", stderr)
-            if match:
-                info_text.append(f"Codec: {match.group(1)}")
-
-            # Bitrate
-            match = re.search(r"bitrate: (\d+) kb/s", stderr)
-            if match:
-                info_text.append(f"Bitrate: {match.group(1)} kbps")
+            if info.get('resolution'):
+                info_text.append(f"Resolution: {info['resolution']}")
+            if info.get('codec'):
+                info_text.append(f"Codec: {info['codec']}")
+            if info.get('bitrate'):
+                info_text.append(f"Bitrate: {info['bitrate']} kbps")
+            if info.get('duration'):
+                info_text.append(f"Duration: {info['duration']}")
             
-            # Duration
-            match = re.search(r"Duration: (\d{2}:\d{2}:\d{2})", stderr)
-            if match:
-                info_text.append(f"Duration: {match.group(1)}")
-
-            # Construct display string
             display_msg = " | ".join(info_text) if info_text else "Could not parse video info."
-            
-            # Show in Label AND Log
             self.info_label.setText(display_msg)
             self.app_state.log(f"File Info: {display_msg}", "INFO")
             
@@ -984,26 +962,11 @@ class ConfigTab(QWidget):
                 self._extract_subs_from_dvd(folder_path.toLocalFile())
     
     def _extract_subs_from_video(self, video_path):
-        """Extract subtitles from a video file"""
-        import tempfile
-        
+        """Extract subtitles from a video file via backend"""
         self.app_state.log(f"Extracting subtitles from: {os.path.basename(video_path)}", "INFO")
         
-        # Get subtitle streams using ffprobe
-        cmd = [
-            self.app_state.ffprobe_path,
-            "-v", "error",
-            "-show_entries", "stream=index,codec_type,codec_name:stream_tags=language",
-            "-of", "json",
-            video_path
-        ]
-        
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
-            import json
-            data = json.loads(result.stdout)
-            
-            subtitle_streams = [s for s in data.get('streams', []) if s.get('codec_type') == 'subtitle']
+            subtitle_streams = self.app_state.backend.extract_subtitle_streams(video_path)
             
             if not subtitle_streams:
                 self.app_state.log("No subtitle streams found in video file", "WARN")
@@ -1012,7 +975,6 @@ class ConfigTab(QWidget):
             
             self.app_state.log(f"Found {len(subtitle_streams)} subtitle stream(s)", "INFO")
             
-            # Use video file's directory for output
             video_dir = os.path.dirname(video_path)
             video_name = os.path.splitext(os.path.basename(video_path))[0]
             output_dir = os.path.join(video_dir, f"{video_name}_subs")
@@ -1021,26 +983,13 @@ class ConfigTab(QWidget):
             extracted_files = []
             
             for i, stream in enumerate(subtitle_streams):
-                stream_idx = stream.get('index', i)
                 lang = stream.get('tags', {}).get('language', f'track{i}')
-                codec = stream.get('codec_name', 'unknown')
-                
                 output_file = os.path.join(output_dir, f"sub_{i}_{lang}.srt")
                 
-                # Extract subtitle
-                cmd = [
-                    self.app_state.ffmpeg_path,
-                    "-y", "-i", video_path,
-                    "-map", f"0:s:{i}",
-                    "-c:s", "srt",
-                    output_file
-                ]
-                
-                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
-                
-                if result.returncode == 0 and os.path.exists(output_file):
-                    extracted_files.append(output_file)
-                    self.app_state.log(f"Extracted: {os.path.basename(output_file)}", "SUCCESS")
+                result = self.app_state.backend.extract_subtitle(video_path, i, output_file)
+                if result and os.path.exists(result):
+                    extracted_files.append(result)
+                    self.app_state.log(f"Extracted: {os.path.basename(result)}", "SUCCESS")
             
             if extracted_files:
                 msg = f"Extracted {len(extracted_files)} subtitle(s) to:\n{output_dir}"
@@ -1064,7 +1013,8 @@ class ConfigTab(QWidget):
         handler = DVDHandler(
             ffmpeg_path=self.app_state.ffmpeg_path,
             ffprobe_path=self.app_state.ffprobe_path,
-            log_callback=self.app_state.log
+            log_callback=self.app_state.log,
+            backend=self.app_state.backend
         )
         
         # Check if it's a VIDEO_TS folder
@@ -1140,30 +1090,18 @@ class ConfigTab(QWidget):
         self._extract_track_from_video(file_path)
     
     def _extract_track_from_video(self, video_path):
-        """Extract a track from a video file"""
+        """Extract a track from a video file via backend"""
         self.app_state.log(f"Analyzing tracks in: {os.path.basename(video_path)}", "INFO")
         
-        # Get all streams using ffprobe
-        cmd = [
-            self.app_state.ffprobe_path,
-            "-v", "error",
-            "-show_entries", "stream=index,codec_type,codec_name,width,height:stream_tags=language",
-            "-of", "json",
-            video_path
-        ]
-        
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            data = self.app_state.backend.get_streams(video_path)
+            streams = data.get('streams', []) if data else []
             
-            if result.returncode != 0:
-                self.app_state.log(f"ffprobe error: {result.stderr}", "ERROR")
-                QMessageBox.warning(self, "Extract Track", f"Error analyzing file: {result.stderr}")
+            if not streams:
+                self.app_state.log("No stream information available from backend", "WARN")
+                QMessageBox.warning(self, "Extract Track", "Failed to analyze file: no stream data.")
                 return
             
-            data = json.loads(result.stdout)
-            streams = data.get('streams', [])
-            
-            # Separate video and audio tracks
             video_tracks = []
             audio_tracks = []
             
@@ -1176,144 +1114,55 @@ class ConfigTab(QWidget):
                     resolution = f"{width}x{height}" if width and height else ""
                     video_tracks.append({
                         'index': stream.get('index'),
-                        'video_index': len(video_tracks),  # 0-based position among video streams
+                        'video_index': len(video_tracks),
                         'codec': stream.get('codec_name', 'unknown').upper(),
                         'resolution': resolution
                     })
                 elif codec_type == 'audio':
+                    channels = stream.get('channels', 0)
+                    ch_str = f"{channels}ch" if channels else "Stereo"
                     audio_tracks.append({
                         'index': stream.get('index'),
-                        'audio_index': len(audio_tracks),  # 0-based position among audio streams
+                        'audio_index': len(audio_tracks),
                         'codec': stream.get('codec_name', 'unknown').upper(),
-                        'channels': 'Stereo',
+                        'channels': ch_str,
                         'language': stream.get('tags', {}).get('language', 'unknown')
                     })
-            
-            # Get more detailed audio info
-            if audio_tracks:
-                cmd_audio = [
-                    self.app_state.ffprobe_path,
-                    "-v", "error",
-                    "-select_streams", "a",
-                    "-show_entries", "stream=index,codec_name,channels:stream_tags=language",
-                    "-of", "json",
-                    video_path
-                ]
-                try:
-                    result_audio = subprocess.run(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
-                    if result_audio.returncode == 0:
-                        audio_data = json.loads(result_audio.stdout)
-                        for i, stream in enumerate(audio_data.get('streams', [])):
-                            if i < len(audio_tracks):
-                                channels = stream.get('channels', 0)
-                                ch_str = f"{channels}ch" if channels else "Stereo"
-                                audio_tracks[i]['channels'] = ch_str
-                except Exception:
-                    pass
             
             if not video_tracks and not audio_tracks:
                 self.app_state.log("No video or audio tracks found", "WARN")
                 QMessageBox.information(self, "Extract Track", "No video or audio tracks found in the file.")
                 return
             
-            # Show selection dialog
             dialog = TrackSelectionDialog(video_tracks, audio_tracks, self)
             if dialog.exec() == QDialog.Accepted:
                 selected = dialog.get_selected_track()
                 if selected:
                     self._do_extract_track(video_path, selected)
-            
-        except json.JSONDecodeError as e:
-            self.app_state.log(f"Failed to parse ffprobe output: {e}", "ERROR")
-            QMessageBox.warning(self, "Extract Track", f"Failed to analyze file: {e}")
+                    
         except Exception as e:
             self.app_state.log(f"Error extracting track: {e}", "ERROR")
             QMessageBox.warning(self, "Extract Track", f"Error: {e}")
     
     def _do_extract_track(self, video_path, track_info):
-        """Perform the actual track extraction"""
-        # Get output folder
+        """Perform the actual track extraction via backend"""
         output_folder = self.app_state.output_folder if self.app_state.output_folder else os.path.dirname(video_path)
         
-        # Generate output filename
-        base_name = os.path.splitext(os.path.basename(video_path))[0]
-        track_type = track_info['type']
-        track_idx = track_info['index']
-        
-        if track_type == 'video':
-            output_ext = '.mkv'
-            output_filename = f"{base_name}_video_track{track_idx}{output_ext}"
-            
-            cmd = [
-                self.app_state.ffmpeg_path,
-                "-y",
-                "-i", video_path,
-                "-map", f"0:v:{track_info['video_index']}",
-                "-c", "copy",
-                os.path.join(output_folder, output_filename)
-            ]
-        else:
-            # Get audio codec
-            cmd_probe = [
-                self.app_state.ffprobe_path,
-                "-v", "error",
-                "-select_streams", f"a:{track_info['audio_index']}",
-                "-show_entries", "stream=codec_name",
-                "-of", "json",
-                video_path
-            ]
-            
-            codec = 'aac'
-            try:
-                result = subprocess.run(cmd_probe, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
-                if result.returncode == 0:
-                    data = json.loads(result.stdout)
-                    streams = data.get('streams', [])
-                    if streams:
-                        codec = streams[0].get('codec_name', 'aac').lower()
-            except Exception:
-                pass
-            
-            codec_ext = {
-                'aac': '.aac', 'mp3': '.mp3', 'ac3': '.ac3', 'dts': '.dts',
-                'flac': '.flac', 'ogg': '.ogg', 'opus': '.opus',
-                'wav': '.wav', 'pcm_s16le': '.wav'
-            }
-            output_ext = codec_ext.get(codec, '.aac')
-            output_filename = f"{base_name}_audio_track{track_idx}{output_ext}"
-            
-            cmd = [
-                self.app_state.ffmpeg_path,
-                "-y",
-                "-i", video_path,
-                "-map", f"0:a:{track_info['audio_index']}",
-                "-c", "copy",
-                os.path.join(output_folder, output_filename)
-            ]
-        
-        self.app_state.log(f"Extracting {track_type} track to: {output_filename}", "INFO")
+        self.app_state.log(f"Extracting {track_info['type']} track...", "INFO")
         
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300)
+            output_path = self.app_state.backend.extract_track(video_path, track_info, output_folder)
             
-            if result.returncode == 0:
-                output_path = os.path.join(output_folder, output_filename)
-                if os.path.exists(output_path):
-                    size_mb = os.path.getsize(output_path) / (1024 * 1024)
-                    msg = f"Successfully extracted {track_type} track!\n\nOutput: {output_filename}\nSize: {size_mb:.2f} MB"
-                    self.app_state.log(msg, "SUCCESS")
-                    QMessageBox.information(self, "Extract Track", msg)
-                else:
-                    self.app_state.log("Output file not found", "ERROR")
-                    QMessageBox.warning(self, "Extract Track", "Extraction completed but output file not found.")
+            if output_path and os.path.exists(output_path):
+                size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                filename = os.path.basename(output_path)
+                msg = f"Successfully extracted {track_info['type']} track!\n\nOutput: {filename}\nSize: {size_mb:.2f} MB"
+                self.app_state.log(msg, "SUCCESS")
+                QMessageBox.information(self, "Extract Track", msg)
             else:
-                error_msg = result.stderr if result.stderr else "Unknown error"
-                self.app_state.log(f"Extraction failed: {error_msg}", "ERROR")
-                QMessageBox.warning(self, "Extract Track", f"Extraction failed: {error_msg}")
+                self.app_state.log("Track extraction failed", "ERROR")
+                QMessageBox.warning(self, "Extract Track", "Extraction failed.")
                 
-        except subprocess.TimeoutExpired:
-            self.app_state.log("Extraction timed out", "ERROR")
-            QMessageBox.warning(self, "Extract Track", "Extraction timed out.")
         except Exception as e:
             self.app_state.log(f"Error during extraction: {e}", "ERROR")
             QMessageBox.warning(self, "Extract Track", f"Error: {e}")
@@ -1427,29 +1276,24 @@ class ConfigTab(QWidget):
         return True
 
     def _get_media_params(self, path):
-        """Return a simple dict of media params using ffprobe."""
+        """Return a simple dict of media params via backend."""
         params = {}
         try:
-            cmd_v = ["ffprobe", "-v", "error", "-select_streams", "v:0",
-                     "-show_entries", "stream=codec_name,width,height,avg_frame_rate",
-                     "-of", "default=noprint_wrappers=1:nokey=1", path]
-            res = subprocess.run(cmd_v, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            lines = res.stdout.strip().splitlines()
-            if len(lines) >= 4:
-                params["vcodec"] = lines[0]
-                params["width"] = lines[1]
-                params["height"] = lines[2]
-                params["fps"] = lines[3]
-        except Exception:
-            pass
-        try:
-            cmd_a = ["ffprobe", "-v", "error", "-select_streams", "a:0",
-                     "-show_entries", "stream=codec_name",
-                     "-of", "default=noprint_wrappers=1:nokey=1", path]
-            res = subprocess.run(cmd_a, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            a = res.stdout.strip()
-            if a:
-                params["acodec"] = a
+            data = self.app_state.backend.get_streams(path)
+            streams = data.get('streams', []) if data else []
+            for s in streams:
+                if s.get('codec_type') == 'video':
+                    params["vcodec"] = s.get('codec_name', '')
+                    params["width"] = str(s.get('width', ''))
+                    params["height"] = str(s.get('height', ''))
+                    break
+            for s in streams:
+                if s.get('codec_type') == 'audio':
+                    params["acodec"] = s.get('codec_name', '')
+                    break
+            fps_info = self.app_state.backend.get_frame_rate(path)
+            if fps_info.get('fps'):
+                params["fps"] = str(fps_info['fps'])
         except Exception:
             pass
         return params

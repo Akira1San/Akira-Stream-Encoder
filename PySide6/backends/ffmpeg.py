@@ -974,7 +974,7 @@ class FFmpegBackend(MediaBackend):
         ffprobe_path = self._get_ffprobe_path()
         cmd = [
             ffprobe_path, "-v", "error",
-            "-show_entries", "stream=index,codec_type,codec_name,width,height:stream_tags=language",
+            "-show_entries", "stream=index,codec_type,codec_name,width,height,channels,sample_rate,display_aspect_ratio:stream_tags=language,title",
             "-of", "json", video_path
         ]
         try:

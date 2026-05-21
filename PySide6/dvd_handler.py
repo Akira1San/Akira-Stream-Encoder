@@ -66,11 +66,12 @@ class DVDHandler:
     VOB_PATTERN = re.compile(r'^VTS_(\d{2})_(\d)\.VOB$', re.IGNORECASE)
     IFO_PATTERN = re.compile(r'^VTS_(\d{2})_0\.IFO$', re.IGNORECASE)
     
-    def __init__(self, ffmpeg_path: str = "ffmpeg", ffprobe_path: str = "ffprobe", 
-                 log_callback=None):
+    def __init__(self, ffmpeg_path: str = "ffmpeg", ffprobe_path: str = "ffprobe",
+                 log_callback=None, backend=None):
         self.ffmpeg_path = ffmpeg_path
         self.ffprobe_path = ffprobe_path
         self.log = log_callback or (lambda msg, level="INFO": None)
+        self.backend = backend
         self._concat_file: Optional[str] = None
         
     def is_video_ts_folder(self, folder_path: str) -> bool:
@@ -235,60 +236,69 @@ class DVDHandler:
         return total_duration
     
     def _get_video_duration(self, video_path: str) -> float:
-        """Get duration of a single video file using ffprobe"""
+        """Get duration of a single video file"""
+        if self.backend:
+            try:
+                d = self.backend.get_duration(video_path)
+                if d and d > 0:
+                    return d
+            except Exception:
+                pass
+        return self._ffprobe_duration(video_path)
+
+    def _ffprobe_duration(self, video_path: str) -> float:
+        """Fallback: get duration via ffprobe"""
         cmd = [
-            self.ffprobe_path,
-            "-v", "error",
+            self.ffprobe_path, "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
             video_path
         ]
-        
         try:
-            result = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, timeout=30
-            )
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
             if result.returncode == 0 and result.stdout.strip():
                 return float(result.stdout.strip())
         except Exception as e:
             self.log(f"Duration detection failed for {os.path.basename(video_path)}: {e}", "WARN")
-        
         return 0.0
     
     def _get_title_audio_tracks(self, vob_file: str) -> List[Dict]:
         """Get audio track information from a VOB file"""
+        if self.backend:
+            try:
+                backend_tracks = self.backend.get_audio_tracks(vob_file)
+                if backend_tracks:
+                    return [{
+                        'index': t.get('index', i),
+                        'codec': t.get('codec', 'unknown'),
+                        'channels': t.get('channels', 2),
+                        'language': t.get('language', '')
+                    } for i, t in enumerate(backend_tracks)]
+            except Exception:
+                pass
+        return self._ffprobe_audio_tracks(vob_file)
+
+    def _ffprobe_audio_tracks(self, vob_file: str) -> List[Dict]:
+        """Fallback: get audio tracks via ffprobe"""
         import json
-        
         cmd = [
-            self.ffprobe_path,
-            "-v", "error",
+            self.ffprobe_path, "-v", "error",
             "-show_entries", "stream=index,codec_type,codec_name,channels:stream_tags=language",
-            "-of", "json",
-            vob_file
+            "-of", "json", vob_file
         ]
-        
         try:
-            result = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, timeout=30
-            )
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
-                audio_tracks = []
-                for stream in data.get('streams', []):
-                    if stream.get('codec_type') == 'audio':
-                        audio_tracks.append({
-                            'index': stream.get('index', 0),
-                            'codec': stream.get('codec_name', 'unknown'),
-                            'channels': stream.get('channels', 2),
-                            'language': stream.get('tags', {}).get('language', '')
-                        })
-                return audio_tracks
+                return [{
+                    'index': s.get('index', 0),
+                    'codec': s.get('codec_name', 'unknown'),
+                    'channels': s.get('channels', 2),
+                    'language': s.get('tags', {}).get('language', '')
+                } for s in data.get('streams', []) if s.get('codec_type') == 'audio']
         except Exception as e:
             self.log(f"Audio track detection failed: {e}", "WARN")
-        
         return []
     
     def _get_title_subtitle_tracks(self, vob_file: str, ifo_file: str = None) -> List[Dict]:
