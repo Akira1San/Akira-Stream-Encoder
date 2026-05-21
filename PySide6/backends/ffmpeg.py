@@ -782,8 +782,25 @@ class FFmpegBackend(MediaBackend):
             audio_copy = True
 
         video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
-        if video_filters_str:
+
+        # Subtitle burning (text subtitles)
+        sub_path = None
+        if subtitles.burn_subs and not is_dvd_source:
+            sub_path = self.find_subtitle_file(input_path)
+        burn_dvd_subs = subtitles.burn_subs and is_dvd_source and dvd.selected_subtitle_index >= 0
+        if burn_dvd_subs:
+            sub_path = None  # DVD subs handled by HandBrake fallback in controller
+
+        if sub_path:
+            subs_filter = self.build_subtitle_filter(sub_path)
+            filter_parts = []
+            if video_filters_str:
+                filter_parts.append(video_filters_str)
+            filter_parts.append(subs_filter)
+            cmd.extend(["-vf", ",".join(filter_parts)])
+        elif video_filters_str:
             cmd.extend(["-vf", video_filters_str])
+
         if audio_filters_str and not audio_copy:
             cmd.extend(["-af", audio_filters_str])
 
