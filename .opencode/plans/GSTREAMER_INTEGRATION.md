@@ -464,4 +464,5 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [x] sharpen, delogo, audiocompressor
 - [x] deblock, audio denoise (afftdn), dynaudnorm
 - [x] CAS, white balance, audio delay, aspect ratio conversion
+- [x] Subtitle outline width (textoverlay has no outline width property; only binary on/off)
 - [x] Segment joining, subtitle extraction, keyframe alignment
