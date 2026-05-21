@@ -613,28 +613,44 @@ class GStreamerBackend(MediaBackend):
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
                       first_vob_path: str = None) -> Optional[bytes]:
+        ffmpeg = self.app_state.ffmpeg_path
+        if not ffmpeg or ffmpeg == "ffmpeg" or not os.path.exists(ffmpeg):
+            self._log_unsupported("frame capture (no FFmpeg path)")
+            return None
         target = first_vob_path if is_dvd_source and first_vob_path else video_path
         if not os.path.exists(target):
             return None
-        tmp = "/tmp/myencoder_frame.png"
+        if is_dvd_source and first_vob_path:
+            ts = min(timestamp, 600.0)
+            cmd = [ffmpeg, "-ss", str(ts), "-i", first_vob_path]
+        elif is_dvd_source:
+            cmd = [ffmpeg, "-ss", str(timestamp),
+                   "-f", "concat", "-safe", "0", "-i", video_path]
+        else:
+            cmd = [ffmpeg, "-ss", str(timestamp), "-i", video_path]
+        if subtitle_filter:
+            cmd.extend(["-vf", subtitle_filter])
+        cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
+        timeout = 30 if is_dvd_source else 10
         try:
-            subprocess.run(
-                ["gst-launch-1.0", "-e", "filesrc", f"location={target}",
-                 "!", "decodebin", "!", "videoconvert",
-                 "!", "pngenc", "!", "filesink", f"location={tmp}"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
-            )
-            if os.path.exists(tmp):
-                with open(tmp, "rb") as f:
-                    data = f.read()
-                os.unlink(tmp)
-                return data if data else None
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+            if result.returncode == 0 and result.stdout:
+                return result.stdout
+            if result.returncode != 0 and subtitle_filter:
+                retry = []
+                i = 0
+                while i < len(cmd):
+                    if cmd[i] == "-vf":
+                        i += 2
+                        continue
+                    retry.append(cmd[i])
+                    i += 1
+                if retry and retry != cmd:
+                    result = subprocess.run(retry, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+                    if result.returncode == 0 and result.stdout:
+                        return result.stdout
         except Exception:
-            try:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
-            except Exception:
-                pass
+            pass
         return None
 
     def apply_video_filter(self, image_bytes: bytes, filter_str: str) -> Optional[bytes]:
