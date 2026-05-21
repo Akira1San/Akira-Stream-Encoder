@@ -1,0 +1,412 @@
+# GStreamer Integration Plan
+
+> **Status:** Phase 1-5 complete. SRT/ASS subtitle burn-in and DVD subtitle burn-in implemented.
+
+---
+
+## Overview
+
+Add a `gst-launch-1.0` CLI backend alongside the existing FFmpeg CLI backend, with a global switch (engine combo in Config tab) to toggle between them.
+
+---
+
+## Architecture
+
+### Media Backend Interface (`PySide6/backends/base.py`)
+
+```python
+from abc import ABC, abstractmethod
+from typing import Optional, List, Dict, Any
+
+class MediaBackend(ABC):
+    @abstractmethod
+    def encode(self, input_path: str, output_path: str,
+               app_state, start_time=None, duration=None) -> subprocess.Popen:
+        ...
+
+    @abstractmethod
+    def get_duration(self, input_path: str) -> float:
+        ...
+
+    @abstractmethod
+    def get_audio_tracks(self, input_path: str) -> List[dict]:
+        ...
+
+    @abstractmethod
+    def get_video_bitrate(self, input_path: str) -> Optional[int]:
+        ...
+
+    @abstractmethod
+    def get_file_info(self, input_path: str) -> dict:
+        ...
+
+    @abstractmethod
+    def extract_subtitle(self, input_path: str, stream_idx: int,
+                         output_path: str) -> Optional[str]:
+        ...
+
+    @abstractmethod
+    def validate(self, input_path: str) -> dict:
+        ...
+
+    @abstractmethod
+    def build_filter_string(self, app_state) -> str:
+        ...
+```
+
+### FFmpegBackend (`PySide6/backends/ffmpeg.py`)
+
+Refactor existing code from:
+- `controller.py` — `build_ffmpeg_command()`, `build_filter_complex()`, `get_video_duration()`, `get_audio_tracks()`, `get_video_bitrate()`, `encode_file()`, `fast_cut_file()`, `join_segments()`
+- `config_tab.py` — `detect_and_show_info()`, `_extract_subs_from_video()`, `_do_extract_track()`
+- `trim_controller.py` — trim operations
+- `video_validator.py` — validation operations
+- `dvd_handler.py` — DVD probing/extraction (via ffprobe)
+
+Method signatures mirror the base class above. Internal implementation stays as-is (subprocess.run/Popen with FFmpeg CLI args).
+
+### GStreamerBackend (`PySide6/backends/gstreamer.py`)
+
+New class using `gst-launch-1.0` CLI via subprocess.
+
+#### Pipeline Construction Patterns
+
+**Basic encode (H.264):**
+```python
+# FFmpeg equivalent:
+# ffmpeg -i input.mp4 -c:v libx264 -crf 23 -preset medium -c:a aac output.mp4
+
+# GStreamer pipeline:
+gst-launch-1.0 filesrc location=input.mp4 ! \
+  qtdemux ! queue ! decodebin ! videoconvert ! \
+  x264enc bitrate=2000 speed-preset=medium ! \
+  mp4mux ! filesink location=output.mp4
+```
+
+**NVENC encode:**
+```python
+gst-launch-1.0 filesrc location=input.mp4 ! \
+  qtdemux ! queue ! decodebin ! videoconvert ! \
+  nvh264enc bitrate=2000 preset=p4 ! \
+  mp4mux ! filesink location=output.mp4
+```
+
+**With video filters (deinterlace + scale):**
+```python
+gst-launch-1.0 filesrc location=input.mp4 ! \
+  qtdemux ! queue ! decodebin ! \
+  deinterlace ! videoscale ! video/x-raw,width=1280,height=720 ! \
+  videoconvert ! x264enc ! mp4mux ! filesink location=output.mp4
+```
+
+**With audio re-encode:**
+```python
+gst-launch-1.0 filesrc location=input.mp4 ! \
+  qtdemux name=demux \
+  demux.video_0 ! queue ! decodebin ! videoconvert ! x264enc ! \
+  mux.video_0 \
+  demux.audio_0 ! queue ! decodebin ! audioconvert ! voaacenc bitrate=128000 ! \
+  mux.audio_0 \
+  mp4mux name=mux ! filesink location=output.mp4
+```
+
+#### Probe via `gst-discoverer-1.0`
+
+```bash
+gst-discoverer-1.0 --json input.mp4
+```
+Returns JSON with duration, streams (codec, resolution, sample rate), container info.
+
+#### Filter Mapping (FFmpeg -> GStreamer)
+
+| FFmpeg filter | GStreamer element(s) | Status |
+|---|---|---|
+| `scale=w:h` | `videoscale ! video/x-raw,width=W,height=H` | Full |
+| `yadif` | `deinterlace` | Full |
+| `hqdn3d` | `gaussianblur` | Approximate |
+| `unsharp` | `sharpen` | Full |
+| `deblock` | `gaussianblur` (approx) or `deblock` | Partial |
+| `eq` (brightness/contrast/sat/gamma) | `videobalance` (only sat+contrast+brightness, no gamma) + `gamma` element | Partial |
+| `colorbalance` | `gamma` + `videobalance` | Partial |
+| `crop=w:h:x:y` | `videocrop top=B left=L right=R bottom=BT` | Full |
+| `delogo` | `delogo` | Full |
+| `subtitles` (SRT/ASS) | `filesrc ! typefind ! subparse ! textoverlay` | Full |
+| `dvd_subtitle` burn | `mpegpsdemux` → `dvdsubdec` + `dvdspu` | Full (GStreamer only) |
+| `volume=XdB` | `volume volume=X` | Full |
+| `afftdn` | `webrtcdsp` or `audiochebband` | Partial |
+| `dynaudnorm` | Custom: `audioconvert ! level ! volume` | Partial |
+| `acompressor` | `audiocompressor` | Full |
+| `scale_cuda` | `nvvideoconvert` | With GPU |
+| `scale_vulkan` | `vulkanconvert` | With GPU |
+| `libplacebo` tonemap | `glcolorbalance` + `gltransformation` | Partial |
+| `pad` (black bars) | `videobox` | Full |
+| `setsar` | `videoscale` (handles SAR) | Full |
+| `drawbox` | `gdkpixbufoverlay` or `clockoverlay` | Partial |
+
+#### Features NOT supported in GStreamer mode (graceful fallback)
+
+These will log a warning and suggest switching to FFmpeg:
+- Trim/clip extraction (start_time/duration not supported by gst-launch)
+- Fast cut (stream copy)
+- `sharpen`, `delogo`, `audiocompressor`
+- `dynaudnorm` (dynamic audio normalizer)
+- `afftdn` (FFT-based audio denoise)
+- CAS (Contrast Adaptive Sharpen)
+- Deblock
+- Audio delay
+- White balance (`colorbalance`)
+- Aspect ratio conversion
+- Drawbox preview overlay
+- Segment joining
+
+---
+
+## Global State Changes
+
+### `PySide6/models.py` — AppState additions
+
+```python
+class AppState(QObject):
+    # New signals
+    media_engine_changed = Signal(str)
+    gstreamer_path_changed = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # ...
+        self._media_engine: str = "ffmpeg"  # "ffmpeg" | "gstreamer"
+        self._gstreamer_path: str = "gst-launch-1.0"
+        self._backend: Optional[MediaBackend] = None
+
+    @Property(str, notify=media_engine_changed)
+    def media_engine(self):
+        return self._media_engine
+
+    @media_engine.setter
+    def media_engine(self, value):
+        if self._media_engine != value:
+            self._media_engine = value
+            self._backend = None  # Reset backend on switch
+            self.media_engine_changed.emit(value)
+
+    @property
+    def backend(self) -> MediaBackend:
+        if self._backend is None:
+            from backends.ffmpeg import FFmpegBackend
+            from backends.gstreamer import GStreamerBackend
+            if self._media_engine == "gstreamer":
+                self._backend = GStreamerBackend(self)
+            else:
+                self._backend = FFmpegBackend(self)
+        return self._backend
+```
+
+### `PySide6/config.py` — New constant
+
+```python
+GSTREAMER = "gst-launch-1.0"
+```
+
+### `PySide6/settings.json` — Persistence
+
+```json
+{
+  "ffmpeg_path": "...",
+  "gstreamer_path": "gst-launch-1.0",
+  "media_engine": "ffmpeg",
+  "output_folder": ""
+}
+```
+
+---
+
+## UI Changes
+
+### `PySide6/config_tab.py` — New "Media Engine" group
+
+Existing System Paths group gets new section:
+
+```
++-- System Paths ------------------------------+
+|                                                |
+|  +-- Media Engine -------------------------+  |
+|  | Engine:  [v FFmpeg / GStreamer        ] |  |
+|  | Path:    [____________________] [Browse] |  |
+|  |          [Auto Detect]                  |  |
+|  +-----------------------------------------+  |
+|                                                |
+|  [FFmpeg Path:  ...]  (moved below)            |
+|  [FFprobe Path: ...]                           |
+|  [Output Folder: ...]                          |
++------------------------------------------------+
+```
+
+Behavior:
+- Engine combo toggles the path label and line edit between ffmpeg_path/gstreamer_path
+- Auto-detect searches PATH for `gst-launch-1.0` in GStreamer mode
+- Version check button: `gst-launch-1.0 --version`
+- Engine change resets `app_state._backend` (recreated on next access)
+
+---
+
+## Controller Refactoring
+
+### `PySide6/controller.py` — Delegate to backend
+
+```python
+class VideoController:
+    @property
+    def backend(self) -> MediaBackend:
+        return self.app_state.backend
+
+    def get_video_duration(self, input_path):
+        return self.backend.get_duration(input_path)
+
+    def get_audio_tracks(self, input_path):
+        return self.backend.get_audio_tracks(input_path)
+
+    def encode_file(self, input_path, output_path, ...):
+        # Common pre-encode logic stays here
+        process = self.backend.encode(input_path, output_path,
+                                       self.app_state, start_time, duration)
+        # Progress parsing stays in controller
+```
+
+---
+
+## Implementation Order
+
+### Phase 1: Backend scaffold + FFmpegBackend extraction ✓
+1. Create `backends/__init__.py`, `backends/base.py`
+2. Create `backends/ffmpeg.py` — extract methods from `controller.py`
+3. Refactor `VideoController` to delegate
+4. Verify: exact same behavior, no regression
+
+### Phase 2: GStreamerBackend — probing ✓
+1. Create `backends/gstreamer.py`
+2. Implement `get_duration()`, `get_audio_tracks()`, `get_video_bitrate()` via `gst-discoverer-1.0 --json`
+3. Implement `get_file_info()`
+4. Verify probe operations work in GStreamer mode
+
+### Phase 3: GStreamerBackend — encode ✓
+1. Basic encode pipeline (H.264)
+2. NVENC support
+3. Video copy mode
+4. Filter support (deinterlace, videoscale, videocrop, videobalance, sharpen, delogo)
+5. Audio support (voaacenc, audio copy, volume, audiocompressor)
+
+### Phase 4: UI integration ✓
+1. Engine combo box + path field in config_tab.py
+2. Settings persistence for media_engine + gstreamer_path
+3. Engine indicator in encoding_settings.py
+
+### Phase 5: Edge cases + fallback ✓ (basic scaffolding, can be refined)
+1. Feature availability check on startup
+2. Graceful skip + log warning for unsupported features
+3. Test all filter combinations
+
+---
+
+## File Changes Summary
+
+| File | Action | Status |
+|---|---|---|---|---|
+| `PySide6/models.py` | Modify — add engine/gst path/backend | ✓ |
+| `PySide6/config.py` | Modify — add GSTREAMER constant | ✓ |
+| `PySide6/main_window.py` | Modify — persist new settings | ✓ |
+| `PySide6/config_tab.py` | Modify — add engine UI | ✓ |
+| `PySide6/encoding_settings.py` | Modify — add engine indicator | ✓ |
+| `PySide6/controller.py` | Refactor — delegate to backend | ✓ |
+| `PySide6/video_preview.py` | Modify — route through backend | ⬜ (uses ffmpeg directly for frame capture, low priority) |
+| `PySide6/trim_controller.py` | Modify — route through backend | ⬜ (uses ffprobe directly for keyframe alignment, low priority) |
+| `PySide6/video_validator.py` | Modify — route through backend | ⬜ (uses ffmpeg directly, low priority) |
+| `PySide6/backends/__init__.py` | **New** | ✓ |
+| `PySide6/backends/base.py` | **New** | ✓ |
+| `PySide6/backends/ffmpeg.py` | **New** | ✓ |
+| `PySide6/backends/gstreamer.py` | **New** | ✓ (probe ops (text-parsed gst-discoverer), encode pipeline with video/audio filters, multi-branch muxing, encoder settings, container selection, rate control, DVD VOB mpegpsdemux + concat, DVD dvdspu+dvdsubdec subtitle burn, SRT/ASS subparse+textoverlay subtitle burn) |
+
+---
+
+## DVD Subtitle Status
+
+DVD subtitles (`dvd_subtitle` bitmap format):
+- **FFmpeg**: The concat demuxer hides subtitle streams; falls back to HandBrakeCLI
+- **GStreamer**: Native DVD subtitle burning via `mpegpsdemux` → `dvdsubdec` + `dvdspu` (3-branch pipeline). DVD VOB concat files are handled by reading VOB paths and using `concat` element with `mpegpsdemux`.
+
+### Known Issue: DVD Subtitle Preview
+
+DVD subtitle _preview_ (the overlay shown in the preview panel during playback/pause) does **not** work with FFmpeg's native DVD subtitle burning. The preview uses `ffmpeg` pipe-to-image for frame capture, and `dvd_subtitle` bitmap streams cannot be rendered via the `subtitles` filter in a pipe.
+
+---
+
+## Testing
+
+1. FFmpeg engine: full regression test (all existing flows)
+2. GStreamer engine: probe operations (duration, audio tracks, bitrate)
+3. GStreamer engine: basic encode with default settings
+4. GStreamer engine: encode with filters (deinterlace, crop, scale, eq)
+5. Engine switch mid-session: verify backend resets
+6. Edge cases: no GStreamer installed, invalid path, unsupported features
+
+---
+
+## Dependencies
+
+### GStreamer (required for GStreamer engine)
+```bash
+# Core
+gstreamer1.0-tools           # gst-launch-1.0, gst-discoverer-1.0
+gstreamer1.0-plugins-base    # videoconvert, audioconvert, queue, filesrc, etc.
+gstreamer1.0-plugins-good    # qtdemux, mp4mux, videoscale, deinterlace, etc.
+
+# Optional (for expanded features)
+gstreamer1.0-plugins-bad     # dvdsuboverlay, nvh264enc, webrtcdsp, etc.
+gstreamer1.0-plugins-ugly    # voaacenc, dvdsuboverlay, x264enc
+python3-gi                   # GObject introspection (for gst-python if used later)
+gstreamer1.0-vaapi           # VA-API hardware acceleration
+```
+
+### FFmpeg DVD support (linux)
+```bash
+# Rebuild ffmpeg with DVD navigation support:
+# --enable-libdvdread --enable-libdvdnav --enable-libbluray
+# This lets ffmpeg open VIDEO_TS folders directly without concat files.
+# Current workaround: dvd_handler.py uses manual VOB concat instead.
+```
+
+---
+
+## Next Steps — GStreamer Backend Expansion
+
+These features are documented in the **Filter Mapping** table above but NOT yet implemented in `backends/gstreamer.py`. Each needs pipeline construction logic added.
+
+### Completed
+- [x] **Video filters**: `videoscale`, `deinterlace`, `videocrop`, `videobalance`, `gamma` — mapped to GStreamer elements
+- [x] **Audio encode**: `voaacenc` with 128k bitrate, audio copy passthrough (identity)
+- [x] **Audio filters**: `volume` — mapped to GStreamer `volume` element
+- [x] **Subtitle burn-in (SRT/ASS)**: `filesrc ! typefind ! subparse ! textoverlay` with font-desc, valignment, shaded-background, deltay
+- [x] **DVD subtitle burn-in**: `mpegpsdemux` → `dvdsubdec` + `dvdspu` (3-branch pipeline with subpicture pad routing)
+- [x] **DVD VOB support**: VOB path extraction from concat files, `mpegpsdemux` demuxer, multi-VOB `concat` element chaining
+- [x] **NVENC encode**: pipeline with `nvh264enc`/`nvh265enc` preset, bitrate, gop-size, const-quality
+- [x] **Container support**: `.mp4` via `mp4mux`, `.mkv` via `matroskamux`, `.avi` via `avimux`
+
+### High Priority
+- [ ] `sharpen`, `delogo`, `audiocompressor` — unavailable in installed plugins; logged as unsupported with switch-to-FFmpeg warning
+
+### Medium Priority
+- [ ] **GPU filters**: `nvvideoconvert` for `scale_cuda` equivalent, `vulkanconvert` for `scale_vulkan`
+
+### Low Priority
+- [ ] **libplacebo tonemap**: `glcolorbalance` + `gltransformation` pipeline
+- [ ] **drawbox / clockoverlay**: preview overlay equivalent
+- [ ] **Video copy mode**: `identity` element or capsfilter passthrough
+- [ ] **Extract clip mode**: `videotrim`/`audiotrim` for segment extraction
+- [ ] **Refactor**: `video_preview.py`, `trim_controller.py`, `video_validator.py` to route through backend
+
+### Unsupported (graceful skip + log warning, already stubbed)
+- [x] Trim/clip extraction (start_time/duration)
+- [x] Fast cut (stream copy)
+- [x] sharpen, delogo, audiocompressor
+- [x] deblock, audio denoise (afftdn), dynaudnorm
+- [x] CAS, white balance, audio delay, aspect ratio conversion
+- [x] Segment joining, subtitle extraction, keyframe alignment
