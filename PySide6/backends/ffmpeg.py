@@ -119,17 +119,102 @@ class FFmpegBackend(MediaBackend):
                 return br_kbps
         except Exception:
             pass
+        return None
 
+    def capture_frame(self, video_path: str, timestamp: float,
+                      subtitle_filter: str = "", is_dvd_source: bool = False,
+                      first_vob_path: str = None) -> Optional[bytes]:
+        ffmpeg_path = self.app_state.ffmpeg_path
+        if is_dvd_source and first_vob_path and os.path.exists(first_vob_path):
+            preview_timestamp = min(timestamp, 600.0)
+            cmd = [ffmpeg_path, "-ss", str(preview_timestamp)]
+            cmd.extend(["-i", first_vob_path])
+        elif is_dvd_source:
+            cmd = [ffmpeg_path, "-ss", str(timestamp)]
+            cmd.extend(["-f", "concat", "-safe", "0"])
+            cmd.extend(["-i", video_path])
+        else:
+            cmd = [ffmpeg_path, "-ss", str(timestamp)]
+            cmd.extend(["-i", video_path])
+        if subtitle_filter:
+            cmd.extend(["-vf", subtitle_filter])
+        cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
         try:
-            cmd = [ffmpeg_path, "-i", input_path]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
-            match = re.search(r"bitrate:\s*(\d+)\s*kb/s", result.stderr)
-            if match:
-                return int(match.group(1))
+            timeout = 30 if is_dvd_source else 10
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+            if result.returncode == 0 and result.stdout:
+                return result.stdout
+            if result.returncode != 0 and subtitle_filter:
+                retry = [x for x in cmd if x != "-vf" or True]
+                i = 0
+                while i < len(cmd):
+                    if cmd[i] == "-vf":
+                        i += 2
+                        continue
+                    retry.append(cmd[i])
+                    i += 1
+                if retry:
+                    result = subprocess.run(retry, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+                    if result.returncode == 0 and result.stdout:
+                        return result.stdout
         except Exception:
             pass
-
         return None
+
+    def apply_video_filter(self, image_bytes: bytes, filter_str: str) -> Optional[bytes]:
+        cmd = [
+            self.app_state.ffmpeg_path,
+            "-i", "-",
+            "-vf", filter_str,
+            "-f", "image2pipe",
+            "-vcodec", "png",
+            "-"
+        ]
+        try:
+            result = subprocess.run(cmd, input=image_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+            if result.returncode == 0 and result.stdout:
+                return result.stdout
+        except Exception:
+            pass
+        return None
+
+    def get_frame_rate(self, video_path: str) -> dict:
+        ffprobe_path = self._get_ffprobe_path()
+        cmd = [
+            ffprobe_path, "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            video_path
+        ]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split('/')
+                if len(parts) == 2:
+                    num, den = float(parts[0]), float(parts[1])
+                    if den > 0:
+                        fps = num / den
+                        return {
+                            'fps': fps,
+                            'fps_str': result.stdout.strip(),
+                            'is_vfr': False,
+                            'is_problematic': fps < 15.0 or fps > 120.0
+                        }
+        except Exception:
+            pass
+        return {'fps': None, 'is_vfr': True, 'is_problematic': True}
+
+    def get_full_info(self, video_path: str) -> dict:
+        ffprobe_path = self._get_ffprobe_path()
+        cmd = [ffprobe_path, "-v", "error", "-show_format", "-show_streams", "-of", "json", video_path]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
+            if result.returncode == 0:
+                return json.loads(result.stdout)
+        except Exception:
+            pass
+        return {}
 
     def get_file_info(self, input_path: str) -> dict:
         info = {}

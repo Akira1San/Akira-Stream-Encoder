@@ -1,6 +1,6 @@
 # GStreamer Integration Plan
 
-> **Status:** Phase 1-5 complete. SRT/ASS subtitle burn-in and DVD subtitle burn-in implemented.
+> **Status:** Phase 1-5 + refactoring complete. SRT/ASS and DVD subtitle burn-in implemented. `video_preview.py`, `trim_controller.py`, `video_validator.py` now route through backend.
 
 ---
 
@@ -52,16 +52,67 @@ class MediaBackend(ABC):
     @abstractmethod
     def build_filter_string(self, app_state) -> str:
         ...
+
+    @abstractmethod
+    def align_to_keyframe(self, video_path: str, target_time: float) -> float:
+        ...
+
+    @abstractmethod
+    def extract_track(self, video_path: str, track_info: dict, output_folder: str) -> Optional[str]:
+        ...
+
+    @abstractmethod
+    def extract_subtitle_streams(self, video_path: str) -> List[dict]:
+        ...
+
+    @abstractmethod
+    def get_streams(self, video_path: str) -> dict:
+        ...
+
+    @abstractmethod
+    def get_external_audio_info(self, file_path: str) -> Optional[dict]:
+        ...
+
+    @abstractmethod
+    def find_subtitle_file(self, video_path: str) -> Optional[str]:
+        ...
+
+    @abstractmethod
+    def build_subtitle_filter(self, sub_path: str) -> str:
+        ...
+
+    @abstractmethod
+    def hex_to_ass(self, hex_color: str, opacity: float = 1.0) -> str:
+        ...
+
+    @abstractmethod
+    def capture_frame(self, video_path: str, timestamp: float,
+                      subtitle_filter: str = "", is_dvd_source: bool = False,
+                      first_vob_path: str = None) -> Optional[bytes]:
+        ...
+
+    @abstractmethod
+    def apply_video_filter(self, image_bytes: bytes, filter_str: str) -> Optional[bytes]:
+        ...
+
+    @abstractmethod
+    def get_frame_rate(self, video_path: str) -> dict:
+        ...
+
+    @abstractmethod
+    def get_full_info(self, video_path: str) -> dict:
+        ...
 ```
 
 ### FFmpegBackend (`PySide6/backends/ffmpeg.py`)
 
 Refactor existing code from:
 - `controller.py` — `build_ffmpeg_command()`, `build_filter_complex()`, `get_video_duration()`, `get_audio_tracks()`, `get_video_bitrate()`, `encode_file()`, `fast_cut_file()`, `join_segments()`
-- `config_tab.py` — `detect_and_show_info()`, `_extract_subs_from_video()`, `_do_extract_track()`
-- `trim_controller.py` — trim operations
-- `video_validator.py` — validation operations
-- `dvd_handler.py` — DVD probing/extraction (via ffprobe)
+- `config_tab.py` — `detect_and_show_info()`, `_extract_subs_from_video()`, `_do_extract_track()` (not yet refactored — still calls ffmpeg/ffprobe directly)
+- `trim_controller.py` — trim operations (refactored ✓)
+- `video_validator.py` — validation operations (refactored ✓)
+- `dvd_handler.py` — DVD probing/extraction via ffprobe (not yet refactored)
+- `video_preview.py` — capture_frame, apply_video_filter, load_video_metadata (refactored ✓)
 
 Method signatures mirror the base class above. Internal implementation stays as-is (subprocess.run/Popen with FFmpeg CLI args).
 
@@ -317,13 +368,15 @@ class VideoController:
 | `PySide6/config_tab.py` | Modify — add engine UI | ✓ |
 | `PySide6/encoding_settings.py` | Modify — add engine indicator | ✓ |
 | `PySide6/controller.py` | Refactor — delegate to backend | ✓ |
-| `PySide6/video_preview.py` | Modify — route through backend | ⬜ (uses ffmpeg directly for frame capture, low priority) |
-| `PySide6/trim_controller.py` | Modify — route through backend | ⬜ (uses ffprobe directly for keyframe alignment, low priority) |
-| `PySide6/video_validator.py` | Modify — route through backend | ⬜ (uses ffmpeg directly, low priority) |
+| `PySide6/video_preview.py` | Modify — route through backend | ✓ (FrameLoader, load_video_metadata, apply_filters, seek_preview via backend) |
+| `PySide6/trim_controller.py` | Modify — route through backend | ✓ (align_to_keyframe via backend) |
+| `PySide6/video_validator.py` | Modify — route through backend | ✓ (validate, get_frame_rate, get_full_info via backend) |
 | `PySide6/backends/__init__.py` | **New** | ✓ |
 | `PySide6/backends/base.py` | **New** | ✓ |
 | `PySide6/backends/ffmpeg.py` | **New** | ✓ |
-| `PySide6/backends/gstreamer.py` | **New** | ✓ (probe ops (text-parsed gst-discoverer), encode pipeline with video/audio filters, multi-branch muxing, encoder settings, container selection, rate control, DVD VOB mpegpsdemux + concat, DVD dvdspu+dvdsubdec subtitle burn, SRT/ASS subparse+textoverlay subtitle burn) |
+| `PySide6/backends/gstreamer.py` | **New** | ✓ (probe ops (text-parsed gst-discoverer), encode pipeline with video/audio filters, multi-branch muxing, encoder settings, container selection, rate control, DVD VOB mpegpsdemux + concat, DVD dvdspu+dvdsubdec subtitle burn, SRT/ASS subparse+textoverlay subtitle burn, capture_frame (first frame), get_frame_rate, get_full_info) |
+| `PySide6/backends/ffmpeg.py` | **New** | ✓ (all encode/probe/preview methods, including capture_frame, apply_video_filter, get_frame_rate, get_full_info extracted from consumer files) |
+| `PySide6/backends/base.py` | **New** | ✓ (MediaBackend ABC with 18 abstract methods) |
 
 ---
 
@@ -401,7 +454,8 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [ ] **drawbox / clockoverlay**: preview overlay equivalent
 - [ ] **Video copy mode**: `identity` element or capsfilter passthrough
 - [ ] **Extract clip mode**: `videotrim`/`audiotrim` for segment extraction
-- [ ] **Refactor**: `video_preview.py`, `trim_controller.py`, `video_validator.py` to route through backend
+- [x] **Refactor**: `video_preview.py`, `trim_controller.py`, `video_validator.py` to route through backend
+- [ ] **Refactor remaining files**: `config_tab.py`, `encoding_settings.py`, `dvd_handler.py`, `tracks_panel.py`, `tracks_tab.py` still have ~16 direct ffmpeg/ffprobe call sites
 
 ### Unsupported (graceful skip + log warning, already stubbed)
 - [x] Trim/clip extraction (start_time/duration)

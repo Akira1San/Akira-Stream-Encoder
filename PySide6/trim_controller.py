@@ -1,9 +1,6 @@
 """
 Trim Controller - Business logic for trimming operations (PySide6)
 """
-import os
-import subprocess
-import re
 from typing import Tuple, Optional
 
 from models import AppState
@@ -43,62 +40,16 @@ class TrimController:
         
     def align_to_keyframe(self, video_path: str, target_time: float) -> float:
         """
-        Find nearest keyframe to target time
-        
-        Args:
-            video_path: Path to video file
-            target_time: Desired cut position in seconds
-            
-        Returns:
-            adjusted_time: float (aligned to nearest keyframe)
+        Find nearest keyframe to target time using backend
         """
-        ffprobe_path = self.app_state.ffprobe_path
-        
-        # Try to find ffprobe
-        if not ffprobe_path or ffprobe_path == "ffprobe":
-            ffmpeg_path = self.app_state.ffmpeg_path
-            if ffmpeg_path != "ffmpeg" and os.path.exists(ffmpeg_path):
-                base_dir = os.path.dirname(ffmpeg_path)
-                candidate = os.path.join(base_dir, "ffprobe.exe" if os.name == 'nt' else "ffprobe")
-                if os.path.exists(candidate):
-                    ffprobe_path = candidate
-                    
         try:
-            # Get keyframe information
-            cmd = [
-                ffprobe_path,
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "frame=pts_time",
-                "-of", "csv=p=0",
-                "-skip_frame", "nokey",
-                video_path
-            ]
-            
-            result = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, timeout=10
-            )
-            
-            if result.returncode == 0 and result.stdout:
-                # Parse keyframe times
-                keyframe_times = []
-                for line in result.stdout.split('\n'):
-                    try:
-                        pts_time = float(line.strip())
-                        keyframe_times.append(pts_time)
-                    except ValueError:
-                        continue
-                
-                if keyframe_times:
-                    # Find nearest keyframe
-                    nearest_kf = min(keyframe_times, key=lambda t: abs(t - target_time))
-                    self.app_state.log(f"Aligned cut from {target_time:.3f}s to keyframe at {nearest_kf:.3f}s", "INFO")
-                    return nearest_kf
-            
-            self.app_state.log("Could not align to keyframe, using exact position", "WARN")
-            return target_time
-            
+            backend = self.app_state.backend
+            aligned = backend.align_to_keyframe(video_path, target_time)
+            if aligned != target_time:
+                self.app_state.log(f"Aligned cut from {target_time:.3f}s to keyframe at {aligned:.3f}s", "INFO")
+            else:
+                self.app_state.log("Could not align to keyframe, using exact position", "WARN")
+            return aligned
         except Exception as e:
             self.app_state.log(f"Keyframe alignment failed: {e}. Using exact position.", "WARN")
             return target_time

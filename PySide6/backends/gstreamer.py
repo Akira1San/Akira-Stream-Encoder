@@ -609,3 +609,55 @@ class GStreamerBackend(MediaBackend):
     def build_subtitle_filter(self, sub_path: str) -> str:
         self._log_unsupported("subtitle burn-in")
         return ""
+
+    def capture_frame(self, video_path: str, timestamp: float,
+                      subtitle_filter: str = "", is_dvd_source: bool = False,
+                      first_vob_path: str = None) -> Optional[bytes]:
+        target = first_vob_path if is_dvd_source and first_vob_path else video_path
+        if not os.path.exists(target):
+            return None
+        tmp = "/tmp/myencoder_frame.png"
+        try:
+            subprocess.run(
+                ["gst-launch-1.0", "-e", "filesrc", f"location={target}",
+                 "!", "decodebin", "!", "videoconvert",
+                 "!", "pngenc", "!", "filesink", f"location={tmp}"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15
+            )
+            if os.path.exists(tmp):
+                with open(tmp, "rb") as f:
+                    data = f.read()
+                os.unlink(tmp)
+                return data if data else None
+        except Exception:
+            try:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+            except Exception:
+                pass
+        return None
+
+    def apply_video_filter(self, image_bytes: bytes, filter_str: str) -> Optional[bytes]:
+        self._log_unsupported("preview video filters")
+        return None
+
+    def get_frame_rate(self, video_path: str) -> dict:
+        text = self._run_discoverer(video_path)
+        fps = None
+        for line in text.split("\n"):
+            if "fps" in line.lower():
+                m = re.search(r"(\d+\.?\d*)\s*fps", line)
+                if m:
+                    fps = float(m.group(1))
+                    break
+        is_prob = fps is None or fps < 15.0 or fps > 120.0
+        return {"fps": fps, "fps_str": str(fps) if fps else "", "is_vfr": fps is None, "is_problematic": is_prob}
+
+    def get_full_info(self, video_path: str) -> dict:
+        text = self._run_discoverer(video_path)
+        info = {"raw": text}
+        for line in text.split("\n"):
+            if ":" in line:
+                k, v = line.split(":", 1)
+                info[k.strip().lower().replace(" ", "_")] = v.strip()
+        return info

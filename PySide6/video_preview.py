@@ -5,7 +5,6 @@ Uses native Qt (QImage, QPixmap) instead of PIL/Pillow
 import io
 import os
 import re
-import subprocess
 from typing import Optional
 
 from PySide6 import QtWidgets
@@ -402,93 +401,25 @@ class FrameLoader(QObject):
         self._cancelled = False
         self._is_dvd_source = False
         
-    def load_frame(self, video_path: str, timestamp: float, ffmpeg_path: str, is_dvd_source: bool = False, first_vob_path: str = None, subtitle_filter: str = ""):
-        """Load a frame from video at specified timestamp
-        
-        Args:
-            video_path: Path to video file or concat file
-            timestamp: Seek position in seconds
-            ffmpeg_path: Path to ffmpeg executable
-            is_dvd_source: True if this is a DVD concat source
-            first_vob_path: Path to first VOB file for DVD preview fallback
-            subtitle_filter: FFmpeg subtitle filter string (e.g., "subtitles=file.srt")
-        """
+    def load_frame(self, video_path: str, timestamp: float, backend, is_dvd_source: bool = False, first_vob_path: str = None, subtitle_filter: str = ""):
+        """Load a frame from video at specified timestamp using backend"""
         self._cancelled = False
         self._is_dvd_source = is_dvd_source
-        
-        # For DVD sources, try the first VOB file directly for preview
-        # This is more reliable than concat demuxer for frame extraction
-        if is_dvd_source and first_vob_path and os.path.exists(first_vob_path):
-            # Use first VOB for preview (limited to first ~1GB but much faster)
-            # Limit timestamp to reasonable range for first VOB
-            preview_timestamp = min(timestamp, 600.0)  # Cap at 10 minutes
-            cmd = [ffmpeg_path, "-ss", str(preview_timestamp)]
-            cmd.extend(["-i", first_vob_path])
-        elif is_dvd_source:
-            # Fallback to concat demuxer
-            cmd = [ffmpeg_path, "-ss", str(timestamp)]
-            cmd.extend(["-f", "concat", "-safe", "0"])
-            cmd.extend(["-i", video_path])
-        else:
-            # Standard seeking for regular video files
-            cmd = [ffmpeg_path, "-ss", str(timestamp)]
-            cmd.extend(["-i", video_path])
-        
-        # Add subtitle filter if provided (burns subtitles during extraction)
-        if subtitle_filter:
-            cmd.extend(["-vf", subtitle_filter])
-        
-        # Output as single PNG frame to pipe
-        cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
-        
-        try:
-            # Use longer timeout for DVD sources (VOB files can be slow)
-            timeout = 30 if is_dvd_source else 10
-            result = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=timeout
-            )
-            
-            if self._cancelled:
+
+        data = backend.capture_frame(video_path, timestamp, subtitle_filter, is_dvd_source, first_vob_path)
+
+        if self._cancelled:
+            return
+
+        if data:
+            image = QImage()
+            image.loadFromData(data, "PNG")
+            if not image.isNull():
+                self.frame_loaded.emit(image)
                 return
-            
-            # If first attempt failed with subtitle filter, retry without it
-            # (handles bitmap subtitle formats that FFmpeg's subtitles filter rejects)
-            if result.returncode != 0 and subtitle_filter:
-                retry_cmd = []
-                i = 0
-                while i < len(cmd):
-                    if cmd[i] == "-vf":
-                        i += 2
-                        continue
-                    retry_cmd.append(cmd[i])
-                    i += 1
-                if retry_cmd != cmd:
-                    result = subprocess.run(
-                        retry_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        timeout=timeout
-                    )
-            
-            if result.returncode == 0 and result.stdout:
-                # Load image from bytes using QImage
-                image = QImage()
-                image.loadFromData(result.stdout, "PNG")
-                
-                if not image.isNull():
-                    self.frame_loaded.emit(image)
-                else:
-                    self.error_occurred.emit("Failed to decode image")
-            else:
-                # Log the error for debugging (last lines contain the actual error after FFmpeg banner)
-                error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
-                lines = error_msg.strip().split('\n')
-                last_lines = '\n'.join(lines[-5:]) if len(lines) > 5 else error_msg
-                self.error_occurred.emit(f"FFmpeg failed: {last_lines[:500]}")
-                
-        except subprocess.TimeoutExpired:
-            self.error_occurred.emit("Frame extraction timed out")
-        except Exception as e:
-            self.error_occurred.emit(f"Error: {str(e)}")
+            self.error_occurred.emit("Failed to decode image")
+        else:
+            self.error_occurred.emit("Frame extraction failed")
             
     def cancel(self):
         """Cancel the current operation"""
@@ -1255,50 +1186,26 @@ class VideoPreview(QWidget):
         return ""
     
     def load_video_metadata(self, video_path: str):
-        """Load video metadata using ffprobe"""
-        ffprobe_path = self.app_state.ffprobe_path
-        
-        # Check if this is a DVD concat source
+        """Load video metadata using backend"""
         is_dvd_source = self.app_state.dvd.is_dvd_source and video_path.endswith('.txt')
-        
-        cmd = [ffprobe_path, "-v", "error"]
-        
-        # Add concat demuxer for DVD sources (must come before -i)
-        if is_dvd_source:
-            cmd.extend(["-f", "concat", "-safe", "0"])
-        
-        # Add input file
-        cmd.extend(["-i", video_path])
-        
-        cmd.extend([
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1"
-        ])
-        
         try:
-            result = subprocess.run(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, timeout=30  # Increased timeout for DVD
-            )
-            if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
-                self.duration = float(result.stdout.strip())
+            duration = self.app_state.backend.get_duration(video_path)
+            if duration and duration > 0:
+                self.duration = duration
                 self.app_state.log(f"Video duration: {self.duration:.2f}s", "INFO")
-                # Update slider range for precise positioning
                 self.timeline_slider.set_duration(self.duration)
-            else:
-                # Fallback: try to get duration from DVD state if available
-                if is_dvd_source and self.app_state.dvd.available_titles:
-                    for title in self.app_state.dvd.available_titles:
-                        if title.title_number == self.app_state.dvd.selected_title_number:
-                            self.duration = title.duration
-                            self.app_state.log(f"Using DVD title duration: {self.duration:.2f}s", "INFO")
-                            # Update slider range for precise positioning
-                            self.timeline_slider.set_duration(self.duration)
-                            return
-                self.app_state.log(f"Could not determine video duration", "WARN")
+                return
         except Exception as e:
-            self.app_state.log(f"Failed to get video duration: {e}", "WARN")
-            self.duration = 0.0
+            self.app_state.log(f"Backend duration failed: {e}", "WARN")
+        if is_dvd_source and self.app_state.dvd.available_titles:
+            for title in self.app_state.dvd.available_titles:
+                if title.title_number == self.app_state.dvd.selected_title_number:
+                    self.duration = title.duration
+                    self.app_state.log(f"Using DVD title duration: {self.duration:.2f}s", "INFO")
+                    self.timeline_slider.set_duration(self.duration)
+                    return
+        self.app_state.log("Could not determine video duration", "WARN")
+        self.duration = 0.0
             
     def on_timeline_changed(self, value):
         """Handle timeline slider change while dragging"""
@@ -1458,7 +1365,7 @@ class VideoPreview(QWidget):
         self._frame_loader.error_occurred.connect(self.on_frame_error)
         self._loader_thread.started.connect(
             lambda: self._frame_loader.load_frame(
-                self.current_video_path, timestamp, self.app_state.ffmpeg_path,
+                self.current_video_path, timestamp, self.app_state.backend,
                 is_dvd_source, first_vob_path, subtitle_filter
             )
         )
@@ -1614,51 +1521,32 @@ class VideoPreview(QWidget):
         
         if not filters:
             return image.copy()
-            
-        # Use FFmpeg to apply filters
+
         filter_str = ",".join(filters)
-        
+        backend = self.app_state.backend
+        if not hasattr(backend, 'apply_video_filter'):
+            return image.copy()
+
         try:
-            # Convert QImage to bytes using QBuffer
             buffer = QBuffer()
             buffer.open(QBuffer.ReadWrite)
             image.save(buffer, "PNG")
             image_bytes = bytes(buffer.data())
             buffer.close()
-            
-            # Apply filter using FFmpeg
-            cmd = [
-                self.app_state.ffmpeg_path,
-                "-i", "-",  # Read from stdin
-                "-vf", filter_str,
-                "-f", "image2pipe",
-                "-vcodec", "png",
-                "-"
-            ]
-            
+
             self.app_state.log(f"Preview filter: {filter_str}", "DEBUG")
-            
-            result = subprocess.run(
-                cmd, input=image_bytes,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=5
-            )
-            
-            if result.returncode != 0:
-                stderr = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
-                self.app_state.log(f"FFmpeg filter error: {stderr[:200]}", "WARN")
-            
-            if result.returncode == 0 and result.stdout:
+
+            result = backend.apply_video_filter(image_bytes, filter_str)
+            if result:
                 processed = QImage()
-                processed.loadFromData(result.stdout, "PNG")
+                processed.loadFromData(result, "PNG")
                 if not processed.isNull():
                     image = processed
             else:
-                self.app_state.log(f"Filter failed, returning original image", "WARN")
-                    
+                self.app_state.log("Filter failed, returning original image", "WARN")
         except Exception as e:
             self.app_state.log(f"Filter preview error: {e}", "WARN")
-        
+
         return image
     
     def draw_subtitle_on_image(self, image: QImage, text: str) -> QImage:

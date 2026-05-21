@@ -1322,7 +1322,7 @@ class ConfigTab(QWidget):
         """Run video validation and show results"""
         from video_validator import VideoValidator
         
-        validator = VideoValidator(self.app_state.ffmpeg_path, self.app_state.log)
+        validator = VideoValidator(self.app_state.backend, self.app_state.log)
         
         # Quick health check
         if not validator.quick_health_check(filepath):
