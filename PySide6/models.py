@@ -326,7 +326,9 @@ class AppState(QObject):
     tracks_updated = Signal(list)  # List of Track objects
     handbrake_path_changed = Signal(str)
     handbrake_available_changed = Signal(bool)
-    
+    media_engine_changed = Signal(str)
+    gstreamer_path_changed = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         
@@ -359,6 +361,11 @@ class AppState(QObject):
         # Tracks list for Tracks Tab
         self.track_list: List[Track] = []
         
+        # Media engine
+        self._media_engine: str = "ffmpeg"
+        self._gstreamer_path: str = "gst-launch-1.0"
+        self._backend = None
+
         # UI State
         self._is_encoding: bool = False
         self._current_process = None
@@ -448,14 +455,46 @@ class AppState(QObject):
     def custom_filename(self, value):
         self._custom_filename = value
     
+    @Property(str, notify=media_engine_changed)
+    def media_engine(self):
+        return self._media_engine
+
+    @media_engine.setter
+    def media_engine(self, value):
+        if self._media_engine != value:
+            self._media_engine = value
+            self._backend = None
+            self.media_engine_changed.emit(value)
+
+    @Property(str, notify=gstreamer_path_changed)
+    def gstreamer_path(self):
+        return self._gstreamer_path
+
+    @gstreamer_path.setter
+    def gstreamer_path(self, value):
+        if self._gstreamer_path != value:
+            self._gstreamer_path = value
+            self.gstreamer_path_changed.emit(value)
+
+    @property
+    def backend(self):
+        if self._backend is None:
+            if self._media_engine == "gstreamer":
+                from backends.gstreamer import GStreamerBackend
+                self._backend = GStreamerBackend(self)
+            else:
+                from backends.ffmpeg import FFmpegBackend
+                self._backend = FFmpegBackend(self)
+        return self._backend
+
     @Property(bool)
     def is_encoding(self):
         return self._is_encoding
-    
+
     @is_encoding.setter
     def is_encoding(self, value):
         self._is_encoding = value
-    
+
     # Helper methods
     def add_input_file(self, file_path: str):
         """Add a file to the input list"""

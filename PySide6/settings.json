@@ -1,5 +1,7 @@
 {
   "ffmpeg_path": "/home/akira/Downloads/ffmpeg-n8.1-latest-linux64-gpl-8.1/bin/ffmpeg",
-  "output_folder": "",
-  "handbrake_path": "HandBrakeCLI"
+  "output_folder": "/home/akira/Videos",
+  "handbrake_path": "HandBrakeCLI",
+  "media_engine": "gstreamer",
+  "gstreamer_path": "gst-launch-1.0"
 }

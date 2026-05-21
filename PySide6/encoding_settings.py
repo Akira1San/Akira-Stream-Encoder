@@ -28,7 +28,18 @@ class EncodingPanel(QWidget):
         """Setup the UI layout"""
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
-        
+
+        # Engine indicator
+        engine_layout = QHBoxLayout()
+        engine_label = QLabel("Engine:")
+        engine_label.setStyleSheet("font-weight: bold;")
+        engine_layout.addWidget(engine_label)
+        self.engine_indicator = QLabel("FFmpeg")
+        self.engine_indicator.setStyleSheet("color: #4CAF50; font-weight: bold;")
+        engine_layout.addWidget(self.engine_indicator)
+        engine_layout.addStretch()
+        layout.addLayout(engine_layout)
+
         # === GPU & Encoder (Vertical Layout) ===
         
         # GPU Checkbox
@@ -585,6 +596,7 @@ class EncodingPanel(QWidget):
         
     def connect_signals(self):
         """Connect UI signals to handlers"""
+        self.app_state.media_engine_changed.connect(self.on_engine_changed)
         self.gpu_check.toggled.connect(self.on_gpu_changed)
         self.encoder_combo.currentTextChanged.connect(self.on_encoder_changed)
         self.video_mode_combo.currentTextChanged.connect(self.on_video_mode_changed)
@@ -827,6 +839,12 @@ class EncodingPanel(QWidget):
         self.app_state.log("External audio cleared", "INFO")
         self.settings_changed.emit()
         
+    def on_engine_changed(self, engine):
+        self.engine_indicator.setText("GStreamer" if engine == "gstreamer" else "FFmpeg")
+        self.engine_indicator.setStyleSheet(
+            "color: #2196F3; font-weight: bold;" if engine == "gstreamer" else "color: #4CAF50; font-weight: bold;"
+        )
+
     def on_gpu_changed(self, checked):
         """Handle GPU checkbox change"""
         self.app_state.encoding.use_gpu = checked

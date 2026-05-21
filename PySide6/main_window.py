@@ -149,7 +149,11 @@ class MainWindow(QMainWindow):
                     self.app_state.output_folder = settings['output_folder']
                 if 'handbrake_path' in settings:
                     self.app_state.handbrake_path = settings['handbrake_path']
-                    
+                if 'media_engine' in settings:
+                    self.app_state.media_engine = settings['media_engine']
+                if 'gstreamer_path' in settings:
+                    self.app_state.gstreamer_path = settings['gstreamer_path']
+
                 self.log("Settings loaded", "INFO")
         except Exception as e:
             self.log(f"Failed to load settings: {e}", "WARN")
@@ -161,6 +165,8 @@ class MainWindow(QMainWindow):
                 'ffmpeg_path': self.app_state.ffmpeg_path,
                 'output_folder': self.app_state.output_folder,
                 'handbrake_path': self.app_state.handbrake_path,
+                'media_engine': self.app_state.media_engine,
+                'gstreamer_path': self.app_state.gstreamer_path,
             }
             
             import json

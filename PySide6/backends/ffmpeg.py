@@ -1,0 +1,932 @@
+"""
+FFmpeg CLI Backend - Implements MediaBackend using ffmpeg/ffprobe subprocess calls
+"""
+import os
+import re
+import subprocess
+import json
+from typing import Optional, List, Dict, Any
+
+from backends.base import MediaBackend
+
+
+class FFmpegBackend(MediaBackend):
+    """Media backend using FFmpeg CLI"""
+
+    def __init__(self, app_state):
+        self.app_state = app_state
+
+    def _get_ffprobe_path(self) -> str:
+        ffprobe = self.app_state.ffprobe_path
+        ffmpeg = self.app_state.ffmpeg_path
+        if ffmpeg != "ffmpeg" and os.path.exists(ffmpeg):
+            base = os.path.dirname(ffmpeg)
+            candidate = os.path.join(base, "ffprobe.exe" if os.name == 'nt' else "ffprobe")
+            if os.path.exists(candidate):
+                return candidate
+        return ffprobe or "ffprobe"
+
+    def get_duration(self, input_path: str) -> float:
+        duration = 0.0
+        ffprobe_path = self._get_ffprobe_path()
+        ffmpeg_path = self.app_state.ffmpeg_path
+        is_dvd_concat = input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
+
+        if ffprobe_path:
+            try:
+                cmd = [ffprobe_path, "-v", "error"]
+                if is_dvd_concat:
+                    cmd.extend(["-f", "concat", "-safe", "0"])
+                cmd.extend(["-i", input_path])
+                cmd.extend(["-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1"])
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+                if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
+                    duration = float(result.stdout.strip())
+                    return duration
+            except subprocess.TimeoutExpired:
+                self.app_state.log(f"ffprobe timed out for {os.path.basename(input_path)}.", "WARN")
+            except Exception as e:
+                self.app_state.log(f"ffprobe failed: {e}", "WARN")
+
+        if is_dvd_concat and self.app_state.dvd.available_titles:
+            for title in self.app_state.dvd.available_titles:
+                if title.title_number == self.app_state.dvd.selected_title_number:
+                    return title.duration
+
+        try:
+            cmd = [ffmpeg_path]
+            if is_dvd_concat:
+                cmd.extend(["-f", "concat", "-safe", "0"])
+            cmd.extend(["-i", input_path])
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+            match = re.search(r"Duration:\s*(\d{2}:\d{2}:\d{2})", result.stderr)
+            if match:
+                h, m, s = map(int, match.group(1).split(':'))
+                duration = h * 3600 + m * 60 + s
+                return duration
+        except subprocess.TimeoutExpired:
+            self.app_state.log(f"ffmpeg timed out for {os.path.basename(input_path)}.", "WARN")
+        except Exception as e:
+            self.app_state.log(f"ffmpeg detection failed: {e}", "WARN")
+
+        return duration
+
+    def get_audio_tracks(self, input_path: str) -> List[dict]:
+        audio_tracks = []
+        ffprobe_path = self._get_ffprobe_path()
+
+        try:
+            cmd = [
+                ffprobe_path, "-v", "error",
+                "-show_entries", "stream=index,codec_type,codec_name,channels,sample_rate:stream_tags=language,title",
+                "-of", "json", input_path
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                for stream in data.get('streams', []):
+                    if stream.get('codec_type') == 'audio':
+                        tags = stream.get('tags', {})
+                        track_info = {
+                            'index': stream.get('index', 0),
+                            'codec': stream.get('codec_name', 'unknown'),
+                            'channels': stream.get('channels', 2),
+                            'sample_rate': stream.get('sample_rate', ''),
+                            'language': tags.get('language', ''),
+                            'title': tags.get('title', '')
+                        }
+                        audio_tracks.append(track_info)
+        except Exception as e:
+            self.app_state.log(f"Audio track detection failed: {e}", "WARN")
+
+        return audio_tracks
+
+    def get_video_bitrate(self, input_path: str) -> Optional[int]:
+        ffprobe_path = self._get_ffprobe_path()
+        ffmpeg_path = self.app_state.ffmpeg_path
+
+        try:
+            cmd = [
+                ffprobe_path, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=bit_rate",
+                "-of", "default=noprint_wrappers=1:nokey=1", input_path
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                br_kbps = int(result.stdout.strip()) // 1000
+                return br_kbps
+        except Exception:
+            pass
+
+        try:
+            cmd = [ffmpeg_path, "-i", input_path]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            match = re.search(r"bitrate:\s*(\d+)\s*kb/s", result.stderr)
+            if match:
+                return int(match.group(1))
+        except Exception:
+            pass
+
+        return None
+
+    def get_file_info(self, input_path: str) -> dict:
+        info = {}
+        cmd = [self.app_state.ffmpeg_path, "-i", input_path, "-f", "null", "-"]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            stderr = result.stderr
+
+            match = re.search(r"\d{3,4}x\d{3,4}", stderr)
+            if match:
+                info['resolution'] = match.group()
+            match = re.search(r"Stream #0:0.*Video: (\w+)", stderr)
+            if match:
+                info['codec'] = match.group(1)
+            match = re.search(r"bitrate: (\d+) kb/s", stderr)
+            if match:
+                info['bitrate'] = match.group(1)
+            match = re.search(r"Duration: (\d{2}:\d{2}:\d{2})", stderr)
+            if match:
+                info['duration'] = match.group(1)
+        except Exception:
+            pass
+        return info
+
+    def extract_subtitle(self, input_path: str, stream_idx: int, output_path: str) -> Optional[str]:
+        cmd = [
+            self.app_state.ffmpeg_path, "-y", "-i", input_path,
+            "-map", f"0:s:{stream_idx}",
+            "-c:s", "srt", output_path
+        ]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+            if result.returncode == 0 and os.path.exists(output_path):
+                return output_path
+        except Exception:
+            pass
+        return None
+
+    def validate(self, input_path: str) -> dict:
+        result = {'is_valid': True, 'issues': [], 'stderr': ''}
+        cmd = [self.app_state.ffmpeg_path, "-v", "error", "-i", input_path, "-f", "null", "-"]
+        try:
+            r = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True, timeout=30)
+            result['is_valid'] = r.returncode == 0
+            result['stderr'] = r.stderr[:500]
+            if "Non-monotonic DTS" in r.stderr:
+                result['issues'].append("DTS not monotonic")
+            if "Application provided invalid" in r.stderr:
+                result['issues'].append("Invalid timestamps")
+        except subprocess.TimeoutExpired:
+            result['is_valid'] = False
+            result['issues'].append("Check timed out")
+        except Exception as e:
+            result['is_valid'] = False
+            result['issues'].append(str(e))
+        return result
+
+    def build_filter_string(self, app_state) -> tuple:
+        video_filters = []
+        audio_filters = []
+        encoding = app_state.encoding
+        filters = app_state.filters
+        eq = app_state.eq
+        tracks = app_state.tracks
+
+        if encoding.scale_mode == "on":
+            res = encoding.resolution
+            algorithm = encoding.scale_algorithm
+            quality = encoding.scale_quality
+            aspect_mode = getattr(encoding, 'aspect_ratio_mode', 'fit')
+            src_width = getattr(tracks, 'video_width', 0)
+            src_height = getattr(tracks, 'video_height', 0)
+
+            def calc_fit_h(target_w):
+                if src_width and src_height and target_w:
+                    return int(round(target_w * src_height / src_width / 2) * 2)
+                return None
+
+            if res == "none" or not res:
+                pass
+            else:
+                res_spec = getattr(encoding, 'custom_resolution', '1280x720') if res == "Custom" else res
+                interl = "1" if quality == "quality" else "0"
+
+                if algorithm == "bilinear":
+                    scale_filter = f"scale={res_spec}:flags=lanczos:interl={interl}" if quality == "quality" else f"scale={res_spec}"
+                elif algorithm == "bicubic":
+                    scale_filter = f"scale={res_spec}:flags=bicubic:interl={interl}"
+                elif algorithm == "lanczos":
+                    scale_filter = f"scale={res_spec}:flags=lanczos:interl={interl}"
+                elif algorithm == "spline":
+                    scale_filter = f"scale={res_spec}:flags=spline:interl={interl}"
+                elif algorithm == "area":
+                    scale_filter = f"scale={res_spec}:flags=area:interl={interl}"
+                elif algorithm == "zscale":
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        scale_filter = f"zscale=w={w}:h={h}:filter=lanczos"
+                    else:
+                        scale_filter = "zscale=filter=lanczos"
+                elif algorithm == "scale_cuda":
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        w = int(w)
+                        if aspect_mode == "fit":
+                            nh = calc_fit_h(w)
+                            if nh:
+                                h = nh
+                        scale_filter = f"scale_cuda=w={w}:h={h}"
+                    else:
+                        scale_filter = "scale_cuda"
+                elif algorithm == "scale_vulkan":
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        w = int(w)
+                        if aspect_mode == "fit":
+                            nh = calc_fit_h(w)
+                            if nh:
+                                h = nh
+                        scale_filter = f"scale_vulkan=w={w}:h={h}"
+                    else:
+                        scale_filter = "scale_vulkan"
+                elif algorithm == "libplacebo":
+                    upscaler = "ewa_lanczos" if quality == "quality" else "bilinear"
+                    tone_mapping = getattr(encoding, 'libplacebo_tonemapping', 'none')
+                    if "x" in res_spec:
+                        w, h = res_spec.split("x")
+                        w = int(w)
+                        if aspect_mode == "fit":
+                            nh = calc_fit_h(w)
+                            if nh:
+                                h = nh
+                        if tone_mapping != "none" and tone_mapping:
+                            scale_filter = f"libplacebo=w={w}:h={h}:upscaler={upscaler}:tonemapping={tone_mapping}"
+                        else:
+                            scale_filter = f"libplacebo=w={w}:h={h}:upscaler={upscaler}"
+                    else:
+                        if tone_mapping != "none" and tone_mapping:
+                            scale_filter = f"libplacebo=upscaler={upscaler}:tonemapping={tone_mapping}"
+                        else:
+                            scale_filter = f"libplacebo=upscaler={upscaler}"
+                else:
+                    scale_filter = f"scale={res_spec}"
+
+                video_filters.append(scale_filter)
+
+        if filters.deinterlace:
+            video_filters.append("yadif")
+        if filters.denoise:
+            video_filters.append("hqdn3d")
+        if getattr(filters, 'sharpen', False):
+            amount = getattr(filters, 'sharpen_amount', 1.0)
+            video_filters.append(f"unsharp=5:5:{amount}")
+        if getattr(filters, 'cas_enabled', False):
+            strength = getattr(filters, 'cas_strength', 0.0)
+            video_filters.append(f"cas={strength}")
+        if getattr(filters, 'deblock', False):
+            strength = getattr(filters, 'deblock_strength', 0.5)
+            video_filters.append(f"deblock=filter=strong:alpha={strength}:beta={strength}")
+
+        if getattr(filters, 'smart_crop_enabled', False):
+            crop_mode = getattr(filters, 'smart_crop_mode', 'manual')
+            min_dim = 16
+            if crop_mode == 'manual':
+                w = max(filters.smart_crop_w, min_dim) // 2 * 2
+                h = max(filters.smart_crop_h, min_dim) // 2 * 2
+                x = filters.smart_crop_x
+                y = filters.smart_crop_y
+                video_filters.append(f"crop={w}:{h}:{x}:{y}")
+                if getattr(filters, 'smart_crop_show_preview', False):
+                    video_filters.append(f"drawbox=x={x}:y={y}:w={w}:h={h}:color=green:thickness=3")
+            else:
+                w = max(filters.smart_crop_w, min_dim) // 2 * 2
+                h = max(filters.smart_crop_h, min_dim) // 2 * 2
+                video_filters.append(f"crop={w}:{h}:(iw-{w})/2:(ih-{h})/2")
+                if getattr(filters, 'smart_crop_show_preview', False):
+                    video_filters.append(f"drawbox=x=(iw-{w})/2:y=(ih-{h})/2:w={w}:h={h}:color=green:thickness=3")
+
+        if getattr(filters, 'ar_convert_enabled', False):
+            ar_targets = {"16:9": 16.0/9.0, "4:3": 4.0/3.0, "1:1": 1.0, "2.35:1": 2.35}
+            target_ar = ar_targets.get(getattr(filters, 'ar_target', '16:9'), 16.0/9.0)
+            ar_method = getattr(filters, 'ar_method', 'crop')
+
+            if ar_method == "crop":
+                video_filters.append(f"crop=ih*{target_ar:.4f}:ih:(ih*{target_ar:.4f}-iw)/2:0")
+            elif ar_method == "pad":
+                video_filters.append(f"pad=ih*{target_ar:.4f}:ih:(ih*{target_ar:.4f}-iw)/2:0:black")
+            elif ar_method == "scale_2step":
+                video_filters.append(f"scale=iw*min({target_ar:.4f}*(ih/iw),1):ih*min(1,({target_ar:.4f})/(ih/iw)),setsar=1")
+            else:
+                video_filters.append(f"scale=iw*{target_ar:.4f}:ih")
+            video_filters.append("setsar=1:1")
+
+        if getattr(filters, 'delogo_enabled', False):
+            x = filters.delogo_x
+            y = filters.delogo_y
+            w = filters.delogo_w
+            h = filters.delogo_h
+            video_filters.append(f"delogo=x={x}:y={y}:w={w}:h={h}")
+            if getattr(filters, 'delogo_show', False):
+                video_filters.append(f"drawbox=x={x}:y={y}:w={w}:h={h}:color=red:thickness=2")
+
+        if eq.enabled:
+            eq_params = []
+            if eq.brightness != 0:
+                eq_params.append(f"brightness={eq.brightness}")
+            if eq.contrast != 1.0:
+                eq_params.append(f"contrast={eq.contrast}")
+            if eq.saturation != 1.0:
+                eq_params.append(f"saturation={eq.saturation}")
+            if eq.gamma != 1.0:
+                eq_params.append(f"gamma={eq.gamma}")
+            if eq.gamma_r != 1.0:
+                eq_params.append(f"gamma_r={eq.gamma_r}")
+            if eq.gamma_g != 1.0:
+                eq_params.append(f"gamma_g={eq.gamma_g}")
+            if eq.gamma_b != 1.0:
+                eq_params.append(f"gamma_b={eq.gamma_b}")
+            if eq_params:
+                video_filters.append(f"eq={':'.join(eq_params)}")
+
+        if eq.white_balance_enabled:
+            wb_params = []
+            if eq.wb_shadows_r != 0:
+                wb_params.append(f"rs={eq.wb_shadows_r}")
+            if eq.wb_shadows_g != 0:
+                wb_params.append(f"gs={eq.wb_shadows_g}")
+            if eq.wb_shadows_b != 0:
+                wb_params.append(f"bs={eq.wb_shadows_b}")
+            if eq.wb_midtones_r != 0:
+                wb_params.append(f"rm={eq.wb_midtones_r}")
+            if eq.wb_midtones_g != 0:
+                wb_params.append(f"gm={eq.wb_midtones_g}")
+            if eq.wb_midtones_b != 0:
+                wb_params.append(f"bm={eq.wb_midtones_b}")
+            if eq.wb_highlights_r != 0:
+                wb_params.append(f"rh={eq.wb_highlights_r}")
+            if eq.wb_highlights_g != 0:
+                wb_params.append(f"gh={eq.wb_highlights_g}")
+            if eq.wb_highlights_b != 0:
+                wb_params.append(f"bh={eq.wb_highlights_b}")
+            if wb_params:
+                video_filters.append(f"colorbalance={':'.join(wb_params)}")
+
+        if filters.volume_enabled:
+            audio_filters.append(f"volume={filters.volume_db}dB")
+        if getattr(filters, 'audio_denoise', False):
+            audio_filters.append("afftdn=nf=-25")
+        if getattr(filters, 'audio_dynnorm', False):
+            audio_filters.append("dynaudnorm=f=150:g=15:r=0.95")
+        if getattr(filters, 'audio_compressor', False):
+            audio_filters.append("acompressor=threshold=0.15:ratio=3:attack=20:release=250")
+        if getattr(filters, 'audio_delay_enabled', False):
+            delay_ms = filters.audio_delay_ms
+            if delay_ms > 0:
+                audio_filters.append(f"adelay={delay_ms}|{delay_ms}")
+
+        return (
+            ",".join(video_filters) if video_filters else "",
+            ",".join(audio_filters) if audio_filters else ""
+        )
+
+    def find_subtitle_file(self, video_path: str) -> Optional[str]:
+        if not video_path:
+            return None
+        selected = self.app_state.subtitles.selected_subtitle
+        if selected and os.path.exists(selected):
+            return selected
+        base = os.path.splitext(video_path)[0]
+        for ext in [".srt", ".ass", ".ssa", ".sub"]:
+            sub_path = base + ext
+            if os.path.exists(sub_path):
+                return sub_path
+        return None
+
+    def hex_to_ass(self, hex_color: str, opacity: float = 1.0) -> str:
+        hex_color = hex_color.lstrip('#')
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        alpha = 255 - int(opacity * 255)
+        return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
+
+    def build_subtitle_filter(self, sub_path: str) -> str:
+        subs = self.app_state.subtitles
+        is_vobsub = sub_path.lower().endswith('.sub')
+        escaped_path = sub_path.replace("\\", "/").replace("'", "'\\''")
+        escaped_path = escaped_path.replace("[", "\\[").replace("]", "\\]")
+        escaped_path = re.sub(r'^([A-Z]):/', r'\1\:/', escaped_path, flags=re.IGNORECASE)
+
+        if is_vobsub:
+            return f"subtitles='{escaped_path}'"
+
+        style = []
+        if subs.font != "Arial":
+            style.append(f"Fontname={subs.font}")
+        style.append(f"Fontsize={subs.size}")
+        if subs.color != "#FFFFFF":
+            style.append(f"PrimaryColour={self.hex_to_ass(subs.color)}")
+        if subs.outline_color != "#000000":
+            style.append(f"OutlineColour={self.hex_to_ass(subs.outline_color)}")
+        if subs.outline_width != 2:
+            style.append(f"Outline={subs.outline_width}")
+
+        if subs.shadow_enabled and subs.bg_opacity > 0.0:
+            shadow_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+            style.append(f"BackColour={shadow_ass}")
+            style.append("BorderStyle=3")
+            shadow_distance = max(subs.shadow_offset_x, subs.shadow_offset_y, 2)
+            style.append(f"Shadow={shadow_distance}")
+        elif subs.shadow_enabled:
+            outline_ass = self.hex_to_ass(subs.shadow_color, subs.shadow_opacity)
+            style.append(f"OutlineColour={outline_ass}")
+            style.append("BorderStyle=2")
+            shadow_distance = max(subs.shadow_offset_x, subs.shadow_offset_y, 2)
+            style.append(f"Shadow={shadow_distance}")
+        elif subs.bg_opacity > 0.0:
+            ass_bg = self.hex_to_ass(subs.bg_color, subs.bg_opacity)
+            style.append(f"BackColour={ass_bg}")
+            style.append("BorderStyle=4")
+        else:
+            style.append("BorderStyle=1")
+
+        if subs.shadow_enabled and subs.outline_width == 0:
+            style.append("Outline=1")
+
+        pos_map = {"bottom": 2, "top": 8, "center": 10}
+        if subs.position != "bottom":
+            style.append(f"Alignment={pos_map.get(subs.position, 2)}")
+        if subs.vertical_offset > 0:
+            if subs.position == "bottom":
+                margin_v = max(0, 20 - subs.vertical_offset)
+                style.append(f"MarginV={margin_v}")
+            else:
+                style.append(f"MarginV={subs.vertical_offset}")
+
+        force_style = f":force_style='{','.join(style)}'" if style else ""
+        return f"subtitles='{escaped_path}'{force_style}"
+
+    def build_command(self, input_path: str, output_path: str,
+                      start_time: Optional[str] = None,
+                      duration: Optional[str] = None) -> List[str]:
+        cmd = [self.app_state.ffmpeg_path]
+        encoding = self.app_state.encoding
+        filters = self.app_state.filters
+        eq = self.app_state.eq
+        tracks = self.app_state.tracks
+        subtitles = self.app_state.subtitles
+        dvd = self.app_state.dvd
+
+        encoder = encoding.encoder
+        if encoding.use_gpu and "nvenc" in encoder:
+            cmd.extend(["-hwaccel", "cuda"])
+
+        is_dvd_source = dvd.is_dvd_source and input_path.endswith('.txt')
+
+        if self.app_state.split.extract_clip_enabled:
+            start_min = self.app_state.split.extract_start_min
+            duration_min = self.app_state.split.extract_duration_min
+            start_time = str(int(start_min * 60))
+            duration = str(int(duration_min * 60))
+
+            burn_subs = subtitles.burn_subs
+            sub_path = self.find_subtitle_file(input_path) if burn_subs else None
+
+            burning_dvd_subs = is_dvd_source and dvd.selected_subtitle_index >= 0
+            if burning_dvd_subs:
+                pass
+
+            if is_dvd_source:
+                cmd.extend(["-f", "concat", "-safe", "0"])
+
+            if burn_subs and sub_path and not is_dvd_source:
+                cmd.extend(["-i", input_path])
+                ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
+                ext_audio_path = getattr(tracks, 'external_audio_path', '')
+                if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
+                    cmd.extend(["-i", ext_audio_path])
+                    self._external_audio = True
+                else:
+                    self._external_audio = False
+                cmd.extend(["-ss", start_time])
+                cmd.extend(["-t", duration])
+                video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
+                subs_filter = self.build_subtitle_filter(sub_path)
+                filter_parts = []
+                if video_filters_str:
+                    filter_parts.append(video_filters_str)
+                if subs_filter:
+                    filter_parts.append(subs_filter)
+                filter_parts.append("setpts=PTS-STARTPTS")
+                cmd.extend(["-vf", ",".join(filter_parts)])
+                cmd.extend(["-af", "asetpts=PTS-STARTPTS"])
+            else:
+                cmd.extend(["-i", input_path])
+                ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
+                ext_audio_path = getattr(tracks, 'external_audio_path', '')
+                if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
+                    cmd.extend(["-i", ext_audio_path])
+                    self._external_audio = True
+                else:
+                    self._external_audio = False
+                cmd.extend(["-ss", start_time])
+                cmd.extend(["-t", duration])
+                video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
+                if video_filters_str:
+                    cmd.extend(["-vf", video_filters_str])
+                elif encoding.resolution != "none" and encoding.scale_mode == "off":
+                    cmd.extend(["-s", encoding.resolution])
+                if burn_subs and not is_dvd_source:
+                    pass
+
+            video_mode = getattr(encoding, 'video_mode', 'encode')
+            if video_mode == "copy":
+                cmd.extend(["-c:v", "copy"])
+            else:
+                cmd.extend(["-c:v", encoder])
+                if encoding.use_gpu and "nvenc" in encoder:
+                    cmd.extend(["-preset", encoding.gpu_preset])
+                    cmd.extend(["-cq", str(encoding.cq)])
+                else:
+                    cmd.extend(["-crf", str(encoding.cq)])
+                    cmd.extend(["-preset", encoding.cpu_preset])
+                    if encoding.cpu_tune != "none":
+                        cmd.extend(["-tune", encoding.cpu_tune])
+                if encoding.resolution != "none" and encoding.scale_mode == "off":
+                    cmd.extend(["-s", encoding.resolution])
+                pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
+                cmd.extend(["-pix_fmt", pix_fmt])
+                if encoder == "libx265":
+                    cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+                else:
+                    cmd.extend(["-g", "144"])
+                    cmd.extend(["-bf", "0"])
+                cmd.extend(["-profile:v", "main"])
+                if encoder != "libx265":
+                    cmd.extend(["-level:v", "4.0"])
+                cmd.extend(["-force_key_frames:v", "0"])
+
+            if tracks.video_selected:
+                cmd.extend(["-map", "0:v:0"])
+
+            if tracks.audio_selected:
+                audio_stream_idx = tracks.audio_stream_index
+                if audio_stream_idx is None or audio_stream_idx < 0:
+                    audio_stream_idx = 0
+                cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+
+            _, audio_filters_str = self.build_filter_string(self.app_state)
+
+            if getattr(self, '_external_audio', False):
+                cmd.extend(["-map", "1:a"])
+                if tracks.audio_copy_mode:
+                    ext_path = tracks.external_audio_path
+                    ext = os.path.splitext(ext_path)[1].lower()
+                    if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
+                        cmd.extend(["-c:a", "copy"])
+                    else:
+                        cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2"])
+                else:
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
+                cmd.extend(["-shortest"])
+            elif tracks.audio_copy_mode:
+                cmd.extend(["-c:a", "copy"])
+            else:
+                cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
+                if audio_filters_str:
+                    cmd.extend(["-af", audio_filters_str])
+            cmd.extend(["-y", output_path])
+            return cmd
+
+        if is_dvd_source:
+            cmd.extend(["-f", "concat", "-safe", "0"])
+
+        cmd.extend(["-i", input_path])
+
+        ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
+        ext_audio_path = getattr(tracks, 'external_audio_path', '')
+        if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
+            cmd.extend(["-i", ext_audio_path])
+        else:
+            ext_audio_enabled = False
+        self._external_audio = ext_audio_enabled
+
+        if start_time:
+            cmd.extend(["-ss", start_time])
+        if duration:
+            cmd.extend(["-t", duration])
+
+        video_mode = getattr(encoding, 'video_mode', 'encode')
+        if video_mode == "copy":
+            cmd.extend(["-c:v", "copy"])
+        else:
+            cmd.extend(["-c:v", encoder])
+            if encoding.use_gpu and "nvenc" in encoder:
+                cmd.extend(["-preset", encoding.gpu_preset])
+                cmd.extend(["-cq", str(encoding.cq)])
+            else:
+                cmd.extend(["-crf", str(encoding.cq)])
+                cmd.extend(["-preset", encoding.cpu_preset])
+                if encoding.cpu_tune != "none":
+                    cmd.extend(["-tune", encoding.cpu_tune])
+            if encoding.resolution != "none" and encoding.scale_mode == "off":
+                ar_enabled = getattr(filters, 'ar_convert_enabled', False)
+                if not ar_enabled:
+                    cmd.extend(["-s", encoding.resolution])
+            cmd.extend(["-r", encoding.framerate])
+            if encoder == "libx265":
+                cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+            else:
+                cmd.extend(["-g", "144"])
+                cmd.extend(["-bf", "0"])
+            pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
+            cmd.extend(["-pix_fmt", pix_fmt])
+            if encoder == "libx265":
+                cmd.extend(["-profile:v", "main"])
+            else:
+                cmd.extend(["-profile:v", "main"])
+                cmd.extend(["-level:v", "4.0"])
+            cmd.extend(["-force_key_frames:v", "0"])
+            if encoding.use_original_bitrate:
+                orig_br = self.get_video_bitrate(input_path)
+                if orig_br:
+                    cmd.extend(["-b:v", f"{orig_br}k"])
+                    cmd.extend(["-maxrate", f"{orig_br}k"])
+                    cmd.extend(["-bufsize", f"{orig_br * 2}k"])
+            else:
+                target_br = encoding.target_bitrate
+                if target_br and target_br.isdigit():
+                    target_br_int = int(target_br)
+                    cmd.extend(["-b:v", f"{target_br_int}k"])
+                    cmd.extend(["-maxrate", f"{target_br_int}k"])
+                    cmd.extend(["-bufsize", f"{target_br_int * 2}k"])
+
+        if tracks.video_selected:
+            cmd.extend(["-map", "0:v:0"])
+
+        audio_mode = getattr(encoding, 'audio_mode', 'encode')
+        audio_copy = (audio_mode == "copy") or tracks.audio_copy_mode
+        use_external = (self._external_audio and tracks.audio_selected and getattr(tracks, 'external_audio_path', ''))
+
+        if use_external:
+            cmd.extend(["-map", "1:a"])
+            if audio_copy:
+                ext_path = tracks.external_audio_path
+                ext = os.path.splitext(ext_path)[1].lower()
+                if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
+                    cmd.extend(["-c:a", "copy"])
+                else:
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"])
+            else:
+                cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+            cmd.extend(["-shortest"])
+        elif tracks.audio_selected:
+            audio_stream_idx = tracks.audio_stream_index
+            if audio_stream_idx is None or audio_stream_idx < 0:
+                audio_stream_idx = 0
+            cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+            if audio_copy:
+                cmd.extend(["-c:a", "copy"])
+            else:
+                cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+        else:
+            cmd.extend(["-an"])
+            audio_copy = True
+
+        video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
+        if video_filters_str:
+            cmd.extend(["-vf", video_filters_str])
+        if audio_filters_str and not audio_copy:
+            cmd.extend(["-af", audio_filters_str])
+
+        cmd.extend(["-y", output_path])
+        return cmd
+
+    def encode(self, input_path: str, output_path: str,
+               app_state, start_time=None, duration=None) -> subprocess.Popen:
+        cmd = self.build_command(input_path, output_path, start_time, duration)
+        self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        return subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True, bufsize=1
+        )
+
+    def fast_cut(self, input_path: str, output_path: str,
+                 start_time: Optional[str] = None,
+                 duration: Optional[str] = None) -> subprocess.Popen:
+        cmd = [self.app_state.ffmpeg_path, "-i", input_path]
+        if duration:
+            cmd.extend(["-t", duration])
+        cmd.extend(["-c:v", "copy"])
+
+        tracks = self.app_state.tracks
+        ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
+        ext_audio_path = getattr(tracks, 'external_audio_path', '')
+        has_ext_audio = ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path)
+        if has_ext_audio:
+            cmd.extend(["-i", ext_audio_path])
+
+        if tracks.video_selected:
+            cmd.extend(["-map", "0:v:0"])
+
+        if tracks.audio_selected:
+            if has_ext_audio:
+                cmd.extend(["-map", "1:a"])
+                ext = os.path.splitext(ext_audio_path)[1].lower()
+                if ext in ['.mp3', '.mp2']:
+                    cmd.extend(["-c:a", "copy"])
+                elif ext == '.wav':
+                    cmd.extend(["-c:a", "pcm_s16le"])
+                elif ext == '.flac':
+                    cmd.extend(["-c:a", "copy"])
+                else:
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"])
+            else:
+                audio_stream_idx = tracks.audio_stream_index
+                cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+                audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
+                audio_copy = (audio_mode == 'copy') or tracks.audio_copy_mode
+                if audio_copy:
+                    cmd.extend(["-c:a", "copy"])
+                else:
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+        else:
+            cmd.extend(["-an"])
+
+        cmd.extend(["-y", output_path])
+        self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        return subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True, bufsize=1
+        )
+
+    def join_segments(self, input_path: str, output_path: str,
+                      segments: list, video_settings: dict, audio_settings: dict) -> subprocess.Popen:
+        cmd = [self.app_state.ffmpeg_path]
+        for seg_start, seg_end in segments:
+            seg_dur = seg_end - seg_start
+            cmd.extend(["-ss", str(seg_start), "-t", str(seg_dur), "-i", input_path])
+
+        filter_parts = []
+        for i in range(len(segments)):
+            filter_parts.append(f"[{i}:v]")
+            filter_parts.append(f"[{i}:a]")
+        filter_complex = f"{''.join(filter_parts)}concat=n={len(segments)}:v=1:a=1[outv][outa]"
+        cmd.extend(["-filter_complex", filter_complex])
+        cmd.extend(["-map", "[outv]"])
+        cmd.extend(["-map", "[outa]"])
+        cmd.extend(["-c:v", video_settings.get("codec", "libx264")])
+        cmd.extend(["-crf", str(video_settings.get("crf", 23))])
+        cmd.extend(["-preset", video_settings.get("preset", "medium")])
+        cmd.extend(["-c:a", audio_settings.get("codec", "aac")])
+        cmd.extend(["-b:a", audio_settings.get("bitrate", "128k")])
+        cmd.extend(["-y", output_path])
+        return subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True, bufsize=1
+        )
+
+    def align_to_keyframe(self, video_path: str, target_time: float) -> float:
+        ffprobe_path = self._get_ffprobe_path()
+        try:
+            cmd = [
+                ffprobe_path, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "frame=pts_time",
+                "-of", "csv=p=0",
+                "-skip_frame", "nokey", video_path
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout:
+                keyframe_times = []
+                for line in result.stdout.split('\n'):
+                    try:
+                        keyframe_times.append(float(line.strip()))
+                    except ValueError:
+                        continue
+                if keyframe_times:
+                    return min(keyframe_times, key=lambda t: abs(t - target_time))
+        except Exception:
+            pass
+        return target_time
+
+    def extract_track(self, video_path: str, track_info: dict, output_folder: str) -> Optional[str]:
+        base_name = os.path.splitext(os.path.basename(video_path))[0]
+        track_type = track_info['type']
+        track_idx = track_info['index']
+
+        if track_type == 'video':
+            output_filename = f"{base_name}_video_track{track_idx}.mkv"
+            cmd = [
+                self.app_state.ffmpeg_path, "-y",
+                "-i", video_path,
+                "-map", f"0:v:{track_info['video_index']}",
+                "-c", "copy",
+                os.path.join(output_folder, output_filename)
+            ]
+        else:
+            cmd_probe = [
+                self._get_ffprobe_path(), "-v", "error",
+                "-select_streams", f"a:{track_info['audio_index']}",
+                "-show_entries", "stream=codec_name",
+                "-of", "json", video_path
+            ]
+            codec = 'aac'
+            try:
+                r = subprocess.run(cmd_probe, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+                if r.returncode == 0:
+                    data = json.loads(r.stdout)
+                    streams = data.get('streams', [])
+                    if streams:
+                        codec = streams[0].get('codec_name', 'aac').lower()
+            except Exception:
+                pass
+
+            codec_ext = {
+                'aac': '.aac', 'mp3': '.mp3', 'ac3': '.ac3', 'dts': '.dts',
+                'flac': '.flac', 'ogg': '.ogg', 'opus': '.opus',
+                'wav': '.wav', 'pcm_s16le': '.wav'
+            }
+            output_ext = codec_ext.get(codec, '.aac')
+            output_filename = f"{base_name}_audio_track{track_idx}{output_ext}"
+            cmd = [
+                self.app_state.ffmpeg_path, "-y",
+                "-i", video_path,
+                "-map", f"0:a:{track_info['audio_index']}",
+                "-c", "copy",
+                os.path.join(output_folder, output_filename)
+            ]
+
+        output_path = os.path.join(output_folder, output_filename)
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300)
+            if result.returncode == 0 and os.path.exists(output_path):
+                return output_path
+        except Exception:
+            pass
+        return None
+
+    def extract_subtitle_streams(self, video_path: str) -> List[dict]:
+        ffprobe_path = self._get_ffprobe_path()
+        cmd = [
+            ffprobe_path, "-v", "error",
+            "-show_entries", "stream=index,codec_type,codec_name:stream_tags=language",
+            "-of", "json", video_path
+        ]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                return [s for s in data.get('streams', []) if s.get('codec_type') == 'subtitle']
+        except Exception:
+            pass
+        return []
+
+    def get_streams(self, video_path: str) -> dict:
+        ffprobe_path = self._get_ffprobe_path()
+        cmd = [
+            ffprobe_path, "-v", "error",
+            "-show_entries", "stream=index,codec_type,codec_name,width,height:stream_tags=language",
+            "-of", "json", video_path
+        ]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            if result.returncode == 0:
+                return json.loads(result.stdout)
+        except Exception:
+            pass
+        return {'streams': []}
+
+    def get_external_audio_info(self, file_path: str) -> Optional[dict]:
+        ffprobe_path = self._get_ffprobe_path()
+        cmd = [
+            ffprobe_path, "-v", "error",
+            "-show_entries", "stream=index,codec_name,codec_type,channels,sample_rate:format=duration",
+            "-of", "json", file_path
+        ]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                for stream in data.get('streams', []):
+                    if stream.get('codec_type') == 'audio':
+                        info = {
+                            'codec': stream.get('codec_name', 'unknown'),
+                            'channels': stream.get('channels', 0),
+                            'sample_rate': stream.get('sample_rate', '')
+                        }
+                        if data.get('format') and data['format'].get('duration'):
+                            d = float(data['format']['duration'])
+                            mins, secs = divmod(int(d), 60)
+                            hours, mins = divmod(mins, 60)
+                            if hours > 0:
+                                info['duration'] = f"{hours}:{mins:02d}:{secs:02d}"
+                            else:
+                                info['duration'] = f"{mins}:{secs:02d}"
+                        return info
+        except Exception:
+            pass
+        return None

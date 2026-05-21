@@ -351,57 +351,71 @@ class ConfigTab(QWidget):
         # === System Paths Group ===
         paths_group = QGroupBox("System Paths")
         paths_layout = QVBoxLayout(paths_group)
-        
+
+        # Media Engine Selection
+        engine_group = QGroupBox("Media Engine")
+        engine_layout = QVBoxLayout(engine_group)
+
+        engine_selector = QHBoxLayout()
+        engine_selector.addWidget(QLabel("Engine:"))
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItems(["FFmpeg", "GStreamer"])
+        self.engine_combo.setCurrentText("FFmpeg" if self.app_state.media_engine == "ffmpeg" else "GStreamer")
+        engine_selector.addWidget(self.engine_combo)
+
+        self.engine_status_label = QLabel("")
+        engine_selector.addWidget(self.engine_status_label)
+        engine_selector.addStretch()
+        engine_layout.addLayout(engine_selector)
+
+        # Engine-specific path
+        engine_path_layout = QHBoxLayout()
+        self.engine_path_label = QLabel("FFmpeg Path:")
+        engine_path_layout.addWidget(self.engine_path_label)
+
+        self.engine_path_edit = QLineEdit(self.app_state.ffmpeg_path)
+        engine_path_layout.addWidget(self.engine_path_edit)
+
+        self.engine_browse_btn = QPushButton("Browse...")
+        self.engine_browse_btn.clicked.connect(self._browse_engine_path)
+        engine_path_layout.addWidget(self.engine_browse_btn)
+
+        self.engine_auto_btn = QPushButton("Auto Detect")
+        self.engine_auto_btn.clicked.connect(self._auto_detect_engine)
+        engine_path_layout.addWidget(self.engine_auto_btn)
+
+        self.engine_version_btn = QPushButton("Check Version")
+        self.engine_version_btn.clicked.connect(self._check_engine_version)
+        engine_path_layout.addWidget(self.engine_version_btn)
+
+        engine_layout.addLayout(engine_path_layout)
+        paths_layout.addWidget(engine_group)
+
         # FFmpeg Path
         ffmpeg_layout = QHBoxLayout()
-        ffmpeg_layout.addWidget(QLabel("FFmpeg Path:"))
-        
-        self.ffmpeg_edit = QLineEdit(self.app_state.ffmpeg_path)
-        ffmpeg_layout.addWidget(self.ffmpeg_edit)
-        
-        browse_ffmpeg_btn = QPushButton("Browse...")
-        browse_ffmpeg_btn.clicked.connect(self.browse_ffmpeg)
-        ffmpeg_layout.addWidget(browse_ffmpeg_btn)
-        
-        auto_ffmpeg_btn = QPushButton("Auto Detect")
-        auto_ffmpeg_btn.clicked.connect(self.auto_detect_ffmpeg)
-        ffmpeg_layout.addWidget(auto_ffmpeg_btn)
-        
-        paths_layout.addLayout(ffmpeg_layout)
-        
-        # FFprobe Path
-        ffprobe_layout = QHBoxLayout()
-        ffprobe_layout.addWidget(QLabel("FFprobe Path:"))
-        
+        ffmpeg_layout.addWidget(QLabel("FFprobe Path:"))
         self.ffprobe_edit = QLineEdit(self.app_state.ffprobe_path)
-        ffprobe_layout.addWidget(self.ffprobe_edit)
-        
+        ffmpeg_layout.addWidget(self.ffprobe_edit)
         browse_ffprobe_btn = QPushButton("Browse...")
         browse_ffprobe_btn.clicked.connect(self.browse_ffprobe)
-        ffprobe_layout.addWidget(browse_ffprobe_btn)
-        
-        paths_layout.addLayout(ffprobe_layout)
-        
+        ffmpeg_layout.addWidget(browse_ffprobe_btn)
+        paths_layout.addLayout(ffmpeg_layout)
+
         # HandBrake Path
         hb_layout = QHBoxLayout()
         hb_layout.addWidget(QLabel("HandBrake Path:"))
-        
         self.handbrake_edit = QLineEdit(self.app_state.handbrake_path)
         hb_layout.addWidget(self.handbrake_edit)
-        
         browse_hb_btn = QPushButton("Browse...")
         browse_hb_btn.clicked.connect(self.browse_handbrake)
         hb_layout.addWidget(browse_hb_btn)
-        
         auto_hb_btn = QPushButton("Auto Detect")
         auto_hb_btn.clicked.connect(self.auto_detect_handbrake)
         hb_layout.addWidget(auto_hb_btn)
-        
         self.hb_status_label = QLabel("")
         hb_layout.addWidget(self.hb_status_label)
-        
         paths_layout.addLayout(hb_layout)
-        
+
         layout.addWidget(paths_group)
         
         # === Output Settings Group ===
@@ -516,7 +530,8 @@ class ConfigTab(QWidget):
         
     def connect_signals(self):
         """Connect UI signals to handlers"""
-        self.ffmpeg_edit.textChanged.connect(self.on_ffmpeg_changed)
+        self.engine_combo.currentTextChanged.connect(self.on_engine_changed)
+        self.engine_path_edit.textChanged.connect(self.on_engine_path_changed)
         self.ffprobe_edit.textChanged.connect(self.on_ffprobe_changed)
         self.output_edit.textChanged.connect(self.on_output_changed)
         self.custom_name_check.toggled.connect(self.on_custom_name_toggled)
@@ -524,6 +539,58 @@ class ConfigTab(QWidget):
         self.handbrake_edit.textChanged.connect(self.on_handbrake_changed)
         self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
         
+    def on_engine_changed(self, text):
+        engine = "gstreamer" if text == "GStreamer" else "ffmpeg"
+        self.app_state.media_engine = engine
+        is_gst = engine == "gstreamer"
+        self.engine_path_label.setText("GStreamer Path:" if is_gst else "FFmpeg Path:")
+        self.engine_path_edit.setText(
+            self.app_state.gstreamer_path if is_gst else self.app_state.ffmpeg_path
+        )
+
+    def on_engine_path_changed(self, text):
+        if self.engine_combo.currentText() == "GStreamer":
+            self.app_state.gstreamer_path = text
+        else:
+            self.app_state.ffmpeg_path = text
+
+    def _browse_engine_path(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.engine_path_edit.setText(file_path)
+
+    def _auto_detect_engine(self):
+        import shutil
+        if self.engine_combo.currentText() == "GStreamer":
+            path = shutil.which("gst-launch-1.0")
+            if path:
+                self.engine_path_edit.setText(path)
+                self.app_state.log(f"Auto-detected GStreamer: {path}", "INFO")
+            else:
+                QMessageBox.warning(self, "Not Found", "gst-launch-1.0 not found on PATH.")
+        else:
+            path = shutil.which("ffmpeg")
+            if path:
+                self.engine_path_edit.setText(path)
+            else:
+                QMessageBox.warning(self, "Not Found", "ffmpeg not found on PATH.")
+
+    def _check_engine_version(self):
+        path = self.engine_path_edit.text()
+        if not path:
+            QMessageBox.warning(self, "No Path", "Please set the executable path first.")
+            return
+        try:
+            result = subprocess.run([path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            output = result.stdout.strip() or result.stderr.strip()
+            self.app_state.log(f"Version: {output[:200]}", "INFO")
+            QMessageBox.information(self, "Version Info", output[:500])
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to check version: {e}")
+
     def on_ffmpeg_changed(self, text):
         """Handle FFmpeg path change"""
         self.app_state.ffmpeg_path = text
