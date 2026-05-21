@@ -758,18 +758,19 @@ class VideoWorkspace(QWidget):
                         seg_output = f"{out_base}_Part{i+1:02d}.{container}"
                         self.app_state.log(
                             f"Segment {i+1}/{n_segments}: {self._format_time(seg_start)} - {self._format_time(seg_end)}", "INFO")
+                        # Split subtitles if enabled (independent of burn checkbox)
+                        if split.split_subs:
+                            sub_path = self.controller.backend.find_subtitle_file(input_file)
+                            if sub_path:
+                                seg_sub = f"{base}_Part{i+1:02d}.srt"
+                                self._split_subtitle_file(sub_path, seg_sub, seg_start, seg_end)
+                                if subs.burn_subs:
+                                    subs.selected_subtitle = seg_sub
                         if is_copy:
                             success = self.controller.fast_cut_file(
                                 input_file, seg_output,
                                 start_time=str(int(seg_start)), duration=str(int(dur)))
                         else:
-                            # Split subtitles if enabled (encode mode only)
-                            if split.split_subs and subs.burn_subs:
-                                sub_path = self.controller.backend.find_subtitle_file(input_file)
-                                if sub_path:
-                                    seg_sub = f"{base}_Part{i+1:02d}.srt"
-                                    self._split_subtitle_file(sub_path, seg_sub, seg_start, seg_end)
-                                    subs.selected_subtitle = seg_sub
                             success = self.controller.encode_file(
                                 input_file, seg_output,
                                 start_time=str(int(seg_start)), duration=str(int(dur)))
