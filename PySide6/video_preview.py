@@ -1228,12 +1228,11 @@ class VideoPreview(QWidget):
             # Update input field to match
             self.time_input.setText(time_str)
             
-            # Seek video in real-time while dragging (if user is seeking)
+            # Seek original video during drag (QMediaPlayer is fast)
+            # Processed preview updates on slider release only
             if self._is_user_seeking:
                 self._video_player.seek(timestamp)
                 self._playback_time = timestamp
-                # Also update the processed preview via FFmpeg
-                self.seek_preview(timestamp)
     
     def on_time_input_entered(self):
         """Handle time input field entry"""

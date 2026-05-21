@@ -108,6 +108,18 @@ class GStreamerBackend(MediaBackend):
     # ------------------------------------------------------------------ #
 
     def get_duration(self, input_path: str) -> float:
+        ffprobe = self.app_state.ffprobe_path
+        if ffprobe and ffprobe != "ffprobe":
+            try:
+                r = subprocess.run(
+                    [ffprobe, "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    return float(r.stdout.strip())
+            except Exception:
+                pass
         try:
             text = self._run_discoverer(input_path)
             info = self._parse_discoverer_output(text)
