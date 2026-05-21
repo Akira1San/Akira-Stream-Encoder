@@ -227,8 +227,6 @@ class GStreamerBackend(MediaBackend):
                 params.append(f"const-quality={encoding.cq}")
             params.append(f"preset={encoding.gpu_preset}")
             params.append("gop-size=144")
-            if encoding.profile:
-                params.append(f"profile={encoding.profile}")
         else:
             if "x265" in encoder:
                 params.append("x265enc")
