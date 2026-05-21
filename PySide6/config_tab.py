@@ -427,11 +427,18 @@ class ConfigTab(QWidget):
         folder_layout.addWidget(QLabel("Output Folder:"))
         
         self.output_edit = QLineEdit(self.app_state.output_folder)
+        self.output_edit.setPlaceholderText("Same folder as source video (default)")
         folder_layout.addWidget(self.output_edit)
         
         browse_output_btn = QPushButton("Browse...")
         browse_output_btn.clicked.connect(self.browse_output_folder)
         folder_layout.addWidget(browse_output_btn)
+        
+        clear_output_btn = QPushButton("✕ Clear")
+        clear_output_btn.setMaximumWidth(80)
+        clear_output_btn.setToolTip("Reset to default: save in the same folder as the source video")
+        clear_output_btn.clicked.connect(self.clear_output_folder)
+        folder_layout.addWidget(clear_output_btn)
         
         output_layout.addLayout(folder_layout)
         
@@ -700,6 +707,12 @@ class ConfigTab(QWidget):
         )
         if folder:
             self.output_edit.setText(folder)
+            
+    def clear_output_folder(self):
+        """Clear the output folder to use default (same folder as source video)"""
+        self.output_edit.clear()
+        self.app_state.output_folder = ""
+        self.app_state.log("Output folder cleared — will use source video folder by default", "INFO")
             
     def add_files(self):
         """Add video files to the queue"""

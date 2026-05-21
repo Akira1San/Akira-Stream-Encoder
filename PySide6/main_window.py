@@ -145,7 +145,7 @@ class MainWindow(QMainWindow):
                 # Apply settings
                 if 'ffmpeg_path' in settings:
                     self.app_state.ffmpeg_path = settings['ffmpeg_path']
-                if 'output_folder' in settings:
+                if 'output_folder' in settings and settings['output_folder']:
                     self.app_state.output_folder = settings['output_folder']
                 if 'handbrake_path' in settings:
                     self.app_state.handbrake_path = settings['handbrake_path']
