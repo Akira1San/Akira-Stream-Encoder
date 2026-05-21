@@ -750,6 +750,7 @@ class VideoWorkspace(QWidget):
                     out_base = os.path.splitext(self.controller.generate_output_path(input_file))[0]
                     container = self.app_state.encoding.container
                     n_segments = int((duration + chunk_sec - 1) // chunk_sec)
+                    is_copy = self.app_state.encoding.video_mode == "copy"
                     for i in range(n_segments):
                         seg_start = i * chunk_sec
                         seg_end = min(seg_start + chunk_sec, duration)
@@ -757,16 +758,21 @@ class VideoWorkspace(QWidget):
                         seg_output = f"{out_base}_Part{i+1:02d}.{container}"
                         self.app_state.log(
                             f"Segment {i+1}/{n_segments}: {self._format_time(seg_start)} - {self._format_time(seg_end)}", "INFO")
-                        # Split subtitles if enabled
-                        if split.split_subs and subs.burn_subs:
-                            sub_path = self.controller.backend.find_subtitle_file(input_file)
-                            if sub_path:
-                                seg_sub = f"{base}_Part{i+1:02d}.srt"
-                                self._split_subtitle_file(sub_path, seg_sub, seg_start, seg_end)
-                                subs.selected_subtitle = seg_sub
-                        success = self.controller.encode_file(
-                            input_file, seg_output,
-                            start_time=str(int(seg_start)), duration=str(int(dur)))
+                        if is_copy:
+                            success = self.controller.fast_cut_file(
+                                input_file, seg_output,
+                                start_time=str(int(seg_start)), duration=str(int(dur)))
+                        else:
+                            # Split subtitles if enabled (encode mode only)
+                            if split.split_subs and subs.burn_subs:
+                                sub_path = self.controller.backend.find_subtitle_file(input_file)
+                                if sub_path:
+                                    seg_sub = f"{base}_Part{i+1:02d}.srt"
+                                    self._split_subtitle_file(sub_path, seg_sub, seg_start, seg_end)
+                                    subs.selected_subtitle = seg_sub
+                            success = self.controller.encode_file(
+                                input_file, seg_output,
+                                start_time=str(int(seg_start)), duration=str(int(dur)))
                         if not success:
                             self.app_state.log(f"Failed to encode segment {i+1} of {input_file}", "ERROR")
                             break

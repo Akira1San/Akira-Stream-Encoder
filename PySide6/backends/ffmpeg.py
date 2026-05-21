@@ -784,14 +784,25 @@ class FFmpegBackend(MediaBackend):
         video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
 
         # Subtitle burning (text subtitles)
+        skip_vf = (video_mode == "copy")
         sub_path = None
         if subtitles.burn_subs and not is_dvd_source:
-            sub_path = self.find_subtitle_file(input_path)
+            if skip_vf:
+                self.app_state.log(
+                    "Cannot burn subtitles with video stream copy mode. "
+                    "Switch video mode to 'Encode' for subtitle burning.", "WARN")
+            else:
+                sub_path = self.find_subtitle_file(input_path)
         burn_dvd_subs = subtitles.burn_subs and is_dvd_source and dvd.selected_subtitle_index >= 0
         if burn_dvd_subs:
             sub_path = None  # DVD subs handled by HandBrake fallback in controller
 
-        if sub_path:
+        if skip_vf:
+            if video_filters_str:
+                self.app_state.log(
+                    "Video filters not supported with stream copy mode. "
+                    "Switch to 'Encode' mode for filters.", "WARN")
+        elif sub_path:
             subs_filter = self.build_subtitle_filter(sub_path)
             filter_parts = []
             if video_filters_str:
