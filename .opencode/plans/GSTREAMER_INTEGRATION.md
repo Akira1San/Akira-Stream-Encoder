@@ -456,7 +456,7 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [ ] **libplacebo tonemap**: `glcolorbalance` + `gltransformation` pipeline
 - [ ] **drawbox / clockoverlay**: preview overlay equivalent
 - [ ] **Video copy mode**: `identity` element or capsfilter passthrough
-- [ ] **Extract clip mode**: Implement in-process GStreamer pipeline via Python bindings (`gi.repository.Gst`) that sends segment events to `videosegmentclip`/`audiosegmentclip` for native trimming
+- [x] **Extract clip mode**: Implement in-process GStreamer pipeline via Python bindings (`gi.repository.Gst`) that sends segment events to `videosegmentclip`/`audiosegmentclip` for native trimming (infrastructure + FFmpeg fallback complete; native trim needs further caps-negotiation work)
 - [x] **Refactor**: `video_preview.py`, `trim_controller.py`, `video_validator.py` to route through backend
 - [x] **Refactor remaining files**: `config_tab.py` (detect_and_show_info, _extract_subs_from_video, _extract_track_from_video, _do_extract_track, _get_media_params), `encoding_settings.py` (get_external_audio_info), `tracks_panel.py` (detect_tracks), `dvd_handler.py` (_get_video_duration, _get_title_audio_tracks) — all now route through backend
 - [ ] **GStreamer Python bindings for DVD subtitle preview**: Use `gi.repository.Gst` (python3-gi) to create an in-process pipeline that seeks to a timestamp, composites DVD subtitles via `dvdspu`, and captures a single frame to a buffer. Required packages: `python3-gi`, `gstreamer1.0-plugins-bad`. Similar to how HandBrake renders previews internally instead of using a pipe-to-image subprocess.
