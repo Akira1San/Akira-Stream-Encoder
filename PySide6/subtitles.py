@@ -222,31 +222,33 @@ class SubtitlesPanel(QWidget):
         shadow_color_layout.addStretch()
         layout.addLayout(shadow_color_layout)
         
-        # Shadow offset X and Y
-        shadow_offset_layout = QHBoxLayout()
-        shadow_offset_layout.addWidget(QLabel("Shadow Offset X:"))
+        # Shadow offset X
+        shadow_offset_x_layout = QHBoxLayout()
+        shadow_offset_x_layout.addWidget(QLabel("Shadow Offset X:"))
         self.shadow_x_slider = QSlider(Qt.Horizontal)
         self.shadow_x_slider.setRange(0, 10)
         self.shadow_x_slider.setValue(self.app_state.subtitles.shadow_offset_x)
         self.shadow_x_slider.setMaximumWidth(80)
-        shadow_offset_layout.addWidget(self.shadow_x_slider)
+        shadow_offset_x_layout.addWidget(self.shadow_x_slider)
         self.shadow_x_label = QLabel(str(self.app_state.subtitles.shadow_offset_x))
         self.shadow_x_label.setMinimumWidth(20)
-        shadow_offset_layout.addWidget(self.shadow_x_label)
-        
-        shadow_offset_layout.addSpacing(20)
-        shadow_offset_layout.addWidget(QLabel("Shadow Offset Y:"))
+        shadow_offset_x_layout.addWidget(self.shadow_x_label)
+        shadow_offset_x_layout.addStretch()
+        layout.addLayout(shadow_offset_x_layout)
+
+        # Shadow offset Y
+        shadow_offset_y_layout = QHBoxLayout()
+        shadow_offset_y_layout.addWidget(QLabel("Shadow Offset Y:"))
         self.shadow_y_slider = QSlider(Qt.Horizontal)
         self.shadow_y_slider.setRange(0, 10)
         self.shadow_y_slider.setValue(self.app_state.subtitles.shadow_offset_y)
         self.shadow_y_slider.setMaximumWidth(80)
-        shadow_offset_layout.addWidget(self.shadow_y_slider)
+        shadow_offset_y_layout.addWidget(self.shadow_y_slider)
         self.shadow_y_label = QLabel(str(self.app_state.subtitles.shadow_offset_y))
         self.shadow_y_label.setMinimumWidth(20)
-        shadow_offset_layout.addWidget(self.shadow_y_label)
-        
-        shadow_offset_layout.addStretch()
-        layout.addLayout(shadow_offset_layout)
+        shadow_offset_y_layout.addWidget(self.shadow_y_label)
+        shadow_offset_y_layout.addStretch()
+        layout.addLayout(shadow_offset_y_layout)
         
         # Shadow opacity
         shadow_op_layout = QHBoxLayout()

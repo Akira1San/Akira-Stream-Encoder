@@ -158,18 +158,14 @@ class EncodingPanel(QWidget):
         layout.addWidget(line)
         
         # === Resolution & Framerate ===
-        res_frame = QFrame()
-        res_layout = QHBoxLayout(res_frame)
-        res_layout.setContentsMargins(0, 0, 0, 0)
-        
+        res_layout = QHBoxLayout()
         res_layout.addWidget(QLabel("Resolution:"))
-        
+
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems([
             "original", "1920x1080", "1280x720", "720x480",
             "720x404", "720x400", "640x480", "640x368", "Custom"
         ])
-        # Move Custom to end (it's already at end, but ensure it stays)
         current_res = self.app_state.encoding.resolution
         if current_res == "none":
             self.resolution_combo.setCurrentText("original")
@@ -180,20 +176,19 @@ class EncodingPanel(QWidget):
         self.resolution_combo.setMinimumWidth(120)
         self.resolution_combo.setToolTip("Output video resolution.\n'original' keeps original resolution.\n'Custom' allows custom width x height.\nLower resolutions create smaller files.")
         res_layout.addWidget(self.resolution_combo)
-        
-        # Custom resolution input (width x height)
+        res_layout.addStretch()
+        layout.addLayout(res_layout)
+
+        custom_layout = QHBoxLayout()
+        custom_layout.addWidget(QLabel("Custom:"))
         self.custom_res_edit = QLineEdit(getattr(self.app_state.encoding, 'custom_resolution', '1280x720'))
         self.custom_res_edit.setMaximumWidth(120)
         self.custom_res_edit.setPlaceholderText("WxH")
         self.custom_res_edit.setToolTip("Custom resolution (e.g., 1920x1080, 854x480)")
         self.custom_res_edit.setEnabled(self.resolution_combo.currentText() == "Custom")
-        res_layout.addWidget(QLabel("Custom:"))
-        res_layout.addWidget(self.custom_res_edit)
-        
-        res_layout.addSpacing(20)
-             
-        res_layout.addStretch()
-        layout.addWidget(res_frame)
+        custom_layout.addWidget(self.custom_res_edit)
+        custom_layout.addStretch()
+        layout.addLayout(custom_layout)
         
         # === Quality (CQ) Slider ===
         cq_layout = QHBoxLayout()
@@ -320,16 +315,18 @@ class EncodingPanel(QWidget):
         # Scale Mode and Algorithm
         scale_layout = QHBoxLayout()
         scale_layout.addWidget(QLabel("Scale Mode:"))
-        
+
         self.scale_mode_combo = QComboBox()
         self.scale_mode_combo.addItems(["off", "on"])
         self.scale_mode_combo.setCurrentText(self.app_state.encoding.scale_mode)
         self.scale_mode_combo.setToolTip("Enable/disable advanced scaling algorithms.\nOff: Basic scaling\nOn: Use selected algorithm with quality settings")
         scale_layout.addWidget(self.scale_mode_combo)
-        
-        scale_layout.addSpacing(20)
-        scale_layout.addWidget(QLabel("Algorithm:"))
-        
+        scale_layout.addStretch()
+        layout.addLayout(scale_layout)
+
+        algo_layout = QHBoxLayout()
+        algo_layout.addWidget(QLabel("Algorithm:"))
+
         self.algorithm_combo = QComboBox()
         self.algorithm_combo.addItems(["bilinear", "bicubic", "lanczos", "spline", "area", "zscale", "scale_cuda", "scale_vulkan", "libplacebo"])
         self.algorithm_combo.setCurrentText(self.app_state.encoding.scale_algorithm)
@@ -345,9 +342,9 @@ class EncodingPanel(QWidget):
             "scale_vulkan: Vulkan/GPU accelerated\n"
             "libplacebo: Advanced GPU with color management"
         )
-        scale_layout.addWidget(self.algorithm_combo)
-        scale_layout.addStretch()
-        layout.addLayout(scale_layout)
+        algo_layout.addWidget(self.algorithm_combo)
+        algo_layout.addStretch()
+        layout.addLayout(algo_layout)
         
         # Libplacebo tone mapping options (visible only when libplacebo is selected)
         self.tone_mapping_label = QLabel("Tone Mapping:")
