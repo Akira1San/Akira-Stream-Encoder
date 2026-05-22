@@ -99,6 +99,14 @@ class VideoWorkspace(QWidget):
         enc_collapsible.content_layout().addWidget(self.enc_panel)
         scroll_layout.addWidget(enc_collapsible)
         
+        # Subtitles (Collapsible)
+        subs_collapsible = CollapsibleFrame("Subtitles")
+        self.subs_panel = SubtitlesPanel(self.app_state)
+        self.subs_panel.settings_changed.connect(self.on_settings_changed)
+        self.subs_panel.refresh_subtitles.connect(self.on_refresh_subtitles)
+        subs_collapsible.content_layout().addWidget(self.subs_panel)
+        scroll_layout.addWidget(subs_collapsible)
+        
         # Geometry Settings (Collapsible)
         geo_collapsible = CollapsibleFrame("Geometry")
         self.geo_panel = GeometryPanel(self.app_state)
@@ -112,14 +120,6 @@ class VideoWorkspace(QWidget):
         self.color_panel.settings_changed.connect(self.on_settings_changed)
         color_collapsible.content_layout().addWidget(self.color_panel)
         scroll_layout.addWidget(color_collapsible)
-        
-        # Subtitles (Collapsible)
-        subs_collapsible = CollapsibleFrame("Subtitles")
-        self.subs_panel = SubtitlesPanel(self.app_state)
-        self.subs_panel.settings_changed.connect(self.on_settings_changed)
-        self.subs_panel.refresh_subtitles.connect(self.on_refresh_subtitles)
-        subs_collapsible.content_layout().addWidget(self.subs_panel)
-        scroll_layout.addWidget(subs_collapsible)
         
         # Filters (Collapsible)
         filters_collapsible = CollapsibleFrame("Filters")
