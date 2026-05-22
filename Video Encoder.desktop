@@ -1,0 +1,16 @@
+# Make sure the .desktop file exists and is executable
+ls -la "/home/akira/akira/myencoder/MyEncoder/Video Encoder.desktop"
+
+# If it doesn't exist, create it:
+cat > "/home/akira/akira/myencoder/MyEncoder/Video Encoder.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Video Encoder
+Comment=Launch Video Encoder application
+Exec=/home/akira/akira/myencoder/MyEncoder/Run_PySide6.sh
+Terminal=true
+Icon=applications-multimedia
+Categories=AudioVideo;
+EOF
+
+chmod +x "/home/akira/akira/myencoder/MyEncoder/Video Encoder.desktop"

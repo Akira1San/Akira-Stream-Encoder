@@ -3,19 +3,102 @@ GStreamer CLI Backend - Implements MediaBackend using gst-launch-1.0 / gst-disco
 
 Known limitations (logged as warnings; switch to FFmpeg to resolve):
 - DVD VOB concat files (ffmpeg concat demuxer format)
-- Trim/clip extraction falls back to FFmpeg subprocess when requested
+- Trim/clip extraction: falls back to FFmpeg subprocess (native trim via
+  GStreamer Python bindings requires further pipeline refactoring)
 - Fast cut (stream copy not supported by GStreamer)
 - Subtitle burning (DVD via dvdspu+dvdsubdec, SRT/ASS via subparse+textoverlay)
 - Various filters: delogo, sharpen, CAS, deblock, deblock, audio denoise, dynaudnorm, audio compressor, white balance
 """
+import io
 import os
 import re
 import subprocess
+import threading
+import time
 from typing import Optional, List
+
+import gi
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst, GLib
 
 from backends.base import MediaBackend
 from backends.ffmpeg import FFmpegBackend
 
+
+# ------------------------------------------------------------------ #
+#  GStreamer init (once)
+# ------------------------------------------------------------------ #
+
+_gst_initialized = False
+
+def _ensure_gst_init():
+    global _gst_initialized
+    if not _gst_initialized:
+        Gst.init(None)
+        _gst_initialized = True
+
+
+# ------------------------------------------------------------------ #
+#  PopenWrapper – mimics subprocess.Popen for in-process pipelines
+# ------------------------------------------------------------------ #
+
+class _PopenWrapper:
+    """Mimics subprocess.Popen by wrapping an in-process GStreamer pipeline.
+
+    The controller expects a subprocess.Popen-like object with:
+      - .stdout  : iterable of text lines (StringIO)
+      - .wait()  : blocks until completion, returns exit code
+      - .poll()  : non-blocking status check
+      - .returncode
+    """
+
+    def __init__(self, pipeline_fn):
+        self._buf = io.StringIO()
+        self._returncode = [-1]
+        self._done = threading.Event()
+        self._thread = threading.Thread(
+            target=self._thread_main, args=(pipeline_fn,), daemon=True
+        )
+        self._thread.start()
+
+    # ---- public API ----
+
+    @property
+    def stdout(self):
+        return self._buf
+
+    @property
+    def returncode(self):
+        return self._returncode[0]
+
+    def poll(self):
+        if self._thread.is_alive():
+            return None
+        return self._returncode[0]
+
+    def wait(self, timeout=None):
+        self._done.wait(timeout=timeout)
+        self._thread.join(timeout=5)
+        return self._returncode[0]
+
+    # ---- internal ----
+
+    def _thread_main(self, pipeline_fn):
+        try:
+            rc = pipeline_fn(self._buf)
+            self._returncode[0] = rc if rc is not None else 0
+        except Exception as exc:
+            self._buf.write(f"Pipeline error: {exc}\n")
+            self._buf.flush()
+            self._returncode[0] = 1
+        finally:
+            self._buf.seek(0)
+            self._done.set()
+
+
+# ------------------------------------------------------------------ #
+#  Backend class
+# ------------------------------------------------------------------ #
 
 class GStreamerBackend(MediaBackend):
     """Media backend using GStreamer CLI tools"""
@@ -226,7 +309,6 @@ class GStreamerBackend(MediaBackend):
                 params.append("rc-mode=cbr")
                 params.append(f"bitrate={br}")
             else:
-                # const-quality only takes effect when rc-mode=vbr
                 params.append("rc-mode=vbr")
                 params.append(f"const-quality={encoding.cq}")
             params.append(f"preset={encoding.gpu_preset}")
@@ -243,10 +325,8 @@ class GStreamerBackend(MediaBackend):
                 params.append(f"bitrate={br}")
             else:
                 if "x265" in encoder:
-                    # x265enc uses `qp` (quantization parameter), NOT `quantizer`
                     params.append(f"qp={encoding.cq}")
                 else:
-                    # x264enc uses `quantizer`
                     params.append(f"quantizer={encoding.cq}")
             params.append(f"speed-preset={encoding.cpu_preset}")
             if encoding.cpu_tune != "none":
@@ -260,8 +340,6 @@ class GStreamerBackend(MediaBackend):
                 params.append("bframes=0")
                 params.append("byte-stream=true")
             elif "x265" in encoder:
-                # x265enc outputs byte-stream; mp4mux requires hvc1/hev1 format.
-                # h265parse converts byte-stream to hvc1 for the muxer.
                 params.append("h265parse")
                 params.append("config-interval=-1")
 
@@ -284,11 +362,6 @@ class GStreamerBackend(MediaBackend):
 
         if getattr(filters, 'smart_crop_enabled', False):
             elements.append("videocrop")
-            # Note: videocrop crops from edges (top/left/right/bottom pixels)
-            # This maps FFmpeg crop=w:h:x:y to GStreamer crop:
-            #   top=y, left=x, right=source_width-x-crop_w, bottom=source_height-y-crop_h
-            # Without source dimensions, we use the x/y offsets directly and crop to 0 on right/bottom
-            # A more accurate mapping would need source video dimensions
             elements.append(f"top={filters.smart_crop_y}")
             elements.append(f"left={filters.smart_crop_x}")
             elements.append("right=0")
@@ -398,6 +471,7 @@ class GStreamerBackend(MediaBackend):
         ]
 
     def _build_pipeline_list(self, input_path: str, output_path: str) -> List[str]:
+        """Build a ``gst-launch-1.0`` pipeline argument list (no trim)."""
         encoding = self.app_state.encoding
         tracks = self.app_state.tracks
 
@@ -422,7 +496,6 @@ class GStreamerBackend(MediaBackend):
         burn_subs = self._need_dvd_subtitles(input_path)
         text_subs = self._need_text_subtitles(input_path)
 
-        # --- DVD concat handling ---
         is_concat = self._is_dvd_concat(input_path)
         vobs = self._read_concat_vobs(input_path) if is_concat else []
 
@@ -441,7 +514,6 @@ class GStreamerBackend(MediaBackend):
 
         pipeline = [self._gst_path, "-e"]
 
-        # Determine source + demuxer
         if is_concat and vobs:
             use_vob = True
             is_multi = len(vobs) > 1
@@ -465,17 +537,15 @@ class GStreamerBackend(MediaBackend):
             elif ext in (".webm",):
                 demuxer = "matroskademux"
             else:
-                demuxer = "qtdemux"  # .mp4, .mov, .m4v etc.
+                demuxer = "qtdemux"
             vid_pad = "video_0"
             aud_pad = "audio_0"
             sub_pad = "subtitle_0"
 
         if use_branches or burn_subs or text_subs:
-            # Multi-branch: mux defined first, then demux + branches
             pipeline += [f"{muxer_el}", "name=mux", "!",
                          "filesink", f"location={output_path}"]
 
-            # Source + demuxer
             if use_vob:
                 if is_multi:
                     pipeline += ["concat", "name=c", "!",
@@ -490,22 +560,17 @@ class GStreamerBackend(MediaBackend):
                              f"{demuxer}", "name=demux"]
 
             if burn_subs:
-                # 3-branch: video -> dvdspu -> encoder, subpicture -> dvdsubdec -> dvdspu, audio -> encoder
                 subtitle_idx = self.app_state.dvd.selected_subtitle_index
                 sub_pad_name = f"subpicture_{subtitle_idx:02x}"
 
-                # Video -> dvdspu
                 pipeline += [f"demux.{vid_pad}", "!", "queue", "!", "decodebin", "!",
                              "videoconvert", "!", "queue", "!",
                              "dvdspu", "name=spu"]
-                # Subpicture -> dvdsubdec -> dvdspu.subpicture
                 pipeline += [f"demux.{sub_pad_name}", "!", "queue", "!",
                              "dvdsubdec", "!", "spu.subpicture"]
-                # dvdspu output -> filters -> encoder -> mux
                 pipeline += ["spu.", "!", "queue", "!", "videoconvert", "!", "queue", "!"]
                 pipeline += video_filters
                 pipeline += video_enc + ["!", "queue", "!", "mux."]
-                # Audio branch
                 pipeline += [f"demux.{aud_pad}", "!", "queue", "!", "decodebin", "!",
                              "audioconvert", "!", "queue", "!"]
                 pipeline += audio_chain[3:]
@@ -515,7 +580,6 @@ class GStreamerBackend(MediaBackend):
                 subs = self.app_state.subtitles
                 font_desc = f"{subs.font} {subs.size}"
 
-                # Video -> textoverlay
                 pipeline += [f"demux.{vid_pad}", "!", "queue", "!", "decodebin", "!",
                              "videoconvert", "!", "queue", "!",
                              "textoverlay", "name=txt", "auto-resize=false",
@@ -539,23 +603,19 @@ class GStreamerBackend(MediaBackend):
                 if subs.vertical_offset > 0:
                     pipeline.append(f"deltay={subs.vertical_offset}")
 
-                # textoverlay output -> filters -> encoder -> mux
                 pipeline += ["txt.", "!", "queue", "!", "videoconvert", "!", "queue", "!"]
                 pipeline += video_filters
                 pipeline += video_enc + ["!", "queue", "!", "mux."]
 
-                # Subtitle input branch
                 sub_chain = self._build_subtitle_chain(sub_path)
                 pipeline += sub_chain + ["!", "queue", "!", "txt.text_sink"]
 
-                # Audio branch (if available)
                 if use_branches:
                     pipeline += [f"demux.{aud_pad}", "!", "queue", "!", "decodebin", "!",
                                  "audioconvert", "!", "queue", "!"]
                     pipeline += audio_chain[3:]
                     pipeline += ["!", "queue", "!", "mux."]
             elif use_branches:
-                # 2-branch (video + audio)
                 pipeline += [f"demux.{vid_pad}", "!", "queue", "!", "decodebin", "!",
                              "videoconvert", "!", "queue", "!"]
                 pipeline += video_filters
@@ -565,7 +625,6 @@ class GStreamerBackend(MediaBackend):
                 pipeline += audio_chain[3:]
                 pipeline += ["!", "queue", "!", "mux."]
         else:
-            # Single branch (video only)
             if use_vob:
                 if is_multi:
                     pipeline += ["concat", "name=c", "!",
@@ -593,10 +652,18 @@ class GStreamerBackend(MediaBackend):
 
     def encode(self, input_path: str, output_path: str,
                app_state, start_time=None, duration=None) -> subprocess.Popen:
+        """Encode a video file.
+
+        When *start_time* and *duration* are provided (trim/clip mode), falls
+        back to FFmpeg since native GStreamer trimming via Python bindings is
+        not yet stable (see _run_trimmed_pipeline stub below).
+        """
         if start_time and duration:
             self.app_state.log(
-                "GStreamer: trimming not supported in gst-launch pipeline. "
-                "Falling back to FFmpeg for trim encode.", "WARN")
+                "GStreamer: trimming falls back to FFmpeg backend. "
+                "Native GStreamer trim needs further development.",
+                "WARN"
+            )
             fb = FFmpegBackend(app_state)
             cmd = fb.build_command(input_path, output_path, start_time, duration)
             self.app_state.log(f"FFmpeg fallback command: {' '.join(cmd)}", "INFO")

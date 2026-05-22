@@ -444,7 +444,10 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [x] **Container support**: `.mp4` via `mp4mux`, `.mkv` via `matroskamux`, `.avi` via `avimux`
 
 ### High Priority
-- [ ] `sharpen`, `delogo`, `audiocompressor` — unavailable in installed plugins; logged as unsupported with switch-to-FFmpeg warning
+- [ ] `delogo`, `audiocompressor` — unavailable in installed plugins; logged as unsupported with switch-to-FFmpeg warning
+- [ ] **Sharpen (unsharp) via `gaussianblur`**: implemented, requires `videoconvert ! queue` before/after since `gaussianblur` only supports AYUV format. Map FFmpeg `unsharp=5:5:amount` to `gaussianblur sigma=-N` (negative sigma = sharpen, range -20 to 0).
+- [ ] **Dynamic filter disabling via `supported_filters()`**: Add abstract method `supported_filters() -> dict` to `MediaBackend` interface. FFmpegBackend returns `True` for all filters. GStreamerBackend returns per-filter support based on actual element availability. `filters.py` calls this on init and on engine switch to enable/disable UI controls (gray out unsupported filters with explanatory tooltips). Eliminates need for per-filter `_log_unsupported()` stubs.
+- [ ] **High-quality videoscale with configurable method**: `_build_video_filters()` currently sends bare `videoscale ! video/x-raw,width=W,height=H` (defaults to bilinear — poor quality for upscaling). Needs to pass `method=` property based on selected scale algorithm. Recommended defaults: `catrom` for quality (sharp, minimal ringing, excellent for upscaling), `lanczos` as alternative. Also add `n-threads=4` for multi-threaded performance. `videoscale` supports: `nearest-neighbour`, `bilinear`, `4-tap`, `lanczos`, `bilinear2`, `sinc`, `hermite`, `spline`, `catrom`, `mitchell`. Additional options: `sharpen` (post-scale sharpening toggle), `sharpness=N` (filter sharpness control).
 
 ### Medium Priority
 - [ ] **GPU filters**: `nvvideoconvert` for `scale_cuda` equivalent, `vulkanconvert` for `scale_vulkan`
@@ -458,10 +461,41 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [x] **Refactor remaining files**: `config_tab.py` (detect_and_show_info, _extract_subs_from_video, _extract_track_from_video, _do_extract_track, _get_media_params), `encoding_settings.py` (get_external_audio_info), `tracks_panel.py` (detect_tracks), `dvd_handler.py` (_get_video_duration, _get_title_audio_tracks) — all now route through backend
 - [ ] **GStreamer Python bindings for DVD subtitle preview**: Use `gi.repository.Gst` (python3-gi) to create an in-process pipeline that seeks to a timestamp, composites DVD subtitles via `dvdspu`, and captures a single frame to a buffer. Required packages: `python3-gi`, `gstreamer1.0-plugins-bad`. Similar to how HandBrake renders previews internally instead of using a pipe-to-image subprocess.
 
+### Additional GStreamer Filters (Available, Not Yet Integrated)
+These GStreamer elements are already installed on the system and could be exposed in the UI. Each needs pipeline construction logic and UI controls added.
+
+**Video effects (creative):**
+- [ ] **`coloreffects`**: Color grading presets — heat, sepia, xray, cross-processing, yellow/blue. Could add a combo box dropdown in filters tab.
+- [ ] **`agingtv`**: Old TV simulation — scanlines, flicker, color bleed. Retro/vintage effect checkbox.
+- [ ] **`warptv`**: Funhouse mirror warping distortion. Creative effect checkbox.
+- [ ] **`waterripple`**: Ripple distortion like water surface. Creative overlay checkbox.
+- [ ] **`edgetv`**: Edge detection overlay (cartoon-like outlines). Artistic effect checkbox.
+- [ ] **`radioactv`**: Glowing radioactive overlay. Cyberpunk/glow aesthetic checkbox.
+- [ ] **`streaktv`**: Motion blur/trail effect. Stylized action scenes checkbox.
+
+**Video processing:**
+- [ ] **`videomedian`**: Median filter — reduces salt-and-pepper noise without blurring edges. Alternative denoise option.
+- [ ] **`videoflip` / `video-direction`**: Rotate/flip video 90°/180°, horizontal/vertical mirror. Buttons in filters tab for phone video correction.
+- [ ] **`aspectratiocrop`**: Smart auto-crop to aspect ratio (16:9/4:3/1:1) without black bars. Quick crop mode.
+
+**Audio effects:**
+- [ ] **`audioamplify`**: Amplify audio by a factor. Simple volume boost (alternative to `volume` element with dB).
+- [ ] **`audiodynamic`**: Compressor/expander with ratio, threshold, soft/hard-knee. Better dynamic range control than FFmpeg's `acompressor`.
+- [ ] **`audioecho`**: Delay + feedback echo effect. Creative audio effect checkbox.
+- [ ] **`audiokaraoke`**: Voice removal (center channel cancellation) from stereo tracks. Karaoke mode.
+- [ ] **`audiopanorama`**: Stereo pan from -1.0 (left) to 1.0 (right). Audio pan slider.
+- [ ] **`scaletempo`**: Change playback speed without pitch change. Time-stretching (more relevant for preview/playback than encode).
+- [ ] **`audiofirfilter`**: Custom FIR filter for advanced EQ/audio processing. Advanced audio tab (if custom EQ curves are desired).
+
+**Vulkan GPU acceleration (already installed):**
+- [ ] **`vulkancolorconvert`**: Vulkan-based color space conversion pipeline.
+- [ ] **`vulkanviewconvert`**: Vulkan-based scaling/rotation (GPU alternative to `videoscale` + `videoflip`).
+- [ ] **`vulkanoverlaycompositor`**: Vulkan-based overlay compositing for subtitle/preview overlays.
+
 ### Unsupported (graceful skip + log warning, already stubbed)
 - [x] Trim/clip extraction (falls back to FFmpeg subprocess; native trim via Python bindings is a future task — see Extract clip mode above)
 - [x] Fast cut (stream copy)
-- [x] sharpen, delogo, audiocompressor
+- [x] delogo, audiocompressor
 - [x] deblock, audio denoise (afftdn), dynaudnorm
 - [x] CAS, white balance, audio delay, aspect ratio conversion
 - [x] Subtitle outline width (textoverlay has no outline width property; only binary on/off)
