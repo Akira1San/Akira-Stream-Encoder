@@ -18,7 +18,6 @@ class ColorCorrectionPanel(QWidget):
     def __init__(self, app_state: AppState, parent=None):
         super().__init__(parent)
         self.app_state = app_state
-        print(">>> ColorCorrectionPanel.__init__")
         
         self.setup_ui()
         self.connect_signals()
@@ -26,16 +25,8 @@ class ColorCorrectionPanel(QWidget):
         # Connect engine change signal
         self.app_state.media_engine_changed.connect(self.update_engine_state)
         
-        print(f">>> Initial enable_check.isEnabled() = {self.enable_check.isEnabled()}")
-        
         # Defer initial call to let Qt finish widget initialization first
-        QTimer.singleShot(0, self._on_first_timer)
-        
-    def _on_first_timer(self):
-        """Called on first event loop iteration."""
-        print(f">>> _on_first_timer: calling update_engine_state")
-        self.update_engine_state()
-        print(f">>> _on_first_timer: after update_engine_state, enable_check.isEnabled() = {self.enable_check.isEnabled()}")
+        QTimer.singleShot(0, self.update_engine_state)
         
     def setup_ui(self):
         """Setup the UI layout"""
@@ -265,13 +256,11 @@ class ColorCorrectionPanel(QWidget):
         
     def update_engine_state(self):
         """Disable/enable EQ UI controls based on current backend's supported_filters()."""
-        print(f">>> update_engine_state: START")
         try:
             support = self.app_state.backend.supported_filters()
         except Exception as e:
             support = {}
             self.app_state.log(f"[ColorCorrection] supported_filters() failed: {e}", "WARN")
-            print(f">>> update_engine_state: EXCEPTION {e}")
         engine = self.app_state.media_engine
         is_gst = engine == "gstreamer"
         has_eq = any([
@@ -280,16 +269,12 @@ class ColorCorrectionPanel(QWidget):
             support.get('eq_saturation', True),
             support.get('eq_gamma', True),
         ])
-        print(f">>> update_engine_state: engine={engine}, is_gst={is_gst}, has_eq={has_eq}")
-        print(f">>> update_engine_state: eq_brightness={support.get('eq_brightness', '?')}, eq_contrast={support.get('eq_contrast', '?')}, eq_saturation={support.get('eq_saturation', '?')}, eq_gamma={support.get('eq_gamma', '?')}")
-        print(f">>> update_engine_state: BEFORE setEnabled, isEnabled={self.enable_check.isEnabled()}")
         
         self._set_enabled_with_tip(
             self.enable_check,
             has_eq,
             "Color Correction (EQ)" if is_gst else ""
         )
-        print(f">>> update_engine_state: AFTER setEnabled, isEnabled={self.enable_check.isEnabled()}")
         
         # EQ sliders: disable individually per support
         eq_enabled = self.app_state.eq.enabled
@@ -357,7 +342,6 @@ class ColorCorrectionPanel(QWidget):
 
     def on_enable_changed(self, checked):
         """Handle enable checkbox change"""
-        print(f">>> on_enable_changed: checked={checked}")
         self.app_state.eq.enabled = checked
         self.update_engine_state()
         self.settings_changed.emit()
