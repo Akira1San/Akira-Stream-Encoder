@@ -444,8 +444,8 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [x] **Container support**: `.mp4` via `mp4mux`, `.mkv` via `matroskamux`, `.avi` via `avimux`
 
 ### High Priority
-- [ ] `delogo`, `audiocompressor` — unavailable in installed plugins; logged as unsupported with switch-to-FFmpeg warning
-- [ ] **Sharpen (unsharp) via `gaussianblur`**: implemented, requires `videoconvert ! queue` before/after since `gaussianblur` only supports AYUV format. Map FFmpeg `unsharp=5:5:amount` to `gaussianblur sigma=-N` (negative sigma = sharpen, range -20 to 0).
+- [x] `delogo`, `audiocompressor` — unavailable in installed plugins; logged as unsupported with switch-to-FFmpeg warning
+- [x] **Sharpen (unsharp) via `gaussianblur`**: implemented, requires `videoconvert ! queue` before/after since `gaussianblur` only supports AYUV format. Map FFmpeg `unsharp=5:5:amount` to `gaussianblur sigma=-N` (negative sigma = sharpen, range -20 to 0).
 - [ ] **Dynamic filter disabling via `supported_filters()`**: Add abstract method `supported_filters() -> dict` to `MediaBackend` interface. FFmpegBackend returns `True` for all filters. GStreamerBackend returns per-filter support based on actual element availability. `filters.py` calls this on init and on engine switch to enable/disable UI controls (gray out unsupported filters with explanatory tooltips). Eliminates need for per-filter `_log_unsupported()` stubs.
 - [ ] **High-quality videoscale with configurable method**: `_build_video_filters()` currently sends bare `videoscale ! video/x-raw,width=W,height=H` (defaults to bilinear — poor quality for upscaling). Needs to pass `method=` property based on selected scale algorithm. Recommended defaults: `catrom` for quality (sharp, minimal ringing, excellent for upscaling), `lanczos` as alternative. Also add `n-threads=4` for multi-threaded performance. `videoscale` supports: `nearest-neighbour`, `bilinear`, `4-tap`, `lanczos`, `bilinear2`, `sinc`, `hermite`, `spline`, `catrom`, `mitchell`. Additional options: `sharpen` (post-scale sharpening toggle), `sharpness=N` (filter sharpness control).
 
@@ -453,8 +453,8 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [ ] **GPU filters**: `nvvideoconvert` for `scale_cuda` equivalent, `vulkanconvert` for `scale_vulkan`
 
 ### Low Priority
-- [ ] **libplacebo tonemap**: `glcolorbalance` + `gltransformation` pipeline
-- [ ] **drawbox / clockoverlay**: preview overlay equivalent
+- [x] **libplacebo tonemap**: `glcolorbalance` + `gltransformation` pipeline
+- [x] **drawbox / clockoverlay**: preview overlay equivalent (via `gdkpixbufoverlay`)
 - [ ] **Video copy mode**: `identity` element or capsfilter passthrough
 - [x] **Extract clip mode**: Implement in-process GStreamer pipeline via Python bindings (`gi.repository.Gst`) that sends segment events to `videosegmentclip`/`audiosegmentclip` for native trimming (infrastructure + FFmpeg fallback complete; native trim needs further caps-negotiation work)
 
