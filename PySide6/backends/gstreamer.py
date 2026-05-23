@@ -383,6 +383,20 @@ class GStreamerBackend(MediaBackend):
                              "gaussianblur sigma=1.5",
                              "queue", "videoconvert"])
 
+        # Tone mapping (HDR->SDR) approximation via GL elements
+        if encoding.scale_algorithm == "libplacebo":
+            tone_map = getattr(encoding, 'libplacebo_tonemapping', 'none')
+            if tone_map and tone_map != "none":
+                if self._element_available('gltransformation') and self._element_available('glcolorbalance'):
+                    elements.append("gltransformation")
+                    elements.append("output-colorimetry=bt709:bt709:bt709:full")
+                    elements.append("glcolorbalance")
+                    elements.append("saturation=1.1")
+                else:
+                    self.app_state.log(
+                        "GStreamer: gltransformation/glcolorbalance not available; "
+                        "install gst-plugins-gl for HDR->SDR tonemapping", "WARN")
+
         if encoding.scale_mode == "on" and encoding.resolution and encoding.resolution != "none":
             if "x" in encoding.resolution:
                 w, h = encoding.resolution.split("x")
@@ -845,6 +859,7 @@ class GStreamerBackend(MediaBackend):
             'smart_crop': self._element_available('videocrop'),
             'ar_convert': False,    # aspect ratio conversion not implemented
             'delogo': False,        # delogo not available in GStreamer
+            'tonemapping': self._element_available('gltransformation') and self._element_available('glcolorbalance'),
             # Color correction (EQ)
             'eq_brightness': self._element_available('videobalance'),
             'eq_contrast': self._element_available('videobalance'),
