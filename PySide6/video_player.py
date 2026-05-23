@@ -60,6 +60,7 @@ class VideoPlayer(QObject):
         self._media_player.playbackStateChanged.connect(self._on_state_changed)
         self._media_player.errorOccurred.connect(self._on_error)
         self._media_player.playbackRateChanged.connect(self._on_playback_rate_changed)
+        self._media_player.activeTracksChanged.connect(self._on_subtitle_tracks_changed)
     
     def _on_position_changed(self, position_ms: int):
         """Handle position change from QMediaPlayer"""
@@ -90,6 +91,10 @@ class VideoPlayer(QObject):
         self._playback_rate = rate
         self.playback_rate_changed.emit(rate)
     
+    def _on_subtitle_tracks_changed(self):
+        """Disable subtitle rendering whenever subtitle tracks change"""
+        self._media_player.setActiveSubtitleTrack(-1)
+
     def set_video_output(self, video_widget: QVideoWidget):
         """
         Set the video output widget with frame capture enabled.
@@ -117,6 +122,7 @@ class VideoPlayer(QObject):
         
         url = QUrl.fromLocalFile(file_path)
         self._media_player.setSource(url)
+        self._media_player.setActiveSubtitleTrack(-1)
         
         return True
     

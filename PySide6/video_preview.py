@@ -641,6 +641,9 @@ class VideoPreview(QWidget):
         # Connect frame capture for filter overlay preview
         self._video_player.frame_captured.connect(self._on_frame_captured)
         
+        # Refresh preview when media engine changes
+        self.app_state.media_engine_changed.connect(self.refresh_preview)
+        
         # Filter overlay timer for processed preview
         self._overlay_timer = QTimer(self)
         self._overlay_timer.setInterval(500)  # Update every 500ms (2 fps) - slower for FFmpeg fallback
