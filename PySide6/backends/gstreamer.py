@@ -12,9 +12,12 @@ Known limitations (logged as warnings; switch to FFmpeg to resolve):
 import io
 import os
 import re
+import struct
 import subprocess
+import tempfile
 import threading
 import time
+import zlib
 from typing import Optional, List
 
 import gi
@@ -141,6 +144,29 @@ class GStreamerBackend(MediaBackend):
             available = False
         self._element_cache[element_name] = available
         return available
+
+    def _create_rect_png(self, width: int, height: int, color: tuple, alpha: int = 180) -> str:
+        """Create a colored rectangle PNG and return cached path."""
+        cache = os.path.join(tempfile.gettempdir(), 'myencoder_overlays')
+        os.makedirs(cache, exist_ok=True)
+        r, g, b = color
+        path = os.path.join(cache, f'rect_{width}x{height}_{r:x}{g:x}{b:x}_a{alpha:x}.png')
+        if os.path.exists(path):
+            return path
+        raw = bytearray()
+        for _ in range(height):
+            raw.append(0)
+            raw.extend([r, g, b, alpha] * width)
+        def _chunk(tag, data):
+            c = tag + data
+            return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+        png = b'\x89PNG\r\n\x1a\n'
+        png += _chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0))
+        png += _chunk(b'IDAT', zlib.compress(bytes(raw)))
+        png += _chunk(b'IEND', b'')
+        with open(path, 'wb') as f:
+            f.write(png)
+        return path
 
     def _is_dvd_concat(self, input_path: str) -> bool:
         return input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
@@ -446,6 +472,32 @@ class GStreamerBackend(MediaBackend):
 
         if getattr(filters, 'ar_convert_enabled', False):
             self._log_unsupported("aspect ratio conversion")
+
+        # Smart crop preview overlay (green semi-transparent box)
+        if getattr(filters, 'smart_crop_enabled', False) and getattr(filters, 'smart_crop_show_preview', False):
+            w = max(filters.smart_crop_w, 1)
+            h = max(filters.smart_crop_h, 1)
+            if self._element_available('gdkpixbufoverlay'):
+                png = self._create_rect_png(w, h, (0, 204, 0))
+                elements.extend(["gdkpixbufoverlay",
+                                 f"location={png}",
+                                 f"offset-x={filters.smart_crop_x}",
+                                 f"offset-y={filters.smart_crop_y}"])
+            else:
+                self._log_unsupported("smart crop preview (gdkpixbufoverlay)")
+
+        # Delogo preview overlay (red semi-transparent box)
+        if getattr(filters, 'delogo_enabled', False) and getattr(filters, 'delogo_show', False):
+            w = max(filters.delogo_w, 1)
+            h = max(filters.delogo_h, 1)
+            if self._element_available('gdkpixbufoverlay'):
+                png = self._create_rect_png(w, h, (204, 0, 0))
+                elements.extend(["gdkpixbufoverlay",
+                                 f"location={png}",
+                                 f"offset-x={filters.delogo_x}",
+                                 f"offset-y={filters.delogo_y}"])
+            else:
+                self._log_unsupported("delogo preview (gdkpixbufoverlay)")
 
         return elements
 
