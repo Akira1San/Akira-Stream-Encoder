@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
     QSlider, QPushButton, QFrame, QComboBox
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 
 from models import AppState
 
@@ -22,11 +22,11 @@ class ColorCorrectionPanel(QWidget):
         self.setup_ui()
         self.connect_signals()
         
-        # Apply engine-specific filter availability on init
-        self.update_engine_state()
-        
-        # Re-apply when media engine changes
+        # Connect engine change signal
         self.app_state.media_engine_changed.connect(self.update_engine_state)
+        
+        # Defer initial call to let Qt finish widget initialization first
+        QTimer.singleShot(0, self.update_engine_state)
         
     def setup_ui(self):
         """Setup the UI layout"""

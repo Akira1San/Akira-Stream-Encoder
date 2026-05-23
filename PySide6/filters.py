@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QGroupBox, QFrame, QSpinBox, QComboBox, QSlider,
     QPushButton
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QTimer
 
 from models import AppState
 
@@ -23,11 +23,11 @@ class FiltersPanel(QWidget):
         self.setup_ui()
         self.connect_signals()
         
-        # Apply engine-specific filter availability on init
-        self.update_engine_state()
-        
         # Re-apply when media engine changes
         self.app_state.media_engine_changed.connect(self.update_engine_state)
+        
+        # Defer initial call to let Qt finish widget initialization first
+        QTimer.singleShot(0, self.update_engine_state)
         
     def setup_ui(self):
         """Setup the UI layout"""
