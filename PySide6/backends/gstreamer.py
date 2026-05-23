@@ -437,7 +437,15 @@ class GStreamerBackend(MediaBackend):
             elements.append("bottom=0")
 
         if getattr(filters, 'delogo_enabled', False):
-            self._log_unsupported("delogo")
+            if self._element_available('delogo'):
+                elements.extend(["delogo",
+                                 f"x={filters.delogo_x}",
+                                 f"y={filters.delogo_y}",
+                                 f"width={filters.delogo_w}",
+                                 f"height={filters.delogo_h}",
+                                 f"band={filters.delogo_band}"])
+            else:
+                self._log_unsupported("delogo")
 
         if eq.enabled:
             balance_parts = []
@@ -910,7 +918,7 @@ class GStreamerBackend(MediaBackend):
             'deblock': False,       # not available in GStreamer
             'smart_crop': self._element_available('videocrop'),
             'ar_convert': False,    # aspect ratio conversion not implemented
-            'delogo': False,        # delogo not available in GStreamer
+            'delogo': self._element_available('delogo'),
             'tonemapping': self._element_available('gltransformation') and self._element_available('glcolorbalance'),
             # Color correction (EQ)
             'eq_brightness': self._element_available('videobalance'),
