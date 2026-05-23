@@ -378,6 +378,11 @@ class GStreamerBackend(MediaBackend):
         if filters.deinterlace:
             elements.append("deinterlace")
 
+        if filters.denoise:
+            elements.extend(["videoconvert", "queue",
+                             "gaussianblur sigma=1.5",
+                             "queue", "videoconvert"])
+
         if encoding.scale_mode == "on" and encoding.resolution and encoding.resolution != "none":
             if "x" in encoding.resolution:
                 w, h = encoding.resolution.split("x")
@@ -412,7 +417,12 @@ class GStreamerBackend(MediaBackend):
                 self._log_unsupported("white balance (colorbalance)")
 
         if getattr(filters, 'sharpen', False):
-            self._log_unsupported("sharpen (unsharp)")
+            amount = getattr(filters, 'sharpen_amount', 1.0)
+            sigma = -amount * 10
+            sigma = max(-20.0, min(-0.01, sigma))
+            elements.extend(["videoconvert", "queue",
+                             f"gaussianblur sigma={sigma}",
+                             "queue", "videoconvert"])
 
         if getattr(filters, 'cas_enabled', False):
             self._log_unsupported("CAS (contrast adaptive sharpen)")
@@ -829,7 +839,7 @@ class GStreamerBackend(MediaBackend):
             # Video filters
             'deinterlace': self._element_available('deinterlace'),
             'denoise': self._element_available('gaussianblur'),
-            'sharpen': False,       # not implemented (unsharp via gaussianblur sigma not done)
+            'sharpen': self._element_available('gaussianblur'),
             'cas': False,           # not available in GStreamer
             'deblock': False,       # not available in GStreamer
             'smart_crop': self._element_available('videocrop'),
