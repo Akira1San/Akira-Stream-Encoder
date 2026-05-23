@@ -216,6 +216,32 @@ class FFmpegBackend(MediaBackend):
             pass
         return {}
 
+    def supported_filters(self) -> dict:
+        """FFmpeg supports all filters natively."""
+        return {
+            # Video filters
+            'deinterlace': True,
+            'denoise': True,
+            'sharpen': True,
+            'cas': True,
+            'deblock': True,
+            'smart_crop': True,
+            'ar_convert': True,
+            'delogo': True,
+            # Color correction (EQ)
+            'eq_brightness': True,
+            'eq_contrast': True,
+            'eq_saturation': True,
+            'eq_gamma': True,
+            'white_balance': True,
+            # Audio filters
+            'volume': True,
+            'audio_denoise': True,
+            'audio_dynnorm': True,
+            'audio_compressor': True,
+            'audio_delay': True,
+        }
+
     def get_file_info(self, input_path: str) -> dict:
         info = {}
         cmd = [self.app_state.ffmpeg_path, "-i", input_path, "-f", "null", "-"]

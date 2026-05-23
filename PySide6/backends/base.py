@@ -2,7 +2,7 @@
 Media Backend Interface - Abstract Base Class for media backends
 """
 from abc import ABC, abstractmethod
-from typing import Optional, List
+from typing import Optional, List, Dict
 import subprocess
 
 
@@ -106,4 +106,37 @@ class MediaBackend(ABC):
 
     @abstractmethod
     def get_full_info(self, video_path: str) -> dict:
+        ...
+
+    @abstractmethod
+    def supported_filters(self) -> Dict[str, bool]:
+        """
+        Returns a dict mapping filter feature names to bool indicating
+        whether that filter/feature is supported by this backend.
+
+        Standard feature keys (used by UI panels):
+          Video filters:
+            - 'deinterlace'
+            - 'denoise'
+            - 'sharpen'
+            - 'cas'
+            - 'deblock'
+            - 'smart_crop'          (videocrop / crop)
+            - 'ar_convert'          (aspect ratio conversion)
+            - 'delogo'
+
+          Color correction (EQ):
+            - 'eq_brightness'       (videobalance brightness)
+            - 'eq_contrast'         (videobalance contrast)
+            - 'eq_saturation'       (videobalance saturation)
+            - 'eq_gamma'            (gamma element)
+            - 'white_balance'       (colorbalance)
+
+          Audio filters:
+            - 'volume'
+            - 'audio_denoise'
+            - 'audio_dynnorm'
+            - 'audio_compressor'
+            - 'audio_delay'
+        """
         ...

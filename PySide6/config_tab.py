@@ -545,10 +545,20 @@ class ConfigTab(QWidget):
         self.custom_name_edit.textChanged.connect(self.on_custom_name_changed)
         self.handbrake_edit.textChanged.connect(self.on_handbrake_changed)
         self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
+        self.app_state.media_engine_changed.connect(self._on_media_engine_changed)
         
     def on_engine_changed(self, text):
         engine = "gstreamer" if text == "GStreamer" else "ffmpeg"
         self.app_state.media_engine = engine
+        is_gst = engine == "gstreamer"
+        self.engine_path_label.setText("GStreamer Path:" if is_gst else "FFmpeg Path:")
+        self.engine_path_edit.setText(
+            self.app_state.gstreamer_path if is_gst else self.app_state.ffmpeg_path
+        )
+
+    def _on_media_engine_changed(self, engine):
+        text = "GStreamer" if engine == "gstreamer" else "FFmpeg"
+        self.engine_combo.setCurrentText(text)
         is_gst = engine == "gstreamer"
         self.engine_path_label.setText("GStreamer Path:" if is_gst else "FFmpeg Path:")
         self.engine_path_edit.setText(

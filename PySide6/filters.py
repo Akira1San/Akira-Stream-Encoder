@@ -23,6 +23,12 @@ class FiltersPanel(QWidget):
         self.setup_ui()
         self.connect_signals()
         
+        # Apply engine-specific filter availability on init
+        self.update_engine_state()
+        
+        # Re-apply when media engine changes
+        self.app_state.media_engine_changed.connect(self.update_engine_state)
+        
     def setup_ui(self):
         """Setup the UI layout"""
         layout = QVBoxLayout(self)
@@ -452,6 +458,95 @@ class FiltersPanel(QWidget):
         
         layout.addStretch()
         
+    def update_engine_state(self):
+        """Disable/enable UI controls based on current backend's supported_filters()."""
+        try:
+            support = self.app_state.backend.supported_filters()
+        except Exception:
+            support = {}
+        engine = self.app_state.media_engine
+        is_gst = engine == "gstreamer"
+
+        # Video filters
+        self._set_enabled_with_tip(self.deint_check, support.get('deinterlace', True),
+                                   "Deinterlace" if is_gst else "")
+        self._set_enabled_with_tip(self.denoise_check, support.get('denoise', True),
+                                   "Denoise (gaussianblur)" if is_gst else "")
+        self._set_enabled_with_tip(self.sharpen_check, support.get('sharpen', True),
+                                   "Sharpen (unsharp)" if is_gst else "")
+        self.sharpen_amount_slider.setEnabled(
+            support.get('sharpen', True) and self.app_state.filters.sharpen
+        )
+        self._set_enabled_with_tip(self.cas_check, support.get('cas', True),
+                                   "CAS (Contrast Adaptive Sharpen)" if is_gst else "")
+        self.cas_strength_slider.setEnabled(
+            support.get('cas', True) and self.app_state.filters.cas_enabled
+        )
+        self._set_enabled_with_tip(self.deblock_check, support.get('deblock', True),
+                                   "Deblock" if is_gst else "")
+        self.deblock_strength_slider.setEnabled(
+            support.get('deblock', True) and self.app_state.filters.deblock
+        )
+
+        # Smart crop
+        crop_supported = support.get('smart_crop', True)
+        self._set_enabled_with_tip(self.smart_crop_check, crop_supported,
+                                   "Smart Crop (videocrop)" if is_gst else "")
+        en = crop_supported and self.smart_crop_check.isChecked()
+        self.smart_crop_mode_combo.setEnabled(en)
+        self.smart_crop_preview_check.setEnabled(en)
+        is_manual = self.smart_crop_mode_combo.currentText() == "Manual"
+        self.smart_crop_w_spin.setEnabled(en)
+        self.smart_crop_h_spin.setEnabled(en)
+        self.smart_crop_x_spin.setEnabled(en and is_manual)
+        self.smart_crop_y_spin.setEnabled(en and is_manual)
+
+        # AR conversion
+        self._set_enabled_with_tip(self.ar_check, support.get('ar_convert', True),
+                                   "Aspect Ratio Conversion" if is_gst else "")
+        ar_en = support.get('ar_convert', True) and self.ar_check.isChecked()
+        self.ar_target_combo.setEnabled(ar_en)
+        self.ar_method_combo.setEnabled(ar_en)
+
+        # Delogo
+        self._set_enabled_with_tip(self.delogo_check, support.get('delogo', True),
+                                   "Delogo (logo removal)" if is_gst else "")
+        dl_en = support.get('delogo', True) and self.delogo_check.isChecked()
+        self.delogo_x_spin.setEnabled(dl_en)
+        self.delogo_y_spin.setEnabled(dl_en)
+        self.delogo_w_spin.setEnabled(dl_en)
+        self.delogo_h_spin.setEnabled(dl_en)
+        self.delogo_band_spin.setEnabled(dl_en)
+        self.delogo_show_check.setEnabled(dl_en)
+
+        # Audio filters
+        self._set_enabled_with_tip(self.audio_denoise_check, support.get('audio_denoise', True),
+                                   "Audio Denoise (afftdn)" if is_gst else "")
+        self._set_enabled_with_tip(self.vol_check, support.get('volume', True),
+                                   "Volume" if is_gst else "")
+        self.vol_edit.setEnabled(
+            support.get('volume', True) and self.vol_check.isChecked()
+        )
+        self._set_enabled_with_tip(self.dynnorm_check, support.get('audio_dynnorm', True),
+                                   "Dynamic Normalizer (dynaudnorm)" if is_gst else "")
+        self._set_enabled_with_tip(self.compressor_check, support.get('audio_compressor', True),
+                                   "Audio Compressor (acompressor)" if is_gst else "")
+        self._set_enabled_with_tip(self.audio_delay_check, support.get('audio_delay', True),
+                                   "Audio Delay" if is_gst else "")
+        self.audio_delay_spin.setEnabled(
+            support.get('audio_delay', True) and self.audio_delay_check.isChecked()
+        )
+
+    def _set_enabled_with_tip(self, widget, supported, feature_name):
+        """Set a widget's enabled state; if not supported, append note to tooltip."""
+        widget.setEnabled(supported)
+        if supported:
+            return
+        note = f"\n\n⚠ Not supported by {self.app_state.media_engine.upper()} engine. Switch to FFmpeg."
+        current = widget.toolTip()
+        if note not in current:
+            widget.setToolTip(current + note)
+        
     def connect_signals(self):
         """Connect UI signals to handlers"""
         self.deint_check.toggled.connect(self.on_deint_changed)
@@ -809,6 +904,9 @@ class FiltersPanel(QWidget):
         self.audio_delay_check.setChecked(False)
         self.audio_delay_spin.setValue(0)
         self.audio_delay_spin.setEnabled(False)
+        
+        # Re-apply engine-level enable/disable
+        self.update_engine_state()
         
         self.app_state.log("Filters reset to defaults", "INFO")
         self.settings_changed.emit()

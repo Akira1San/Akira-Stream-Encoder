@@ -103,6 +103,9 @@ class _PopenWrapper:
 class GStreamerBackend(MediaBackend):
     """Media backend using GStreamer CLI tools"""
 
+    # Cache for element availability checks (class-level, persists across instances)
+    _element_cache = {}
+
     def __init__(self, app_state):
         self.app_state = app_state
         self._gst_path = "gst-launch-1.0"
@@ -117,6 +120,27 @@ class GStreamerBackend(MediaBackend):
             f"[GStreamer] '{feature}' not yet implemented. Switch to FFmpeg engine.",
             "WARN"
         )
+
+    def _element_available(self, element_name: str) -> bool:
+        """Check whether a GStreamer element is available on the system.
+
+        Uses ``gst-inspect-1.0`` and caches results per element name
+        for the lifetime of the process.
+        """
+        if element_name in self._element_cache:
+            return self._element_cache[element_name]
+        try:
+            r = subprocess.run(
+                ["gst-inspect-1.0", element_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            available = r.returncode == 0
+        except Exception:
+            available = False
+        self._element_cache[element_name] = available
+        return available
 
     def _is_dvd_concat(self, input_path: str) -> bool:
         return input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
@@ -798,3 +822,29 @@ class GStreamerBackend(MediaBackend):
                 k, v = line.split(":", 1)
                 info[k.strip().lower().replace(" ", "_")] = v.strip()
         return info
+
+    def supported_filters(self) -> dict:
+        """GStreamer per-filter support based on actual element availability."""
+        return {
+            # Video filters
+            'deinterlace': self._element_available('deinterlace'),
+            'denoise': self._element_available('gaussianblur'),
+            'sharpen': False,       # not implemented (unsharp via gaussianblur sigma not done)
+            'cas': False,           # not available in GStreamer
+            'deblock': False,       # not available in GStreamer
+            'smart_crop': self._element_available('videocrop'),
+            'ar_convert': False,    # aspect ratio conversion not implemented
+            'delogo': False,        # delogo not available in GStreamer
+            # Color correction (EQ)
+            'eq_brightness': self._element_available('videobalance'),
+            'eq_contrast': self._element_available('videobalance'),
+            'eq_saturation': self._element_available('videobalance'),
+            'eq_gamma': self._element_available('gamma'),
+            'white_balance': False,  # colorbalance not available in GStreamer
+            # Audio filters
+            'volume': self._element_available('volume'),
+            'audio_denoise': False,  # webrtcdsp / audiochebband not implemented
+            'audio_dynnorm': False,  # not available in GStreamer
+            'audio_compressor': self._element_available('audiocompressor'),
+            'audio_delay': False,    # audio delay not implemented
+        }

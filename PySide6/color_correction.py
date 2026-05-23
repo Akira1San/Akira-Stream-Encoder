@@ -22,6 +22,12 @@ class ColorCorrectionPanel(QWidget):
         self.setup_ui()
         self.connect_signals()
         
+        # Apply engine-specific filter availability on init
+        self.update_engine_state()
+        
+        # Re-apply when media engine changes
+        self.app_state.media_engine_changed.connect(self.update_engine_state)
+        
     def setup_ui(self):
         """Setup the UI layout"""
         layout = QVBoxLayout(self)
@@ -248,6 +254,99 @@ class ColorCorrectionPanel(QWidget):
             lambda v: self.on_wb_slider_changed(v, self.wb_b_slider, 'wb_b')
         )
         
+    def update_engine_state(self):
+        """Disable/enable EQ UI controls based on current backend's supported_filters()."""
+        try:
+            support = self.app_state.backend.supported_filters()
+        except Exception as e:
+            support = {}
+            self.app_state.log(f"[ColorCorrection] supported_filters() failed: {e}", "WARN")
+        engine = self.app_state.media_engine
+        is_gst = engine == "gstreamer"
+        has_eq = any([
+            support.get('eq_brightness', True),
+            support.get('eq_contrast', True),
+            support.get('eq_saturation', True),
+            support.get('eq_gamma', True),
+        ])
+        self.app_state.log(
+            f"[ColorCorrection] engine={engine} eq_brightness={support.get('eq_brightness', '?')} "
+            f"eq_contrast={support.get('eq_contrast', '?')} "
+            f"eq_saturation={support.get('eq_saturation', '?')} "
+            f"eq_gamma={support.get('eq_gamma', '?')} "
+            f"has_eq={has_eq}",
+            "INFO"
+        )
+
+        self._set_enabled_with_tip(
+            self.enable_check,
+            has_eq,
+            "Color Correction (EQ)" if is_gst else ""
+        )
+        # EQ sliders: disable individually per support
+        eq_enabled = self.app_state.eq.enabled
+        self._set_slider_enabled_with_tip(
+            self.brightness_slider, eq_enabled and support.get('eq_brightness', True),
+            "Brightness (videobalance)" if is_gst else ""
+        )
+        self._set_slider_enabled_with_tip(
+            self.contrast_slider, eq_enabled and support.get('eq_contrast', True),
+            "Contrast (videobalance)" if is_gst else ""
+        )
+        self._set_slider_enabled_with_tip(
+            self.saturation_slider, eq_enabled and support.get('eq_saturation', True),
+            "Saturation (videobalance)" if is_gst else ""
+        )
+        self._set_slider_enabled_with_tip(
+            self.gamma_slider, eq_enabled and support.get('eq_gamma', True),
+            "Gamma (gamma element)" if is_gst else ""
+        )
+        self._set_slider_enabled_with_tip(
+            self.gamma_r_slider, eq_enabled and support.get('eq_gamma', True),
+            "RGB Gamma" if is_gst else ""
+        )
+        self._set_slider_enabled_with_tip(
+            self.gamma_g_slider, eq_enabled and support.get('eq_gamma', True),
+            "RGB Gamma" if is_gst else ""
+        )
+        self._set_slider_enabled_with_tip(
+            self.gamma_b_slider, eq_enabled and support.get('eq_gamma', True),
+            "RGB Gamma" if is_gst else ""
+        )
+
+        # White balance
+        self._set_enabled_with_tip(
+            self.wb_enable_check,
+            support.get('white_balance', True),
+            "White Balance (colorbalance)" if is_gst else ""
+        )
+        wb_en = support.get('white_balance', True) and self.app_state.eq.white_balance_enabled
+        self.wb_preset_combo.setEnabled(wb_en)
+        self._set_slider_enabled_with_tip(self.wb_r_slider, wb_en, "WB Red" if is_gst else "")
+        self._set_slider_enabled_with_tip(self.wb_g_slider, wb_en, "WB Green" if is_gst else "")
+        self._set_slider_enabled_with_tip(self.wb_b_slider, wb_en, "WB Blue" if is_gst else "")
+
+    def _set_enabled_with_tip(self, widget, supported, feature_name):
+        """Set a widget's enabled state; if not supported, append note to tooltip."""
+        widget.setEnabled(supported)
+        if supported:
+            return
+        note = f"\n\n⚠ Not supported by {self.app_state.media_engine.upper()} engine. Switch to FFmpeg."
+        current = widget.toolTip()
+        if note not in current:
+            widget.setToolTip(current + note)
+
+    def _set_slider_enabled_with_tip(self, slider_dict, enabled, feature_name):
+        """Set a slider group's enabled state; append engine note to label tooltip."""
+        slider_dict['slider'].setEnabled(enabled)
+        label = slider_dict['layout'].itemAt(0).widget()
+        if enabled:
+            return
+        note = f"\n\n⚠ Not supported by {self.app_state.media_engine.upper()} engine. Switch to FFmpeg."
+        current = label.toolTip()
+        if note not in current:
+            label.setToolTip(current + note)
+
     def on_enable_changed(self, checked):
         """Handle enable checkbox change"""
         self.app_state.eq.enabled = checked
