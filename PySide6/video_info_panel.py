@@ -3,10 +3,14 @@ Video Information Panel - Displays comprehensive video file metadata
 """
 import os
 from PySide6.QtWidgets import (
-    QGroupBox, QVBoxLayout, QGridLayout, QLabel, QWidget
+    QGroupBox, QVBoxLayout, QGridLayout, QLabel, QWidget,
+    QScrollArea, QFrame
 )
 from PySide6.QtCore import Qt
 from ui_components import HorizontalLine
+
+
+FONT_STYLE = "font-weight: normal; font-size: 13px;"
 
 
 class VideoInfoPanel(QGroupBox):
@@ -21,7 +25,7 @@ class VideoInfoPanel(QGroupBox):
         self.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
-                border: 1px solid #cccccc;
+                border: 1px solid #666;
                 border-radius: 5px;
                 margin-top: 10px;
                 padding-top: 15px;
@@ -32,11 +36,21 @@ class VideoInfoPanel(QGroupBox):
                 padding: 0 5px 0 5px;
             }
         """)
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setSpacing(8)
+        layout.setContentsMargins(10, 5, 10, 5)
 
         grid = QGridLayout()
-        grid.setVerticalSpacing(4)
+        grid.setVerticalSpacing(6)
         grid.setHorizontalSpacing(15)
 
         fields = [
@@ -54,9 +68,9 @@ class VideoInfoPanel(QGroupBox):
         for row, (label_text, attr) in enumerate(fields):
             lbl = QLabel(label_text)
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            lbl.setStyleSheet("font-weight: normal; font-size: 11px;")
+            lbl.setStyleSheet(FONT_STYLE)
             val = QLabel("")
-            val.setStyleSheet("font-weight: normal; font-size: 11px; color: #333;")
+            val.setStyleSheet(FONT_STYLE + "color: #e0e0e0;")
             val.setTextInteractionFlags(Qt.TextSelectableByMouse)
             grid.addWidget(lbl, row, 0)
             grid.addWidget(val, row, 1)
@@ -90,10 +104,14 @@ class VideoInfoPanel(QGroupBox):
         sub_layout = QVBoxLayout(self.sub_group)
         sub_layout.setContentsMargins(0, 15, 0, 0)
         self.subtitle_label = QLabel("")
-        self.subtitle_label.setStyleSheet("font-weight: normal; font-size: 11px; color: #333;")
+        self.subtitle_label.setStyleSheet(FONT_STYLE + "color: #e0e0e0;")
         self.subtitle_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         sub_layout.addWidget(self.subtitle_label)
         layout.addWidget(self.sub_group)
+
+        layout.addStretch()
+        scroll.setWidget(content)
+        outer_layout.addWidget(scroll)
 
         self.hide()
 
@@ -124,13 +142,13 @@ class VideoInfoPanel(QGroupBox):
 
         text = f"Track {index}: {codec.upper()} - {ch_str}{sr}{lang_str}{title_str}"
         label = QLabel(text)
-        label.setStyleSheet("font-weight: normal; font-size: 11px; color: #333; padding-left: 5px;")
+        label.setStyleSheet(FONT_STYLE + "color: #e0e0e0; padding-left: 5px;")
         label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.audio_container_layout.addWidget(label)
 
     def _add_no_audio(self):
         label = QLabel("No audio tracks")
-        label.setStyleSheet("font-weight: normal; font-size: 11px; color: #999; padding-left: 5px;")
+        label.setStyleSheet(FONT_STYLE + "color: #888; padding-left: 5px;")
         self.audio_container_layout.addWidget(label)
 
     def set_info(self, file_path):
