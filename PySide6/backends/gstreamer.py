@@ -426,17 +426,24 @@ class GStreamerBackend(MediaBackend):
         if encoding.scale_mode == "on" and encoding.resolution and encoding.resolution != "none":
             if "x" in encoding.resolution:
                 w, h = encoding.resolution.split("x")
+                method = encoding.gst_scale_algorithm
 
-                elements.append("videoscale")
-                elements.append(f"method={encoding.gst_scale_algorithm}")
-                elements.append("n-threads=4")
-
-                if getattr(filters, 'sharpen', False):
-                    elements.append("sharpen=true")
-                    amount = getattr(filters, 'sharpen_amount', 1.0)
-                    elements.append(f"sharpness={max(0.0, min(1.0, amount))}")
-
-                elements.append(f"video/x-raw,width={w},height={h}")
+                if method == "nvvideoconvert":
+                    elements.append("nvvideoconvert")
+                    elements.append(f"video/x-raw(memory:NVMM),width={w},height={h}")
+                    elements.append("nvvidconv")
+                elif method == "vulkanconvert":
+                    elements.append("vulkanconvert")
+                    elements.append(f"video/x-raw,width={w},height={h}")
+                else:
+                    elements.append("videoscale")
+                    elements.append(f"method={method}")
+                    elements.append("n-threads=4")
+                    if getattr(filters, 'sharpen', False):
+                        elements.append("sharpen=true")
+                        amount = getattr(filters, 'sharpen_amount', 1.0)
+                        elements.append(f"sharpness={max(0.0, min(1.0, amount))}")
+                    elements.append(f"video/x-raw,width={w},height={h}")
 
         if getattr(filters, 'smart_crop_enabled', False):
             elements.append("videocrop")
