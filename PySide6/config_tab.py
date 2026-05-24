@@ -466,10 +466,6 @@ class ConfigTab(QWidget):
         btn_layout = QHBoxLayout()
         
         # Left side: Action buttons
-        self.details_btn = QPushButton("📋 Show Details")
-        self.details_btn.clicked.connect(self.show_file_details)
-        btn_layout.addWidget(self.details_btn)
-        
         self.validate_btn = QPushButton("✓ Validate Video")
         self.validate_btn.clicked.connect(self.validate_video_file)
         btn_layout.addWidget(self.validate_btn)
@@ -900,20 +896,7 @@ class ConfigTab(QWidget):
         else:
             self.video_info_panel.clear_info()
             
-    def show_file_details(self):
-        """Show details for the selected file"""
-        selected = self.files_list.selectedItems()
-        if not selected:
-            QMessageBox.information(self, "Show Details", "Please select a file first.")
-            return
-            
-        file_path = selected[0].data(Qt.UserRole)
-        self.detect_and_show_info(file_path)
-        
-    def detect_and_show_info(self, filepath):
-        """Detect and display file information via backend"""
-        self.app_state.log(f"Getting info for {os.path.basename(filepath)}...", "INFO")
-        self.video_info_panel.set_info(filepath)
+
             
     def validate_video_file(self):
         """Validate selected video file for health and DTS issues"""
