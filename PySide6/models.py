@@ -37,6 +37,8 @@ class EncodingSettings:
     # Libplacebo tone mapping settings
     libplacebo_tonemapping: str = "none"  # none, bt2390, bt2446, reinhard, mobius, linear, clip, spline
     libplacebo_tonemapping_mode: str = "auto"  # auto, rgb, max, lum
+    # GStreamer-specific scale algorithm (native videoscale method names)
+    gst_scale_algorithm: str = "catrom"  # nearest-neighbour/bilinear/4-tap/lanczos/bilinear2/sinc/hermite/spline/catrom/mitchell
 
 
 @dataclass

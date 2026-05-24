@@ -325,7 +325,8 @@ class EncodingPanel(QWidget):
         layout.addLayout(scale_layout)
 
         algo_layout = QHBoxLayout()
-        algo_layout.addWidget(QLabel("Algorithm:"))
+        self.algo_label = QLabel("Algorithm:")
+        algo_layout.addWidget(self.algo_label)
 
         self.algorithm_combo = QComboBox()
         self.algorithm_combo.addItems(["bilinear", "bicubic", "lanczos", "spline", "area", "zscale", "scale_cuda", "scale_vulkan", "libplacebo"])
@@ -374,6 +375,38 @@ class EncodingPanel(QWidget):
             self.tone_mapping_label.hide()
             self.tone_mapping_combo.hide()
         
+        # GStreamer-specific scale algorithm combo (visible only in GStreamer mode)
+        self.gst_algo_label = QLabel("GST Algorithm:")
+        self.gst_algorithm_combo = QComboBox()
+        self.gst_algorithm_combo.addItems([
+            "nearest-neighbour", "bilinear", "4-tap", "lanczos",
+            "bilinear2", "sinc", "hermite", "spline", "catrom", "mitchell"
+        ])
+        self.gst_algorithm_combo.setCurrentText(self.app_state.encoding.gst_scale_algorithm)
+        self.gst_algorithm_combo.setToolTip(
+            "GStreamer videoscale method (native):\n"
+            "catrom: Sharp bicubic, best for upscaling (recommended)\n"
+            "lanczos: High quality, good alternative\n"
+            "bilinear: Fast, basic quality\n"
+            "nearest-neighbour: Fastest, pixelated\n"
+            "spline: Smooth scaling\n"
+            "mitchell: Softer than catrom, less ringing\n"
+            "4-tap: 4-tap bicubic\n"
+            "hermite: Hermite interpolation\n"
+            "sinc: Windowed sinc\n"
+            "bilinear2: Improved bilinear"
+        )
+        gst_algo_layout = QHBoxLayout()
+        gst_algo_layout.addWidget(self.gst_algo_label)
+        gst_algo_layout.addWidget(self.gst_algorithm_combo)
+        gst_algo_layout.addStretch()
+        layout.addLayout(gst_algo_layout)
+        
+        # Hide GStreamer algo controls initially based on engine
+        if self.app_state.media_engine != "gstreamer":
+            self.gst_algo_label.hide()
+            self.gst_algorithm_combo.hide()
+        
         # Scale Quality
         scale_quality_layout = QHBoxLayout()
         scale_quality_layout.addWidget(QLabel("Quality:"))
@@ -408,8 +441,10 @@ class EncodingPanel(QWidget):
         # Set initial state of algorithm and quality based on scale mode
         if self.app_state.encoding.scale_mode == "off":
             self.algorithm_combo.setEnabled(False)
+            self.gst_algorithm_combo.setEnabled(False)
             self.scale_quality_combo.setEnabled(False)
             self.algorithm_combo.setStyleSheet("color: gray;")
+            self.gst_algorithm_combo.setStyleSheet("color: gray;")
             self.scale_quality_combo.setStyleSheet("color: gray;")
         
         # === Advanced Encoding Settings (Collapsible) ===
@@ -615,6 +650,7 @@ class EncodingPanel(QWidget):
         self.container_combo.currentTextChanged.connect(self.on_container_changed)
         self.scale_mode_combo.currentTextChanged.connect(self.on_scale_mode_changed)
         self.algorithm_combo.currentTextChanged.connect(self.on_algorithm_changed)
+        self.gst_algorithm_combo.currentTextChanged.connect(self.on_gst_algorithm_changed)
         self.scale_quality_combo.currentTextChanged.connect(self.on_scale_quality_changed)
         self.tone_mapping_combo.currentTextChanged.connect(self.on_tone_mapping_changed)
         self.aspect_ratio_combo.currentTextChanged.connect(self.on_aspect_ratio_changed)
@@ -794,6 +830,11 @@ class EncodingPanel(QWidget):
         self.engine_indicator.setStyleSheet(
             "color: #2196F3; font-weight: bold;" if engine == "gstreamer" else "color: #4CAF50; font-weight: bold;"
         )
+        is_gst = engine == "gstreamer"
+        self.algo_label.setText("GST Algorithm:" if is_gst else "Algorithm:")
+        self.algorithm_combo.setVisible(not is_gst)
+        self.gst_algo_label.setVisible(is_gst)
+        self.gst_algorithm_combo.setVisible(is_gst)
 
     def on_engine_combo_changed(self, index):
         engine = "gstreamer" if index == 1 else "ffmpeg"
@@ -956,17 +997,22 @@ class EncodingPanel(QWidget):
     def on_scale_mode_changed(self, text):
         """Handle scale mode change"""
         self.app_state.encoding.scale_mode = text
+        is_gst = self.app_state.media_engine == "gstreamer"
         
         # Enable/disable algorithm and quality based on scale mode
         if text == "off":
             self.algorithm_combo.setEnabled(False)
+            self.gst_algorithm_combo.setEnabled(False)
             self.scale_quality_combo.setEnabled(False)
             self.algorithm_combo.setStyleSheet("color: gray;")
+            self.gst_algorithm_combo.setStyleSheet("color: gray;")
             self.scale_quality_combo.setStyleSheet("color: gray;")
         else:
-            self.algorithm_combo.setEnabled(True)
+            self.algorithm_combo.setEnabled(not is_gst)
+            self.gst_algorithm_combo.setEnabled(is_gst)
             self.scale_quality_combo.setEnabled(True)
-            self.algorithm_combo.setStyleSheet("")
+            self.algorithm_combo.setStyleSheet("" if not is_gst else "color: gray;")
+            self.gst_algorithm_combo.setStyleSheet("" if is_gst else "color: gray;")
             self.scale_quality_combo.setStyleSheet("")
         
         self.settings_changed.emit()
@@ -985,6 +1031,10 @@ class EncodingPanel(QWidget):
         
         self.settings_changed.emit()
         
+    def on_gst_algorithm_changed(self, text):
+        self.app_state.encoding.gst_scale_algorithm = text
+        self.settings_changed.emit()
+
     def on_tone_mapping_changed(self, text):
         """Handle tone mapping algorithm change"""
         self.app_state.encoding.libplacebo_tonemapping = text
