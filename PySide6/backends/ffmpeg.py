@@ -658,14 +658,18 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-c:v", "copy"])
             else:
                 cmd.extend(["-c:v", encoder])
-                if encoding.use_gpu and "nvenc" in encoder:
-                    cmd.extend(["-preset", encoding.gpu_preset])
-                    cmd.extend(["-cq", str(encoding.cq)])
-                else:
-                    cmd.extend(["-crf", str(encoding.cq)])
-                    cmd.extend(["-preset", encoding.cpu_preset])
-                    if encoding.cpu_tune != "none":
-                        cmd.extend(["-tune", encoding.cpu_tune])
+                bitrate_is_set = encoding.use_original_bitrate or (
+                    encoding.target_bitrate and encoding.target_bitrate.isdigit() and int(encoding.target_bitrate) > 0
+                )
+                if not bitrate_is_set:
+                    if encoding.use_gpu and "nvenc" in encoder:
+                        cmd.extend(["-preset", encoding.gpu_preset])
+                        cmd.extend(["-cq", str(encoding.cq)])
+                    else:
+                        cmd.extend(["-crf", str(encoding.cq)])
+                        cmd.extend(["-preset", encoding.cpu_preset])
+                        if encoding.cpu_tune != "none":
+                            cmd.extend(["-tune", encoding.cpu_tune])
                 if encoding.resolution != "none" and encoding.scale_mode == "off":
                     cmd.extend(["-s", encoding.resolution])
                 pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
@@ -735,14 +739,18 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-c:v", "copy"])
         else:
             cmd.extend(["-c:v", encoder])
-            if encoding.use_gpu and "nvenc" in encoder:
-                cmd.extend(["-preset", encoding.gpu_preset])
-                cmd.extend(["-cq", str(encoding.cq)])
-            else:
-                cmd.extend(["-crf", str(encoding.cq)])
-                cmd.extend(["-preset", encoding.cpu_preset])
-                if encoding.cpu_tune != "none":
-                    cmd.extend(["-tune", encoding.cpu_tune])
+            bitrate_is_set = encoding.use_original_bitrate or (
+                encoding.target_bitrate and encoding.target_bitrate.isdigit() and int(encoding.target_bitrate) > 0
+            )
+            if not bitrate_is_set:
+                if encoding.use_gpu and "nvenc" in encoder:
+                    cmd.extend(["-preset", encoding.gpu_preset])
+                    cmd.extend(["-cq", str(encoding.cq)])
+                else:
+                    cmd.extend(["-crf", str(encoding.cq)])
+                    cmd.extend(["-preset", encoding.cpu_preset])
+                    if encoding.cpu_tune != "none":
+                        cmd.extend(["-tune", encoding.cpu_tune])
             if encoding.resolution != "none" and encoding.scale_mode == "off":
                 ar_enabled = getattr(filters, 'ar_convert_enabled', False)
                 if not ar_enabled:

@@ -1000,11 +1000,19 @@ class EncodingPanel(QWidget):
     def on_target_bitrate_changed(self, text):
         """Handle target bitrate change"""
         self.app_state.encoding.target_bitrate = text
+        if text and text.isdigit() and int(text) > 0:
+            self.app_state.encoding.cq = 23
+            self.cq_slider.setValue(23)
+            self.cq_label.setText("23")
         self.settings_changed.emit()
         
     def on_orig_br_changed(self, checked):
         """Handle original bitrate checkbox change"""
         self.app_state.encoding.use_original_bitrate = checked
+        if checked:
+            self.app_state.encoding.cq = 23
+            self.cq_slider.setValue(23)
+            self.cq_label.setText("23")
         # Disable target bitrate input when using original
         self.bitrate_edit.setEnabled(not checked)
         if not checked:
