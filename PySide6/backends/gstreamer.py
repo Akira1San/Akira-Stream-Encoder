@@ -860,7 +860,6 @@ class GStreamerBackend(MediaBackend):
         return data
 
     def _capture_frame_gst(self, target: str, timestamp: float,
-                            sub_idx: int = -1,
                             max_size: tuple = None) -> Optional[bytes]:
         _ensure_gst_init()
 
@@ -869,124 +868,85 @@ class GStreamerBackend(MediaBackend):
         if max_size:
             scale = f" ! videoscale ! video/x-raw,width={max_size[0]},height={max_size[1]}"
 
-        sub_pad = f"subpicture_{sub_idx:02x}" if sub_idx >= 0 else ""
+        def _run_mpegpsdemux():
+            p = Gst.Pipeline.new("capture")
+            filesrc = Gst.ElementFactory.make("filesrc", "src")
+            filesrc.set_property("location", target)
+            p.add(filesrc)
+            demux = Gst.ElementFactory.make("mpegpsdemux", "demux")
+            p.add(demux)
+            filesrc.link(demux)
+            vq = Gst.ElementFactory.make("queue", "vq")
+            dec = Gst.ElementFactory.make("decodebin", "dec")
+            vc = Gst.ElementFactory.make("videoconvert", "vc")
+            vq2 = Gst.ElementFactory.make("queue", "vq2")
+            spu = Gst.ElementFactory.make("dvdspu", "spu")
+            oq = Gst.ElementFactory.make("queue", "oq")
+            oc = Gst.ElementFactory.make("videoconvert", "oc")
+            enc = Gst.ElementFactory.make("pngenc", "enc")
+            sink = Gst.ElementFactory.make("appsink", "sink")
+            for e in [vq, dec, vc, vq2, spu, oq, oc, enc, sink]:
+                if e: p.add(e)
+            if not all([vq, dec, vc, vq2, spu, oq, oc, enc, sink]):
+                return None
+            if max_size:
+                vs = Gst.ElementFactory.make("videoscale", "vs")
+                cf = Gst.ElementFactory.make("capsfilter", "cf")
+                caps = Gst.Caps.from_string(f"video/x-raw,width={max_size[0]},height={max_size[1]}")
+                cf.set_property("caps", caps)
+                p.add(vs); p.add(cf)
+            vq.link(dec)
+            dec.connect("pad-added", lambda d, pad: pad.link(vc.get_static_pad("sink")))
+            vc.link(vq2)
+            vq2.get_static_pad("src").link(spu.get_static_pad("video"))
+            spu.get_static_pad("src").link(oq.get_static_pad("sink"))
+            oq.link(oc)
+            if max_size:
+                oc.link(vs); vs.link(cf); cf.link(enc)
+            else:
+                oc.link(enc)
+            enc.link(sink)
+            sink.set_property("max-buffers", 1)
+            sink.set_property("drop", False)
+            demux.connect("pad-added", lambda d, pad: (
+                pad.link(vq.get_static_pad("sink")) if pad.name.startswith("video_") else None
+            ))
+            return _run(p, sink, p.get_bus())
 
-        pipe_str = (
-            f"filesrc location={target} "
-            f"! mpegpsdemux name=demux "
-            f"demux.video_0 ! queue ! decodebin ! videoconvert ! queue ! "
-            f"dvdspu name=spu "
-            f"spu. ! queue ! videoconvert{scale} ! pngenc ! appsink name=sink"
-        )
-        if sub_pad:
-            pipe_str += f" demux.{sub_pad} ! queue ! spu.subpicture"
+        def _run_decodebin():
+            pipe = f"filesrc location={target} ! decodebin ! videoconvert{scale} ! pngenc ! appsink name=sink"
+            p = Gst.parse_launch(pipe)
+            if not p: return None
+            sink = p.get_by_name("sink")
+            if not sink: p.set_state(Gst.State.NULL); return None
+            sink.set_property("max-buffers", 1)
+            sink.set_property("drop", False)
+            return _run(p, sink, p.get_bus())
 
-        p = Gst.parse_launch(pipe_str)
-        if not p:
-            self.app_state.log("GStreamer: parse_launch failed", "INFO")
-            return self._capture_frame_gst_fallback(target, ts, scale)
-
-        sink = p.get_by_name("sink")
-        if not sink:
-            p.set_state(Gst.State.NULL)
-            return self._capture_frame_gst_fallback(target, ts, scale)
-
-        sink.set_property("max-buffers", 1)
-        sink.set_property("drop", False)
-        bus = p.get_bus()
-
-        def _wait_paused(tmo=20 * Gst.SECOND):
+        def _run(p, sink, bus):
             r = p.set_state(Gst.State.PAUSED)
             if r == Gst.StateChangeReturn.ASYNC:
-                r, s, pend = p.get_state(tmo)
-                return r == Gst.StateChangeReturn.SUCCESS
-            return r == Gst.StateChangeReturn.SUCCESS
-
-        if not _wait_paused():
-            while True:
-                m = bus.pop()
-                if m is None:
-                    break
-                if m.type == Gst.MessageType.ERROR:
-                    e, d = m.parse_error()
-                    self.app_state.log(f"GStreamer PAUSED: {e.message}", "INFO")
-            p.set_state(Gst.State.NULL)
-            return self._capture_frame_gst_fallback(target, ts, scale)
-
-        data = self._sample_data(sink.get_property("last-sample"))
-        if data and ts <= 0:
+                r, s, pend = p.get_state(20 * Gst.SECOND)
+            if r != Gst.StateChangeReturn.SUCCESS:
+                p.set_state(Gst.State.NULL); return None
+            data = self._sample_data(sink.get_property("last-sample"))
+            if data and ts <= 0:
+                p.set_state(Gst.State.NULL); return data
+            ev = Gst.Event.new_seek(1.0, Gst.Format.TIME,
+                Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
+                Gst.SeekType.SET, int(ts * Gst.SECOND), Gst.SeekType.NONE, 0)
+            p.send_event(ev)
+            r, s, pend = p.get_state(20 * Gst.SECOND)
+            if r != Gst.StateChangeReturn.SUCCESS:
+                p.set_state(Gst.State.NULL); return None
+            data = self._sample_data(sink.get_property("last-sample"))
             p.set_state(Gst.State.NULL)
             return data
 
-        ev = Gst.Event.new_seek(
-            1.0, Gst.Format.TIME,
-            Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
-            Gst.SeekType.SET, int(ts * Gst.SECOND),
-            Gst.SeekType.NONE, 0
-        )
-        p.send_event(ev)
-
-        r, s, pend = p.get_state(20 * Gst.SECOND)
-        if r != Gst.StateChangeReturn.SUCCESS:
-            while True:
-                m = bus.pop()
-                if m is None:
-                    break
-                if m.type == Gst.MessageType.ERROR:
-                    e, d = m.parse_error()
-                    self.app_state.log(f"GStreamer seek: {e.message}", "INFO")
-            p.set_state(Gst.State.NULL)
-            return self._capture_frame_gst_fallback(target, ts, scale)
-
-        data = self._sample_data(sink.get_property("last-sample"))
-        p.set_state(Gst.State.NULL)
-        return data
-
-    def _capture_frame_gst_fallback(self, target, ts, scale):
-        pipe_str = (
-            f"filesrc location={target} "
-            f"! decodebin ! videoconvert{scale} ! pngenc ! appsink name=sink"
-        )
-        p = Gst.parse_launch(pipe_str)
-        if not p:
-            return None
-        sink = p.get_by_name("sink")
-        if not sink:
-            p.set_state(Gst.State.NULL)
-            return None
-        sink.set_property("max-buffers", 1)
-        sink.set_property("drop", False)
-        bus = p.get_bus()
-
-        r = p.set_state(Gst.State.PAUSED)
-        if r == Gst.StateChangeReturn.ASYNC:
-            r, s, pend = p.get_state(30 * Gst.SECOND)
-        if r != Gst.StateChangeReturn.SUCCESS:
-            while True:
-                m = bus.pop()
-                if m is None:
-                    break
-                if m.type == Gst.MessageType.ERROR:
-                    e, d = m.parse_error()
-                    self.app_state.log(f"GStreamer fallback PAUSED: {e.message}", "INFO")
-            p.set_state(Gst.State.NULL)
-            return None
-
-        if ts > 0:
-            ev = Gst.Event.new_seek(
-                1.0, Gst.Format.TIME,
-                Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
-                Gst.SeekType.SET, int(ts * Gst.SECOND),
-                Gst.SeekType.NONE, 0
-            )
-            p.send_event(ev)
-            r, s, pend = p.get_state(30 * Gst.SECOND)
-
-        data = self._sample_data(sink.get_property("last-sample"))
-        p.set_state(Gst.State.NULL)
-        if not data:
-            self.app_state.log("GStreamer fallback: no sample", "INFO")
-        return data
+        result = _run_mpegpsdemux()
+        if result:
+            return result
+        return _run_decodebin()
 
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
@@ -996,16 +956,9 @@ class GStreamerBackend(MediaBackend):
         if not os.path.exists(target):
             return None
 
-        if is_dvd_source and self.app_state.subtitles.burn_subs:
-            sub_idx = self.app_state.dvd.selected_subtitle_index
-            if sub_idx >= 0:
-                result = self._capture_frame_gst(target, timestamp, sub_idx, max_size)
-                if result:
-                    return result
-                self.app_state.log(
-                    "GStreamer in-process frame capture failed, falling back to FFmpeg",
-                    "WARN"
-                )
+        result = self._capture_frame_gst(target, timestamp, max_size)
+        if result:
+            return result
 
         ffmpeg = self.app_state.ffmpeg_path
         if not ffmpeg or ffmpeg == "ffmpeg" or not os.path.exists(ffmpeg):

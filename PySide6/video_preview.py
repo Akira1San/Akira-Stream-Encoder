@@ -1176,25 +1176,6 @@ class VideoPreview(QWidget):
         return f"subtitles='{escaped_path}'{force_style}"
     
     def _build_dvd_subtitle_filter(self, vob_path: str, sub_idx: int) -> str:
-        """DVD bitmap subtitles cannot be previewed with the FFmpeg engine.
-
-        When using the GStreamer engine, DVD subtitle preview is handled
-        in-process via dvdspu+dvdsubdec. With the FFmpeg engine, the
-        'subtitles' filter only supports text-based formats (SRT/ASS).
-        Subtitles will appear correctly in the final encode either way.
-        """
-        if self.app_state.media_engine == "gstreamer":
-            self.app_state.log(
-                "DVD subtitle preview: using GStreamer in-process pipeline", "INFO"
-            )
-            return ""
-        self.app_state.log(
-            "DVD subtitle preview not supported with FFmpeg engine: "
-            "DVD bitmap subtitles can't be overlaid via pipe-to-image. "
-            "Switch to GStreamer engine for DVD subtitle preview, or "
-            "subtitles will appear correctly in the final encode.",
-            "WARN"
-        )
         return ""
     
     def load_video_metadata(self, video_path: str):
