@@ -332,16 +332,19 @@ class EncodingPanel(QWidget):
         self.algorithm_combo.addItems(["bilinear", "bicubic", "lanczos", "spline", "area", "zscale", "scale_cuda", "scale_vulkan", "libplacebo"])
         self.algorithm_combo.setCurrentText(self.app_state.encoding.scale_algorithm)
         self.algorithm_combo.setToolTip(
-            "Scaling algorithm:\n"
-            "Bilinear: Fast, basic quality\n"
-            "Bicubic: Good balance of speed/quality\n"
-            "Lanczos: High quality, slower\n"
-            "Spline: Smooth scaling\n"
-            "Area: Best for downscaling\n"
-            "zscale: Modern resizer, better quality\n"
-            "scale_cuda: NVIDIA GPU accelerated\n"
-            "scale_vulkan: Vulkan/GPU accelerated\n"
-            "libplacebo: Advanced GPU with color management"
+            "<html><div style='white-space:nowrap; padding:4px;'>"
+            "<b>FFmpeg scaling algorithm</b><br>"
+            "<hr>"
+            "bilinear — Fast, basic quality<br>"
+            "bicubic — Good balance of speed/quality<br>"
+            "lanczos — High quality, slower<br>"
+            "spline — Smooth scaling<br>"
+            "area — Best for downscaling<br>"
+            "zscale — Modern resizer, better quality<br>"
+            "scale_cuda — NVIDIA GPU accelerated<br>"
+            "scale_vulkan — Vulkan/GPU accelerated<br>"
+            "libplacebo — Advanced GPU with color management"
+            "</div></html>"
         )
         algo_layout.addWidget(self.algorithm_combo)
         algo_layout.addStretch()
@@ -385,20 +388,25 @@ class EncodingPanel(QWidget):
         ])
         self.gst_algorithm_combo.setCurrentText(self.app_state.encoding.gst_scale_algorithm)
         self.gst_algorithm_combo.setToolTip(
-            "GStreamer videoscale method (native):\n"
-            "catrom: Sharp bicubic, best for upscaling (recommended)\n"
-            "lanczos: High quality, good alternative\n"
-            "bilinear: Fast, basic quality\n"
-            "nearest-neighbour: Fastest, pixelated\n"
-            "spline: Smooth scaling\n"
-            "mitchell: Softer than catrom, less ringing\n"
-            "4-tap: 4-tap bicubic\n"
-            "hermite: Hermite interpolation\n"
-            "sinc: Windowed sinc\n"
-            "bilinear2: Improved bilinear\n"
-            "--- GPU Accelerated ---\n"
-            "nvvideoconvert: NVIDIA GPU accelerated (NVMM memory)\n"
-            "vulkanconvert: Vulkan GPU accelerated"
+            "<html><div style='white-space:nowrap; padding:4px;'>"
+            "<b>GStreamer videoscale / GPU scaler</b><br>"
+            "<hr>"
+            "<b>Software (videoscale method=)</b><br>"
+            "catrom — Sharp bicubic, best for upscaling (recommended)<br>"
+            "lanczos — High quality, good alternative<br>"
+            "bilinear — Fast, basic quality<br>"
+            "nearest-neighbour — Fastest, pixelated<br>"
+            "spline — Smooth scaling<br>"
+            "mitchell — Softer than catrom, less ringing<br>"
+            "4-tap — 4-tap bicubic<br>"
+            "hermite — Hermite interpolation<br>"
+            "sinc — Windowed sinc<br>"
+            "bilinear2 — Improved bilinear<br>"
+            "<br>"
+            "<b>GPU Accelerated</b><br>"
+            "nvvideoconvert — NVIDIA GPU (NVMM memory)<br>"
+            "vulkanconvert — Vulkan GPU"
+            "</div></html>"
         )
         gst_algo_layout = QHBoxLayout()
         gst_algo_layout.addWidget(self.gst_algo_label)
