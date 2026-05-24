@@ -505,7 +505,9 @@ These GStreamer elements are already installed on the system and could be expose
 **Vulkan GPU acceleration (already installed):**
 - [ ] **`vulkancolorconvert`**: Vulkan-based color space conversion pipeline.
 - [ ] **`vulkanviewconvert`**: Vulkan-based scaling/rotation (GPU alternative to `videoscale` + `videoflip`).
-- [ ] **`vulkanoverlaycompositor`**: Vulkan-based overlay compositing for subtitle/preview overlays.
+- [ ] **`vulkanoverlaycompositor`**: Vulkan-based overlay compositing. Single-sink/single-src — renders `GstVideoOverlayComposition` metas (text rectangles, subtitle bitmaps) using Vulkan GPU. Cannot replace `gdkpixbufoverlay` directly (no CLI element generates colored rectangle metas). Integration path:
+  - **Phase 1**: When `gst_scale_algorithm == "vulkanconvert"`, append `vulkanoverlaycompositor` after existing overlays (smart-crop/delogo `gdkpixbufoverlay`, DVD `dvdspu`, SRT/ASS `textoverlay`) to keep final compositing on-GPU and avoid Vulkan→CPU→Vulkan transfer.
+  - **Phase 2**: If `clockoverlay`/`timeoverlay` text overlays are ever exposed as UI options, `vulkanoverlaycompositor` renders their metas on-GPU natively. `overlaycomposition` element exists but requires Python callback signal handler — not usable from `gst-launch-1.0` CLI alone.
 
 ### Unsupported (graceful skip + log warning, already stubbed)
 - [x] Trim/clip extraction (falls back to FFmpeg subprocess; native trim via Python bindings is a future task — see Extract clip mode above)
