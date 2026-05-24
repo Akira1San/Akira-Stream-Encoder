@@ -450,7 +450,7 @@ These features are documented in the **Filter Mapping** table above but NOT yet 
 - [x] **High-quality videoscale with configurable method**: `_build_video_filters()` now passes `method=` property from separate `gst_scale_algorithm` combo with native videoscale methods, `n-threads=4` for multi-threaded performance, and `sharpen`/`sharpness` when sharpen filter is enabled. `videoscale` supports: `nearest-neighbour`, `bilinear`, `4-tap`, `lanczos`, `bilinear2`, `sinc`, `hermite`, `spline`, `catrom`, `mitchell`. Additional options: `sharpen` (post-scale sharpening toggle), `sharpness=N` (filter sharpness control).
 
 ### Medium Priority
-- [x] **GPU filters**: `nvvideoconvert` for `scale_cuda` equivalent, `vulkanconvert` for `scale_vulkan` — added to GStreamer algorithm combo alongside software videoscale methods, with separate pipeline branches for NVMM and Vulkan paths
+- [ ] **GPU scaling elements**: `nvvideoconvert` and `vulkanconvert` do NOT exist as GStreamer elements in the current 1.26.2 installation. The `nvcodec` plugin only provides NVENC/NVDEC + CUDA upload/download — no GPU scaler element. The Vulkan plugin has no scaler either. Actual hardware GPU scaling in GStreamer requires installing platform-specific elements (e.g., `nvvidconv` from Jetson, VA-API `gstvaapi` scalers). For now, use `videoscale n-threads=4` with quality methods.
 
 ### Low Priority
 - [x] **libplacebo tonemap**: `glcolorbalance` + `gltransformation` pipeline
@@ -504,9 +504,9 @@ These GStreamer elements are already installed on the system and could be expose
 
 **Vulkan GPU acceleration (already installed):**
 - [ ] **`vulkancolorconvert`**: Vulkan-based color space conversion pipeline.
-- [ ] **`vulkanviewconvert`**: Vulkan-based scaling/rotation (GPU alternative to `videoscale` + `videoflip`).
+- [ ] **`vulkanviewconvert`**: Vulkan-based multiview/stereoscopic layout conversion (side-by-side, top-bottom, anaglyph downmix). NOT a scaler — no width/height or method properties. Only works with `video/x-raw(memory:VulkanImage)` BGRA/RGBA. Requires `vulkanupload` upstream and `vulkandownload` downstream for CPU pipelines. Could be used for 3D video support if that feature is ever added.
 - [ ] **`vulkanoverlaycompositor`**: Vulkan-based overlay compositing. Single-sink/single-src — renders `GstVideoOverlayComposition` metas (text rectangles, subtitle bitmaps) using Vulkan GPU. Cannot replace `gdkpixbufoverlay` directly (no CLI element generates colored rectangle metas). Integration path:
-  - **Phase 1**: When `gst_scale_algorithm == "vulkanconvert"`, append `vulkanoverlaycompositor` after existing overlays (smart-crop/delogo `gdkpixbufoverlay`, DVD `dvdspu`, SRT/ASS `textoverlay`) to keep final compositing on-GPU and avoid Vulkan→CPU→Vulkan transfer.
+  - **Phase 1**: Append `vulkanoverlaycompositor` after existing overlays (smart-crop/delogo `gdkpixbufoverlay`, DVD `dvdspu`, SRT/ASS `textoverlay`) when using a Vulkan pipeline (requires a full Vulkan memory path via `vulkanupload` upstream), to keep final compositing on-GPU and avoid Vulkan→CPU→Vulkan transfer.
   - **Phase 2**: If `clockoverlay`/`timeoverlay` text overlays are ever exposed as UI options, `vulkanoverlaycompositor` renders their metas on-GPU natively. `overlaycomposition` element exists but requires Python callback signal handler — not usable from `gst-launch-1.0` CLI alone.
 
 ### Unsupported (graceful skip + log warning, already stubbed)

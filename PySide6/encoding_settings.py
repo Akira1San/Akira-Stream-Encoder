@@ -383,15 +383,13 @@ class EncodingPanel(QWidget):
         self.gst_algorithm_combo = QComboBox()
         self.gst_algorithm_combo.addItems([
             "nearest-neighbour", "bilinear", "4-tap", "lanczos",
-            "bilinear2", "sinc", "hermite", "spline", "catrom", "mitchell",
-            "nvvideoconvert", "vulkanconvert"
+            "bilinear2", "sinc", "hermite", "spline", "catrom", "mitchell"
         ])
         self.gst_algorithm_combo.setCurrentText(self.app_state.encoding.gst_scale_algorithm)
         self.gst_algorithm_combo.setToolTip(
             "<html><div style='white-space:nowrap; padding:4px;'>"
-            "<b>GStreamer videoscale / GPU scaler</b><br>"
+            "<b>GStreamer videoscale method</b><br>"
             "<hr>"
-            "<b>Software (videoscale method=)</b><br>"
             "catrom — Sharp bicubic, best for upscaling (recommended)<br>"
             "lanczos — High quality, good alternative<br>"
             "bilinear — Fast, basic quality<br>"
@@ -401,11 +399,7 @@ class EncodingPanel(QWidget):
             "4-tap — 4-tap bicubic<br>"
             "hermite — Hermite interpolation<br>"
             "sinc — Windowed sinc<br>"
-            "bilinear2 — Improved bilinear<br>"
-            "<br>"
-            "<b>GPU Accelerated</b><br>"
-            "nvvideoconvert — NVIDIA GPU (NVMM memory)<br>"
-            "vulkanconvert — Vulkan GPU"
+            "bilinear2 — Improved bilinear"
             "</div></html>"
         )
         gst_algo_layout = QHBoxLayout()
