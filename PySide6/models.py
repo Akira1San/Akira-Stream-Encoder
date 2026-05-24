@@ -125,6 +125,8 @@ class FilterSettings:
     # Quick Aspect Ratio Crop (auto-detect black bars, crop to target AR)
     ar_crop_enabled: bool = False
     ar_crop_target: str = "16:9"  # 16:9 / 4:3 / 1:1 / 2.35:1
+    # Video Orientation / Flip (phone video correction)
+    video_rotate: str = "none"  # none / 90r / 180 / 90l / horiz / vert
     # Audio filters
     audio_denoise: bool = False
     volume_enabled: bool = False

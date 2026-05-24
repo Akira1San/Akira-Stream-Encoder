@@ -236,6 +236,7 @@ class FFmpegBackend(MediaBackend):
             'smart_crop': True,
             'ar_crop': True,
             'ar_convert': True,
+            'video_rotate': True,
             'delogo': True,
             # Color correction (EQ)
             'eq_brightness': True,
@@ -433,6 +434,19 @@ class FFmpegBackend(MediaBackend):
             target_ar = ar_targets.get(getattr(filters, 'ar_crop_target', '16:9'), 16.0/9.0)
             video_filters.append(
                 f"crop=ih*{target_ar:.4f}:ih:(ih*{target_ar:.4f}-iw)/2:0")
+
+        video_dir = getattr(filters, 'video_rotate', 'none')
+        if video_dir and video_dir != 'none':
+            if video_dir == '90r':
+                video_filters.append("transpose=1")
+            elif video_dir == '90l':
+                video_filters.append("transpose=2")
+            elif video_dir == '180':
+                video_filters.extend(["transpose=2,transpose=2"])
+            elif video_dir == 'horiz':
+                video_filters.append("hflip")
+            elif video_dir == 'vert':
+                video_filters.append("vflip")
 
         if getattr(filters, 'ar_convert_enabled', False):
             ar_targets = {"16:9": 16.0/9.0, "4:3": 4.0/3.0, "1:1": 1.0, "2.35:1": 2.35}

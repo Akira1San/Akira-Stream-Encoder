@@ -451,6 +451,14 @@ class GStreamerBackend(MediaBackend):
             else:
                 self._log_unsupported("aspect ratio crop (aspectratiocrop)")
 
+        video_dir = getattr(filters, 'video_rotate', 'none')
+        if video_dir and video_dir != 'none':
+            if self._element_available('videoflip'):
+                elements.append("videoflip")
+                elements.append(f"video-direction={video_dir}")
+            else:
+                self._log_unsupported("video rotate/flip (videoflip)")
+
         if getattr(filters, 'delogo_enabled', False):
             if self._element_available('delogo'):
                 elements.extend(["delogo",
@@ -1050,6 +1058,7 @@ class GStreamerBackend(MediaBackend):
             'ar_crop': self._element_available('aspectratiocrop'),
             'ar_convert': False,    # aspect ratio conversion not implemented
             'delogo': self._element_available('delogo'),
+            'video_rotate': self._element_available('videoflip'),
             'tonemapping': self._element_available('gltransformation') and self._element_available('glcolorbalance'),
             # Color correction (EQ)
             'eq_brightness': self._element_available('videobalance'),

@@ -285,6 +285,37 @@ class FiltersPanel(QWidget):
 
         video_layout.addWidget(ar_crop_group)
 
+        # === Video Orientation / Flip ===
+        orient_group = QGroupBox("Video Orientation / Flip")
+        orient_layout = QVBoxLayout(orient_group)
+
+        self.orient_combo = QComboBox()
+        self.orient_combo.addItems([
+            "None",
+            "Rotate 90° CW",
+            "Rotate 180°",
+            "Rotate 90° CCW",
+            "Horizontal Flip",
+            "Vertical Flip",
+        ])
+        orient_map = {"none": "None", "90r": "Rotate 90° CW", "180": "Rotate 180°",
+                      "90l": "Rotate 90° CCW", "horiz": "Horizontal Flip", "vert": "Vertical Flip"}
+        self.orient_combo.setCurrentText(orient_map.get(self.app_state.filters.video_rotate, "None"))
+        self.orient_combo.setToolTip(
+            "Rotate or flip the video.\n"
+            "Useful for correcting phone videos recorded in wrong orientation.\n"
+            "GStreamer: uses videoflip element\n"
+            "FFmpeg: uses transpose/hflip/vflip filters"
+        )
+        orient_layout.addWidget(self.orient_combo)
+
+        orient_note = QLabel("Correct phone videos recorded in portrait or upside-down")
+        orient_note.setStyleSheet("color: gray; font-size: 10px;")
+        orient_note.setWordWrap(True)
+        orient_layout.addWidget(orient_note)
+
+        video_layout.addWidget(orient_group)
+
         # === Delogo (Logo Removal) ===
         delogo_group = QGroupBox("Logo / Watermark Removal")
         delogo_layout = QVBoxLayout(delogo_group)
@@ -550,6 +581,10 @@ class FiltersPanel(QWidget):
         ac_en = support.get('ar_crop', True) and self.ar_crop_check.isChecked()
         self.ar_crop_target_combo.setEnabled(ac_en)
 
+        # Orientation / Flip
+        self._set_enabled_with_tip(self.orient_combo, support.get('video_rotate', True),
+                                   "Video Orientation (videoflip)" if is_gst else "")
+
         # Delogo
         self._set_enabled_with_tip(self.delogo_check, support.get('delogo', True),
                                    "Delogo (logo removal)" if is_gst else "")
@@ -614,6 +649,8 @@ class FiltersPanel(QWidget):
         # Quick AR Crop signals
         self.ar_crop_check.toggled.connect(self.on_ar_crop_changed)
         self.ar_crop_target_combo.currentTextChanged.connect(self.on_ar_crop_target_changed)
+        # Orientation / Flip signals
+        self.orient_combo.currentTextChanged.connect(self.on_orient_changed)
         # Delogo signals
         self.delogo_check.toggled.connect(self.on_delogo_changed)
         self.delogo_x_spin.valueChanged.connect(self.on_delogo_x_changed)
@@ -779,6 +816,13 @@ class FiltersPanel(QWidget):
         self.app_state.filters.ar_crop_target = ar
         self.settings_changed.emit()
 
+    # Video Orientation handlers
+    def on_orient_changed(self, text):
+        orient_map = {"None": "none", "Rotate 90° CW": "90r", "Rotate 180°": "180",
+                      "Rotate 90° CCW": "90l", "Horizontal Flip": "horiz", "Vertical Flip": "vert"}
+        self.app_state.filters.video_rotate = orient_map.get(text, "none")
+        self.settings_changed.emit()
+
     def on_delogo_changed(self, checked):
         """Handle delogo checkbox change"""
         self.app_state.filters.delogo_enabled = checked
@@ -889,6 +933,9 @@ class FiltersPanel(QWidget):
         self.app_state.filters.ar_crop_enabled = False
         self.app_state.filters.ar_crop_target = "16:9"
 
+        # Video Orientation
+        self.app_state.filters.video_rotate = "none"
+
         # Delogo
         self.app_state.filters.delogo_enabled = False
         self.app_state.filters.delogo_x = 0
@@ -946,6 +993,8 @@ class FiltersPanel(QWidget):
         self.ar_crop_check.setChecked(False)
         self.ar_crop_target_combo.setCurrentText("16:9 (Widescreen)")
         self.ar_crop_target_combo.setEnabled(False)
+
+        self.orient_combo.setCurrentText("None")
 
         self.delogo_check.setChecked(False)
         self.delogo_x_spin.setValue(0)
