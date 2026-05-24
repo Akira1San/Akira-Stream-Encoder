@@ -80,6 +80,7 @@ class VideoWorkspace(QWidget):
         
         # === LEFT PANE: Settings Panels ===
         left_widget = QWidget()
+        left_widget.setMinimumWidth(380)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         
