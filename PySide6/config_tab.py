@@ -19,6 +19,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
 from models import AppState
+from video_info_panel import VideoInfoPanel
 
 
 class DragDropListWidget(QListWidget):
@@ -521,10 +522,9 @@ class ConfigTab(QWidget):
         self.files_list.itemSelectionChanged.connect(self.on_selection_changed)
         files_layout.addWidget(self.files_list)
         
-        # Info label for showing file details
-        self.info_label = QLabel("Select a file and click 'Show Details'...")
-        self.info_label.setStyleSheet("color: blue; font-size: 9pt;")
-        files_layout.addWidget(self.info_label)
+        # Video information panel
+        self.video_info_panel = VideoInfoPanel(self.app_state)
+        files_layout.addWidget(self.video_info_panel)
         
         # File count label
         self.count_label = QLabel("0 files selected")
@@ -882,7 +882,7 @@ class ConfigTab(QWidget):
         self.app_state.clear_input_files()
         self.files_list.clear()
         self.update_count_label()
-        self.info_label.setText("Select a file and click 'Show Details'...")
+        self.video_info_panel.clear_info()
         
     def update_count_label(self):
         """Update the file count label"""
@@ -896,6 +896,9 @@ class ConfigTab(QWidget):
             file_path = selected[0].data(Qt.UserRole)
             self.app_state.current_video_path = file_path
             self.file_selected.emit(file_path)
+            self.video_info_panel.set_info(file_path)
+        else:
+            self.video_info_panel.clear_info()
             
     def show_file_details(self):
         """Show details for the selected file"""
@@ -910,28 +913,7 @@ class ConfigTab(QWidget):
     def detect_and_show_info(self, filepath):
         """Detect and display file information via backend"""
         self.app_state.log(f"Getting info for {os.path.basename(filepath)}...", "INFO")
-        
-        try:
-            info = self.app_state.backend.get_file_info(filepath)
-            info_text = []
-            
-            if info.get('resolution'):
-                info_text.append(f"Resolution: {info['resolution']}")
-            if info.get('codec'):
-                info_text.append(f"Codec: {info['codec']}")
-            if info.get('bitrate'):
-                info_text.append(f"Bitrate: {info['bitrate']} kbps")
-            if info.get('duration'):
-                info_text.append(f"Duration: {info['duration']}")
-            
-            display_msg = " | ".join(info_text) if info_text else "Could not parse video info."
-            self.info_label.setText(display_msg)
-            self.app_state.log(f"File Info: {display_msg}", "INFO")
-            
-        except Exception as e:
-            err_msg = f"Failed to get info: {e}"
-            self.info_label.setText(err_msg)
-            self.app_state.log(err_msg, "ERROR")
+        self.video_info_panel.set_info(filepath)
             
     def validate_video_file(self):
         """Validate selected video file for health and DTS issues"""
