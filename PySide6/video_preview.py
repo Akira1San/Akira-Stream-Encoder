@@ -401,12 +401,12 @@ class FrameLoader(QObject):
         self._cancelled = False
         self._is_dvd_source = False
         
-    def load_frame(self, video_path: str, timestamp: float, backend, is_dvd_source: bool = False, first_vob_path: str = None, subtitle_filter: str = ""):
+    def load_frame(self, video_path: str, timestamp: float, backend, is_dvd_source: bool = False, first_vob_path: str = None, subtitle_filter: str = "", max_size: tuple = None):
         """Load a frame from video at specified timestamp using backend"""
         self._cancelled = False
         self._is_dvd_source = is_dvd_source
 
-        data = backend.capture_frame(video_path, timestamp, subtitle_filter, is_dvd_source, first_vob_path)
+        data = backend.capture_frame(video_path, timestamp, subtitle_filter, is_dvd_source, first_vob_path, max_size)
 
         if self._cancelled:
             return
@@ -1026,7 +1026,13 @@ class VideoPreview(QWidget):
         """
         if frame.isNull() or self.is_playing:
             return
-        
+
+        # Downscale to preview size for performance
+        frame = frame.scaled(
+            self.preview_width, self.preview_height,
+            Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+
         # Apply filters to the captured frame
         processed = self.apply_filters(frame)
         
@@ -1364,7 +1370,8 @@ class VideoPreview(QWidget):
         self._loader_thread.started.connect(
             lambda: self._frame_loader.load_frame(
                 self.current_video_path, timestamp, self.app_state.backend,
-                is_dvd_source, first_vob_path, subtitle_filter
+                is_dvd_source, first_vob_path, subtitle_filter,
+                (self.preview_width, self.preview_height)
             )
         )
         
@@ -1385,6 +1392,11 @@ class VideoPreview(QWidget):
         
     def on_frame_loaded(self, image: QImage):
         """Handle loaded frame"""
+        # Downscale to preview size for performance
+        image = image.scaled(
+            self.preview_width, self.preview_height,
+            Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
         self.current_frame = image
         
         # Display original

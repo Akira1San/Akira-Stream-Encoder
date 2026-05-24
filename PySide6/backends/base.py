@@ -93,7 +93,8 @@ class MediaBackend(ABC):
     @abstractmethod
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
-                      first_vob_path: str = None) -> Optional[bytes]:
+                      first_vob_path: str = None,
+                      max_size: tuple = None) -> Optional[bytes]:
         ...
 
     @abstractmethod

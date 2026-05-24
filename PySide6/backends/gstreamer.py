@@ -848,7 +848,8 @@ class GStreamerBackend(MediaBackend):
 
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
-                      first_vob_path: str = None) -> Optional[bytes]:
+                      first_vob_path: str = None,
+                      max_size: tuple = None) -> Optional[bytes]:
         ffmpeg = self.app_state.ffmpeg_path
         if not ffmpeg or ffmpeg == "ffmpeg" or not os.path.exists(ffmpeg):
             self._log_unsupported("frame capture (no FFmpeg path)")
@@ -864,8 +865,15 @@ class GStreamerBackend(MediaBackend):
                    "-f", "concat", "-safe", "0", "-i", video_path]
         else:
             cmd = [ffmpeg, "-ss", str(timestamp), "-i", video_path]
-        if subtitle_filter:
+        scale_filter = ""
+        if max_size:
+            scale_filter = f"scale='min({max_size[0]},iw)':min'({max_size[1]},ih)':force_original_aspect_ratio=decrease"
+        if subtitle_filter and scale_filter:
+            cmd.extend(["-vf", f"{subtitle_filter},{scale_filter}"])
+        elif subtitle_filter:
             cmd.extend(["-vf", subtitle_filter])
+        elif scale_filter:
+            cmd.extend(["-vf", scale_filter])
         cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
         timeout = 30 if is_dvd_source else 10
         try:
