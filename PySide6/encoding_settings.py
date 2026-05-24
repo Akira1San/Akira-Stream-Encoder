@@ -275,6 +275,28 @@ class EncodingPanel(QWidget):
             self.bitrate_edit.setEnabled(False)
             self.bitrate_edit.setStyleSheet("color: gray;")
         
+        # === Target File Size ===
+        target_size_layout = QHBoxLayout()
+        target_size_label = QLabel("Target File Size (MB):")
+        target_size_label.setToolTip("Enter desired output file size in MB.\nClick 'Calculate' to automatically set the bitrate to match this size.")
+        target_size_layout.addWidget(target_size_label)
+        
+        self.target_size_spin = QSpinBox()
+        self.target_size_spin.setRange(10, 50000)
+        self.target_size_spin.setValue(700)
+        self.target_size_spin.setSingleStep(50)
+        self.target_size_spin.setSuffix(" MB")
+        self.target_size_spin.setMaximumWidth(100)
+        self.target_size_spin.setToolTip("Desired output file size in megabytes")
+        target_size_layout.addWidget(self.target_size_spin)
+        
+        self.calc_size_btn = QPushButton("Calculate Bitrate")
+        self.calc_size_btn.setToolTip("Calculate target bitrate from file size and video duration.\nRequires an input video to be loaded.")
+        target_size_layout.addWidget(self.calc_size_btn)
+        
+        target_size_layout.addStretch()
+        layout.addLayout(target_size_layout)
+        
         # Max Bitrate
         max_br_layout = QHBoxLayout()
         max_br_label = QLabel("Max Bitrate (kbps):")
@@ -652,6 +674,7 @@ class EncodingPanel(QWidget):
         self.bitrate_mode_combo.currentTextChanged.connect(self.on_bitrate_mode_changed)
         self.bitrate_edit.textChanged.connect(self.on_target_bitrate_changed)
         self.orig_br_check.toggled.connect(self.on_orig_br_changed)
+        self.calc_size_btn.clicked.connect(self.on_calculate_target_size)
         self.max_br_spin.valueChanged.connect(self.on_max_br_changed)
         self.container_combo.currentTextChanged.connect(self.on_container_changed)
         self.scale_mode_combo.currentTextChanged.connect(self.on_scale_mode_changed)
@@ -990,6 +1013,42 @@ class EncodingPanel(QWidget):
             self.bitrate_edit.setStyleSheet("color: gray;")
         self.settings_changed.emit()
         
+    def on_calculate_target_size(self):
+        """Calculate target bitrate from desired file size and video duration"""
+        target_mb = self.target_size_spin.value()
+        if target_mb <= 0:
+            return
+
+        input_files = self.app_state.input_files
+        if not input_files:
+            self.app_state.log("No input file loaded. Load a video first.", "WARN")
+            return
+
+        input_path = input_files[0]
+        duration = self.app_state.backend.get_duration(input_path)
+        if duration <= 0:
+            self.app_state.log("Could not determine video duration.", "WARN")
+            return
+
+        total_bitrate = target_mb * 8192 / duration
+        audio_bitrate = 128
+        video_bitrate = int(total_bitrate) - audio_bitrate
+        if video_bitrate < 50:
+            self.app_state.log(f"Calculated bitrate too low ({video_bitrate} kbps). Increase target size.", "WARN")
+            return
+
+        self.app_state.encoding.target_bitrate = str(video_bitrate)
+        self.app_state.encoding.use_original_bitrate = False
+        self.app_state.encoding.cq = 23
+        self.cq_slider.setValue(23)
+        self.cq_label.setText("23")
+        self.orig_br_check.setChecked(False)
+        self.bitrate_edit.setText(str(video_bitrate))
+        self.bitrate_edit.setEnabled(True)
+        self.bitrate_edit.setStyleSheet("")
+        self.app_state.log(f"Set bitrate to {video_bitrate} kbps for ~{target_mb} MB target (duration: {duration:.0f}s)", "INFO")
+        self.settings_changed.emit()
+
     def on_max_br_changed(self, value):
         """Handle max bitrate change"""
         self.app_state.encoding.max_bitrate = value
