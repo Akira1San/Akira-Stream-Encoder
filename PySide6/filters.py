@@ -249,6 +249,42 @@ class FiltersPanel(QWidget):
 
         video_layout.addWidget(ar_group)
 
+        # === Quick Aspect Ratio Crop ===
+        ar_crop_group = QGroupBox("Quick Aspect Ratio Crop")
+        ar_crop_layout = QVBoxLayout(ar_crop_group)
+
+        self.ar_crop_check = QCheckBox("Enable Auto Aspect Ratio Crop")
+        self.ar_crop_check.setChecked(self.app_state.filters.ar_crop_enabled)
+        self.ar_crop_check.setToolTip(
+            "Automatically detect and crop black bars to match a target aspect ratio.\n"
+            "Unlike Smart Crop, this auto-detects the crop region.\n"
+            "GStreamer: uses aspectratiocrop element\n"
+            "FFmpeg: uses crop filter"
+        )
+        ar_crop_layout.addWidget(self.ar_crop_check)
+
+        target_layout = QHBoxLayout()
+        target_layout.addWidget(QLabel("Target Aspect Ratio:"))
+        self.ar_crop_target_combo = QComboBox()
+        self.ar_crop_target_combo.addItems(
+            ["16:9 (Widescreen)", "4:3 (Standard)", "1:1 (Square)", "2.35:1 (Cinemascope)"]
+        )
+        ar_target = self.app_state.filters.ar_crop_target
+        label_map = {"16:9": "16:9 (Widescreen)", "4:3": "4:3 (Standard)",
+                     "1:1": "1:1 (Square)", "2.35:1": "2.35:1 (Cinemascope)"}
+        self.ar_crop_target_combo.setCurrentText(label_map.get(ar_target, "16:9 (Widescreen)"))
+        self.ar_crop_target_combo.setEnabled(self.app_state.filters.ar_crop_enabled)
+        self.ar_crop_target_combo.setToolTip(
+            "Target aspect ratio to crop to.\n"
+            "Black bars will be auto-detected and removed.\n"
+            "16:9: Widescreen / 4:3: Standard / 1:1: Square / 2.35:1: Cinemascope"
+        )
+        target_layout.addWidget(self.ar_crop_target_combo)
+        target_layout.addStretch()
+        ar_crop_layout.addLayout(target_layout)
+
+        video_layout.addWidget(ar_crop_group)
+
         # === Delogo (Logo Removal) ===
         delogo_group = QGroupBox("Logo / Watermark Removal")
         delogo_layout = QVBoxLayout(delogo_group)
@@ -508,6 +544,12 @@ class FiltersPanel(QWidget):
         self.ar_target_combo.setEnabled(ar_en)
         self.ar_method_combo.setEnabled(ar_en)
 
+        # Quick AR Crop
+        self._set_enabled_with_tip(self.ar_crop_check, support.get('ar_crop', True),
+                                   "Quick Aspect Ratio Crop (aspectratiocrop)" if is_gst else "")
+        ac_en = support.get('ar_crop', True) and self.ar_crop_check.isChecked()
+        self.ar_crop_target_combo.setEnabled(ac_en)
+
         # Delogo
         self._set_enabled_with_tip(self.delogo_check, support.get('delogo', True),
                                    "Delogo (logo removal)" if is_gst else "")
@@ -569,6 +611,9 @@ class FiltersPanel(QWidget):
         self.ar_check.toggled.connect(self.on_ar_changed)
         self.ar_target_combo.currentTextChanged.connect(self.on_ar_target_changed)
         self.ar_method_combo.currentTextChanged.connect(self.on_ar_method_changed)
+        # Quick AR Crop signals
+        self.ar_crop_check.toggled.connect(self.on_ar_crop_changed)
+        self.ar_crop_target_combo.currentTextChanged.connect(self.on_ar_crop_target_changed)
         # Delogo signals
         self.delogo_check.toggled.connect(self.on_delogo_changed)
         self.delogo_x_spin.valueChanged.connect(self.on_delogo_x_changed)
@@ -721,6 +766,19 @@ class FiltersPanel(QWidget):
         self.app_state.filters.ar_method = method
         self.settings_changed.emit()
 
+    # Quick Aspect Ratio Crop handlers
+    def on_ar_crop_changed(self, checked):
+        """Handle AR crop checkbox change"""
+        self.app_state.filters.ar_crop_enabled = checked
+        self.ar_crop_target_combo.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_ar_crop_target_changed(self, text):
+        """Handle AR crop target change"""
+        ar = text.split()[0] if text else "16:9"
+        self.app_state.filters.ar_crop_target = ar
+        self.settings_changed.emit()
+
     def on_delogo_changed(self, checked):
         """Handle delogo checkbox change"""
         self.app_state.filters.delogo_enabled = checked
@@ -826,7 +884,11 @@ class FiltersPanel(QWidget):
         self.app_state.filters.ar_convert_enabled = False
         self.app_state.filters.ar_target = "16:9"
         self.app_state.filters.ar_method = "crop"
-        
+
+        # Quick AR Crop
+        self.app_state.filters.ar_crop_enabled = False
+        self.app_state.filters.ar_crop_target = "16:9"
+
         # Delogo
         self.app_state.filters.delogo_enabled = False
         self.app_state.filters.delogo_x = 0
@@ -880,7 +942,11 @@ class FiltersPanel(QWidget):
         self.ar_method_combo.setCurrentText("Crop (cut edges)")
         self.ar_target_combo.setEnabled(False)
         self.ar_method_combo.setEnabled(False)
-        
+
+        self.ar_crop_check.setChecked(False)
+        self.ar_crop_target_combo.setCurrentText("16:9 (Widescreen)")
+        self.ar_crop_target_combo.setEnabled(False)
+
         self.delogo_check.setChecked(False)
         self.delogo_x_spin.setValue(0)
         self.delogo_y_spin.setValue(0)

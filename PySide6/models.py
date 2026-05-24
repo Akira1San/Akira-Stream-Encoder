@@ -122,6 +122,9 @@ class FilterSettings:
     ar_convert_enabled: bool = False
     ar_target: str = "16:9"  # 16:9 / 4:3 / 1:1 / 2.35:1
     ar_method: str = "crop"  # crop / pad / stretch
+    # Quick Aspect Ratio Crop (auto-detect black bars, crop to target AR)
+    ar_crop_enabled: bool = False
+    ar_crop_target: str = "16:9"  # 16:9 / 4:3 / 1:1 / 2.35:1
     # Audio filters
     audio_denoise: bool = False
     volume_enabled: bool = False

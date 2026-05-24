@@ -234,6 +234,7 @@ class FFmpegBackend(MediaBackend):
             'cas': True,
             'deblock': True,
             'smart_crop': True,
+            'ar_crop': True,
             'ar_convert': True,
             'delogo': True,
             # Color correction (EQ)
@@ -426,6 +427,12 @@ class FFmpegBackend(MediaBackend):
                 video_filters.append(f"crop={w}:{h}:(iw-{w})/2:(ih-{h})/2")
                 if getattr(filters, 'smart_crop_show_preview', False):
                     video_filters.append(f"drawbox=x=(iw-{w})/2:y=(ih-{h})/2:w={w}:h={h}:color=green:thickness=3")
+
+        if getattr(filters, 'ar_crop_enabled', False):
+            ar_targets = {"16:9": 16.0/9.0, "4:3": 4.0/3.0, "1:1": 1.0, "2.35:1": 2.35}
+            target_ar = ar_targets.get(getattr(filters, 'ar_crop_target', '16:9'), 16.0/9.0)
+            video_filters.append(
+                f"crop=ih*{target_ar:.4f}:ih:(ih*{target_ar:.4f}-iw)/2:0")
 
         if getattr(filters, 'ar_convert_enabled', False):
             ar_targets = {"16:9": 16.0/9.0, "4:3": 4.0/3.0, "1:1": 1.0, "2.35:1": 2.35}

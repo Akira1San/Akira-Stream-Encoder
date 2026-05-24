@@ -443,6 +443,14 @@ class GStreamerBackend(MediaBackend):
             elements.append("right=0")
             elements.append("bottom=0")
 
+        if getattr(filters, 'ar_crop_enabled', False):
+            if self._element_available('aspectratiocrop'):
+                elements.append("aspectratiocrop")
+                ar_target = getattr(filters, 'ar_crop_target', '16:9')
+                elements.append(f"aspect-ratio={ar_target.replace(':', '/')}")
+            else:
+                self._log_unsupported("aspect ratio crop (aspectratiocrop)")
+
         if getattr(filters, 'delogo_enabled', False):
             if self._element_available('delogo'):
                 elements.extend(["delogo",
@@ -1039,6 +1047,7 @@ class GStreamerBackend(MediaBackend):
             'cas': False,           # not available in GStreamer
             'deblock': False,       # not available in GStreamer
             'smart_crop': self._element_available('videocrop'),
+            'ar_crop': self._element_available('aspectratiocrop'),
             'ar_convert': False,    # aspect ratio conversion not implemented
             'delogo': self._element_available('delogo'),
             'tonemapping': self._element_available('gltransformation') and self._element_available('glcolorbalance'),
