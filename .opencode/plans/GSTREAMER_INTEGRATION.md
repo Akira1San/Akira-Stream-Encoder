@@ -503,6 +503,7 @@ These GStreamer elements are already installed on the system and could be expose
 - [ ] **`audiofirfilter`**: Custom FIR filter for advanced EQ/audio processing. Advanced audio tab (if custom EQ curves are desired).
 
 **Vulkan GPU acceleration (already installed):**
+- [ ] **`vulkanh264dec` / `vulkanh265dec`**: Vulkan hardware-accelerated video decoders. `decodebin` may auto-select them but we never force them explicitly. Integration: replace `decodebin` with explicit `vulkanupload ! vulkanh264dec/vulkanh265dec ! vulkandownload` when a Vulkan pipeline is active and the codec matches. Keeps the entire decode→process→encode path on-GPU. Requires checking `caps` from demuxer to determine codec before choosing decoder.
 - [ ] **`vulkancolorconvert`**: Vulkan-based color space conversion pipeline.
 - [ ] **`vulkanviewconvert`**: Vulkan-based multiview/stereoscopic layout conversion (side-by-side, top-bottom, anaglyph downmix). NOT a scaler — no width/height or method properties. Only works with `video/x-raw(memory:VulkanImage)` BGRA/RGBA. Requires `vulkanupload` upstream and `vulkandownload` downstream for CPU pipelines. Could be used for 3D video support if that feature is ever added.
 - [ ] **`vulkanoverlaycompositor`**: Vulkan-based overlay compositing. Single-sink/single-src — renders `GstVideoOverlayComposition` metas (text rectangles, subtitle bitmaps) using Vulkan GPU. Cannot replace `gdkpixbufoverlay` directly (no CLI element generates colored rectangle metas). Integration path:
