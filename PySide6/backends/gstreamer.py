@@ -577,14 +577,14 @@ class GStreamerBackend(MediaBackend):
     def find_subtitle_file(self, video_path: str) -> Optional[str]:
         if not video_path:
             return None
-        selected = self.app_state.subtitles.selected_subtitle
-        if selected and os.path.exists(selected):
-            return selected
         base = os.path.splitext(video_path)[0]
         for ext in [".srt", ".ass", ".ssa", ".sub"]:
             sub_path = base + ext
             if os.path.exists(sub_path):
                 return sub_path
+        selected = self.app_state.subtitles.selected_subtitle
+        if selected and os.path.exists(selected):
+            return selected
         return None
 
     def _need_text_subtitles(self, input_path: str) -> bool:

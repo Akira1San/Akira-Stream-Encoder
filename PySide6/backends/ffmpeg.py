@@ -535,14 +535,18 @@ class FFmpegBackend(MediaBackend):
     def find_subtitle_file(self, video_path: str) -> Optional[str]:
         if not video_path:
             return None
-        selected = self.app_state.subtitles.selected_subtitle
-        if selected and os.path.exists(selected):
-            return selected
+        # Prefer auto-detect based on current video's basename.
+        # This ensures each video in a batch gets its own matching subtitle
+        # instead of a stale selected_subtitle from a previous file.
         base = os.path.splitext(video_path)[0]
         for ext in [".srt", ".ass", ".ssa", ".sub"]:
             sub_path = base + ext
             if os.path.exists(sub_path):
                 return sub_path
+        # Fall back to user-selected subtitle (UI combo box)
+        selected = self.app_state.subtitles.selected_subtitle
+        if selected and os.path.exists(selected):
+            return selected
         return None
 
     def hex_to_ass(self, hex_color: str, opacity: float = 1.0) -> str:
@@ -722,6 +726,10 @@ class FFmpegBackend(MediaBackend):
                     audio_stream_idx = 0
                 cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
 
+            # Exclude embedded subtitle streams when burning external subs
+            if burn_subs and sub_path:
+                cmd.extend(["-map", "-0:s"])
+
             _, audio_filters_str = self.build_filter_string(self.app_state)
 
             if getattr(self, '_external_audio', False):
@@ -872,6 +880,9 @@ class FFmpegBackend(MediaBackend):
                 filter_parts.append(video_filters_str)
             filter_parts.append(subs_filter)
             cmd.extend(["-vf", ",".join(filter_parts)])
+            # Exclude embedded subtitle streams from output to prevent
+            # double subtitles (burned external + embedded) in the output file
+            cmd.extend(["-map", "-0:s"])
         elif video_filters_str:
             cmd.extend(["-vf", video_filters_str])
 

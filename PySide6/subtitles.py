@@ -395,6 +395,10 @@ class SubtitlesPanel(QWidget):
             else:
                 # Just select first file found
                 self.subtitle_combo.setCurrentIndex(1)
+            
+            # Update selected_subtitle in AppState (signals are blocked,
+            # so on_subtitle_changed won't fire)
+            self.app_state.subtitles.selected_subtitle = self.subtitle_combo.currentData() or ""
         
         self.subtitle_combo.blockSignals(False)
     
