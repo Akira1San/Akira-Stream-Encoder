@@ -972,9 +972,11 @@ class ConfigTab(QWidget):
             
             for i, stream in enumerate(subtitle_streams):
                 lang = stream.get('tags', {}).get('language', f'track{i}')
-                output_file = os.path.join(output_dir, f"sub_{i}_{lang}.srt")
+                codec = stream.get('codec_name', '')
+                ext = ".sup" if codec in ("hdmv_pgs_subtitle", "pgssub") else ".srt"
+                output_file = os.path.join(output_dir, f"sub_{i}_{lang}{ext}")
                 
-                result = self.app_state.backend.extract_subtitle(video_path, i, output_file)
+                result = self.app_state.backend.extract_subtitle(video_path, i, output_file, codec)
                 if result and os.path.exists(result):
                     extracted_files.append(result)
                     self.app_state.log(f"Extracted: {os.path.basename(result)}", "SUCCESS")

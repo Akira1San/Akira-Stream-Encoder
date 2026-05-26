@@ -275,12 +275,21 @@ class FFmpegBackend(MediaBackend):
             pass
         return info
 
-    def extract_subtitle(self, input_path: str, stream_idx: int, output_path: str) -> Optional[str]:
+    def extract_subtitle(self, input_path: str, stream_idx: int, output_path: str, codec_name: str = None) -> Optional[str]:
         cmd = [
-            self.app_state.ffmpeg_path, "-y", "-i", input_path,
-            "-map", f"0:s:{stream_idx}",
-            "-c:s", "srt", output_path
+            self.app_state.ffmpeg_path, "-y",
+            "-analyzeduration", "100M", "-probesize", "100M",
+            "-i", input_path,
+            "-map", f"0:s:{stream_idx}"
         ]
+        if codec_name in ("hdmv_pgs_subtitle", "pgssub"):
+            cmd.extend(["-c:s", "copy"])
+            out, ext = os.path.splitext(output_path)
+            if ext.lower() != ".sup":
+                output_path = out + ".sup"
+        else:
+            cmd.extend(["-c:s", "srt"])
+        cmd.append(output_path)
         try:
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
             if result.returncode == 0 and os.path.exists(output_path):

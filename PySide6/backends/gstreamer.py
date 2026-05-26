@@ -309,7 +309,7 @@ class GStreamerBackend(MediaBackend):
                 break
         return info
 
-    def extract_subtitle(self, input_path: str, stream_idx: int, output_path: str) -> Optional[str]:
+    def extract_subtitle(self, input_path: str, stream_idx: int, output_path: str, codec_name: str = None) -> Optional[str]:
         self._log_unsupported("Subtitle extraction")
         return None
 

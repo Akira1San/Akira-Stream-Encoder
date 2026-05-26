@@ -32,7 +32,7 @@ class MediaBackend(ABC):
 
     @abstractmethod
     def extract_subtitle(self, input_path: str, stream_idx: int,
-                         output_path: str) -> Optional[str]:
+                         output_path: str, codec_name: str = None) -> Optional[str]:
         ...
 
     @abstractmethod
