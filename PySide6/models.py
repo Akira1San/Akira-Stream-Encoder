@@ -17,6 +17,7 @@ class EncodingSettings:
     framerate: str = "24000/1001"
     cq: int = 23
     use_original_bitrate: bool = False
+    use_max_bitrate: bool = False
     max_bitrate: int = 4000
     bitrate_mode: str = "CBR (Constant Bitrate)"
     target_bitrate: str = "2000"

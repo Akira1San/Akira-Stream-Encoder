@@ -819,15 +819,23 @@ class FFmpegBackend(MediaBackend):
                 orig_br = self.get_video_bitrate(input_path)
                 if orig_br:
                     cmd.extend(["-b:v", f"{orig_br}k"])
-                    cmd.extend(["-maxrate", f"{orig_br}k"])
-                    cmd.extend(["-bufsize", f"{orig_br * 2}k"])
+                    if encoding.use_max_bitrate:
+                        cmd.extend(["-maxrate", f"{encoding.max_bitrate}k"])
+                        cmd.extend(["-bufsize", f"{encoding.max_bitrate * 2}k"])
+                    else:
+                        cmd.extend(["-maxrate", f"{orig_br}k"])
+                        cmd.extend(["-bufsize", f"{orig_br * 2}k"])
             else:
                 target_br = encoding.target_bitrate
                 if target_br and target_br.isdigit():
                     target_br_int = int(target_br)
                     cmd.extend(["-b:v", f"{target_br_int}k"])
-                    cmd.extend(["-maxrate", f"{target_br_int}k"])
-                    cmd.extend(["-bufsize", f"{target_br_int * 2}k"])
+                    if encoding.use_max_bitrate:
+                        cmd.extend(["-maxrate", f"{encoding.max_bitrate}k"])
+                        cmd.extend(["-bufsize", f"{encoding.max_bitrate * 2}k"])
+                    else:
+                        cmd.extend(["-maxrate", f"{target_br_int}k"])
+                        cmd.extend(["-bufsize", f"{target_br_int * 2}k"])
 
         if tracks.video_selected:
             cmd.extend(["-map", "0:v:0"])

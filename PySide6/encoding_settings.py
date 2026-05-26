@@ -250,31 +250,54 @@ class EncodingPanel(QWidget):
         mode_layout.addStretch()
         layout.addLayout(mode_layout)
         
-        # Target Bitrate
-        br_layout = QHBoxLayout()
-        br_label = QLabel("Target Bitrate (kbps):")
+        # Checkboxes row: Original Bitrate | Max Bitrate
+        checkboxes_layout = QHBoxLayout()
+
+        self.orig_br_check = QCheckBox("Original Bitrate")
+        self.orig_br_check.setChecked(self.app_state.encoding.use_original_bitrate)
+        self.orig_br_check.setToolTip("Use the original video's bitrate if it can be detected.\nOverrides the target bitrate setting above.")
+        checkboxes_layout.addWidget(self.orig_br_check)
+
+        self.use_max_br_check = QCheckBox("Max Bitrate")
+        self.use_max_br_check.setChecked(self.app_state.encoding.use_max_bitrate)
+        self.use_max_br_check.setToolTip("Enable max bitrate limit.\nWhen enabled, the encoder can spike up to the max bitrate value below.")
+        checkboxes_layout.addWidget(self.use_max_br_check)
+
+        checkboxes_layout.addStretch()
+        layout.addLayout(checkboxes_layout)
+
+        # Bitrate inputs row: Target Bitrate | Max Bitrate
+        br_inputs_layout = QHBoxLayout()
+
+        br_label = QLabel("Target Bitrate:")
         br_label.setToolTip("Target bitrate for video encoding.\nHigher values = better quality, larger files\n2000-4000 kbps: Good for 720p\n4000-8000 kbps: Good for 1080p")
-        br_layout.addWidget(br_label)
-        
+        br_inputs_layout.addWidget(br_label)
+
         self.bitrate_edit = QLineEdit(self.app_state.encoding.target_bitrate)
         self.bitrate_edit.setMaximumWidth(80)
         self.bitrate_edit.setToolTip("Enter target bitrate in kilobits per second (kbps)")
-        br_layout.addWidget(self.bitrate_edit)
-        
-        br_layout.addStretch()
-        layout.addLayout(br_layout)
-        
-        # Use Original Bitrate
-        self.orig_br_check = QCheckBox("Use Original Bitrate (if available)")
-        self.orig_br_check.setChecked(self.app_state.encoding.use_original_bitrate)
-        self.orig_br_check.setToolTip("Use the original video's bitrate if it can be detected.\nOverrides the target bitrate setting above.")
-        layout.addWidget(self.orig_br_check)
-        
-        # Set initial state of bitrate input based on original bitrate setting
+        br_inputs_layout.addWidget(self.bitrate_edit)
+
+        max_br_label = QLabel("  Max Bitrate:")
+        max_br_label.setToolTip("Maximum allowed bitrate.\nPrevents bitrate spikes that could cause playback issues.")
+        br_inputs_layout.addWidget(max_br_label)
+
+        self.max_br_spin = QSpinBox()
+        self.max_br_spin.setRange(500, 50000)
+        self.max_br_spin.setValue(self.app_state.encoding.max_bitrate)
+        self.max_br_spin.setSingleStep(500)
+        self.max_br_spin.setToolTip("Maximum bitrate limit")
+        br_inputs_layout.addWidget(self.max_br_spin)
+
+        br_inputs_layout.addStretch()
+        layout.addLayout(br_inputs_layout)
+
+        # Set initial state of bitrate input and max bitrate spin
         if self.app_state.encoding.use_original_bitrate:
             self.bitrate_edit.setEnabled(False)
             self.bitrate_edit.setStyleSheet("color: gray;")
-        
+        self.max_br_spin.setEnabled(self.app_state.encoding.use_max_bitrate)
+
         # === Target File Size ===
         target_size_layout = QHBoxLayout()
         target_size_label = QLabel("Target File Size (MB):")
@@ -296,22 +319,6 @@ class EncodingPanel(QWidget):
         
         target_size_layout.addStretch()
         layout.addLayout(target_size_layout)
-        
-        # Max Bitrate
-        max_br_layout = QHBoxLayout()
-        max_br_label = QLabel("Max Bitrate (kbps):")
-        max_br_label.setToolTip("Maximum allowed bitrate.\nPrevents bitrate spikes that could cause playback issues.")
-        max_br_layout.addWidget(max_br_label)
-        
-        self.max_br_spin = QSpinBox()
-        self.max_br_spin.setRange(500, 50000)
-        self.max_br_spin.setValue(self.app_state.encoding.max_bitrate)
-        self.max_br_spin.setSingleStep(500)
-        self.max_br_spin.setToolTip("Maximum bitrate limit")
-        max_br_layout.addWidget(self.max_br_spin)
-        
-        max_br_layout.addStretch()
-        layout.addLayout(max_br_layout)
         
         # === Container Format ===
         container_layout = QHBoxLayout()
@@ -674,6 +681,7 @@ class EncodingPanel(QWidget):
         self.bitrate_mode_combo.currentTextChanged.connect(self.on_bitrate_mode_changed)
         self.bitrate_edit.textChanged.connect(self.on_target_bitrate_changed)
         self.orig_br_check.toggled.connect(self.on_orig_br_changed)
+        self.use_max_br_check.toggled.connect(self.on_use_max_br_changed)
         self.calc_size_btn.clicked.connect(self.on_calculate_target_size)
         self.max_br_spin.valueChanged.connect(self.on_max_br_changed)
         self.container_combo.currentTextChanged.connect(self.on_container_changed)
@@ -1060,6 +1068,12 @@ class EncodingPanel(QWidget):
     def on_max_br_changed(self, value):
         """Handle max bitrate change"""
         self.app_state.encoding.max_bitrate = value
+        self.settings_changed.emit()
+
+    def on_use_max_br_changed(self, checked):
+        """Handle max bitrate checkbox change"""
+        self.app_state.encoding.use_max_bitrate = checked
+        self.max_br_spin.setEnabled(checked)
         self.settings_changed.emit()
         
     def on_container_changed(self, text):
