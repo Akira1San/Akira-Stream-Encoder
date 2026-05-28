@@ -84,8 +84,8 @@ class EncodingPanel(QWidget):
             "p1: Fastest (lowest quality)\n"
             "p2: Faster\n"
             "p3: Fast\n"
-            "p4: Medium (balanced) ← Default\n"
-            "p5: Slow\n"
+            "p4: Medium (balanced)\n"
+            "p5: Slow (good quality) ← Default\n"
             "p6: Slower\n"
             "p7: Slowest (best quality)"
         )
