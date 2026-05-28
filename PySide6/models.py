@@ -194,40 +194,6 @@ class AudioTrackInfo:
     title: str = ""
 
 
-from enum import Enum
-
-
-class TrackType(Enum):
-    """Track type enumeration"""
-    VIDEO = "video"
-    AUDIO = "audio"
-
-
-@dataclass
-class Track:
-    """Track model for Tracks Tab"""
-    track_id: str = ""
-    name: str = ""
-    track_type: TrackType = TrackType.VIDEO
-    source_file: str = ""
-    stream_index: int = 0
-    duration: float = 0.0
-    duration_str: str = "00:00:00"
-    codec: str = ""
-    # Video-specific
-    width: int = 0
-    height: int = 0
-    resolution: str = ""
-    framerate: str = ""
-    bitrate: str = ""
-    # Audio-specific
-    channels: int = 0
-    sample_rate: str = ""
-    # Selection state
-    selected: bool = False
-    enabled: bool = True  # For export
-
-
 @dataclass
 class TrackSettings:
     """Track selection settings"""
@@ -352,7 +318,6 @@ class AppState(QObject):
     log_message = Signal(str, str)  # message, level
     preview_refresh_needed = Signal()
     dvd_titles_changed = Signal(list)  # List of DVD titles detected
-    tracks_updated = Signal(list)  # List of Track objects
     handbrake_path_changed = Signal(str)
     handbrake_available_changed = Signal(bool)
     media_engine_changed = Signal(str)
@@ -387,9 +352,6 @@ class AppState(QObject):
         self.cut = CutSettings()
         self.dvd = DVDSettings()
         self.colorization = ColorizationSettings()
-        
-        # Tracks list for Tracks Tab
-        self.track_list: List[Track] = []
         
         # Media engine
         self._media_engine: str = "ffmpeg"
