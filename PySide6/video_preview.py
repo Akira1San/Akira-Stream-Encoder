@@ -1516,7 +1516,41 @@ class VideoPreview(QWidget):
             
             if wb_params:
                 filters.append(f"colorbalance={':'.join(wb_params)}")
-        
+
+        # Colorization (B&W → Color)
+        colorization = self.app_state.colorization
+        if colorization.enabled:
+            if colorization.method == "tint":
+                h = colorization.tint_hue / 360.0
+                s = min(colorization.tint_saturation, 1.0)
+                tr, tg, tb = self._hsl_to_rgb(h, s, 0.5)
+                strength = colorization.tint_strength
+                rc = (1.0 - strength + strength * tg) / 3.0
+                gc = (1.0 - strength + strength * tb) / 3.0
+                bc = (1.0 - strength + strength * tr) / 3.0
+                filters.append("format=gbrp")
+                filters.append(
+                    f"colorchannelmixer="
+                    f"rr={rc:.6f}:rg={rc:.6f}:rb={rc:.6f}:"
+                    f"gr={gc:.6f}:gg={gc:.6f}:gb={gc:.6f}:"
+                    f"br={bc:.6f}:bg={bc:.6f}:bb={bc:.6f}"
+                )
+            elif colorization.method == "pseudocolor":
+                preset = colorization.pseudocolor_preset
+                opacity = colorization.pseudocolor_opacity
+                filters.append(f"pseudocolor=colorpreset={preset}:opacity={opacity}")
+            elif colorization.method == "lut":
+                lut_path = colorization.lut_path
+                if lut_path and os.path.exists(lut_path):
+                    lut_type = colorization.lut_type
+                    escaped = lut_path.replace("'", "'\\''")
+                    if lut_type == "lut3d":
+                        filters.append(f"lut3d=file='{escaped}'")
+                    elif lut_type == "lutrgb":
+                        filters.append(f"lutrgb=file='{escaped}'")
+                    elif lut_type == "lutyuv":
+                        filters.append(f"lutyuv=file='{escaped}'")
+
         if not filters:
             return image.copy()
 
@@ -1546,7 +1580,23 @@ class VideoPreview(QWidget):
             self.app_state.log(f"Filter preview error: {e}", "WARN")
 
         return image
-    
+
+    @staticmethod
+    def _hsl_to_rgb(h: float, s: float, l: float) -> tuple:
+        """Convert HSL (all 0.0-1.0) to RGB (0.0-1.0)"""
+        if s == 0.0:
+            return l, l, l
+        def hue_to_rgb(p, q, t):
+            if t < 0.0: t += 1.0
+            if t > 1.0: t -= 1.0
+            if t < 1.0 / 6.0: return p + (q - p) * 6.0 * t
+            if t < 1.0 / 2.0: return q
+            if t < 2.0 / 3.0: return p + (q - p) * (2.0 / 3.0 - t) * 6.0
+            return p
+        q = l * (1.0 + s) if l < 0.5 else l + s - l * s
+        p = 2.0 * l - q
+        return hue_to_rgb(p, q, h + 1.0 / 3.0), hue_to_rgb(p, q, h), hue_to_rgb(p, q, h - 1.0 / 3.0)
+
     def draw_subtitle_on_image(self, image: QImage, text: str) -> QImage:
         """Draw subtitle text on the image using QPainter"""
         # Create a copy of the image to draw on
