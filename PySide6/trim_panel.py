@@ -138,11 +138,12 @@ class TrimPanel(QGroupBox):
             self.cut_point_set.emit(position)
     
     def on_delete_cut_clicked(self):
-        """Handle delete selected cut button"""
-        current_item = self.cuts_list.currentItem()
-        if current_item:
-            cut_id = current_item.data(256)  # Qt.UserRole = 256
-            self.cut_removed.emit(cut_id)
+        """Handle delete selected cut(s) button"""
+        selected_items = self.cuts_list.selectedItems()
+        for item in selected_items:
+            cut_id = item.data(256)
+            if cut_id is not None:
+                self.cut_removed.emit(cut_id)
     
     def on_delete_segment_clicked(self):
         """Handle delete segment button - requires 2 cuts selected"""
@@ -165,8 +166,13 @@ class TrimPanel(QGroupBox):
         end_cut_id = sorted_ids[1]
         
         # Confirm with user
-        start_pos = self.app_state.cut.points[self.app_state.cut.points.index(next(c for c in self.app_state.cut.points if c.cut_id == start_cut_id))].time_display
-        end_pos = self.app_state.cut.points[self.app_state.cut.points.index(next(c for c in self.app_state.cut.points if c.cut_id == end_cut_id))].time_display
+        start_cut = next((c for c in self.app_state.cut.points if c.cut_id == start_cut_id), None)
+        end_cut = next((c for c in self.app_state.cut.points if c.cut_id == end_cut_id), None)
+        if not start_cut or not end_cut:
+            QMessageBox.warning(self, "Error", "Could not find selected cuts.")
+            return
+        start_pos = start_cut.time_display
+        end_pos = end_cut.time_display
         
         reply = QMessageBox.question(
             self,
@@ -236,11 +242,11 @@ class TrimPanel(QGroupBox):
     
     def on_selection_changed(self):
         """Handle selection change in list"""
-        has_selection = self.cuts_list.currentItem() is not None
-        selected_count = len(self.cuts_list.selectedItems())
-        
-        self.delete_cut_btn.setEnabled(has_selection)
-        self.delete_segment_btn.setEnabled(selected_count == 2 and selected_count >= 2)
+        selected_items = self.cuts_list.selectedItems()
+        selected_count = len(selected_items)
+
+        self.delete_cut_btn.setEnabled(selected_count > 0)
+        self.delete_segment_btn.setEnabled(selected_count == 2)
     
     def add_cut_to_list(self, cut_point: CutPoint, segment_info: str = ""):
         """Add a cut point to the visual list"""
