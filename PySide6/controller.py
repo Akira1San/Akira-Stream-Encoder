@@ -5,6 +5,7 @@ import os
 import subprocess
 import threading
 import re
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
@@ -157,13 +158,16 @@ class VideoController:
 
             if self.current_process.returncode == 0:
                 self.app_state.log(f"✅ Encode complete: {os.path.basename(output_path)}", "SUCCESS")
+                self._append_command_log(output_path, f"Result: Success (code 0)")
                 return True
             else:
                 self.app_state.log(f"❌ Encode failed with code {self.current_process.returncode}", "ERROR")
+                self._append_command_log(output_path, f"Result: Failed (code {self.current_process.returncode})")
                 return False
 
         except Exception as e:
             self.app_state.log(f"❌ Encode error: {e}", "ERROR")
+            self._append_command_log(output_path, f"Result: Error - {e}")
             return False
         finally:
             self.is_encoding = False
@@ -309,22 +313,31 @@ class VideoController:
             
             if self.current_process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 self.app_state.log(f"✅ HandBrake encode complete: {os.path.basename(output_path)}", "SUCCESS")
+                self._append_command_log(output_path, f"Result: Success (code 0)")
                 return True
             else:
                 # Read any remaining stderr for error details
                 remaining = self.current_process.stderr.read() if self.current_process.stderr else ""
                 self.app_state.log(f"❌ HandBrake encode failed with code {self.current_process.returncode}", "ERROR")
+                self._append_command_log(output_path, f"Result: Failed (code {self.current_process.returncode})")
                 if remaining:
                     self.app_state.log(f"HandBrake error: {remaining.strip()[:500]}", "ERROR")
                 return False
                 
         except Exception as e:
             self.app_state.log(f"❌ HandBrake encode error: {e}", "ERROR")
+            self._append_command_log(output_path, f"Result: Error - {e}")
             return False
         finally:
             self.is_encoding = False
             self.current_process = None
             
+    def _append_command_log(self, output_path: str, message: str):
+        log_path = output_path + ".log"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a") as f:
+            f.write(f"[{timestamp}] {message}\n")
+
     def cancel_encode(self):
         """Cancel the current encoding operation"""
         if self.current_process:
@@ -351,13 +364,16 @@ class VideoController:
 
             if self.current_process.returncode == 0:
                 self.app_state.log(f"✅ Fast cut complete: {os.path.basename(output_path)}", "SUCCESS")
+                self._append_command_log(output_path, f"Result: Success (code 0)")
                 return True
             else:
                 self.app_state.log(f"❌ Fast cut failed with code {self.current_process.returncode}", "ERROR")
+                self._append_command_log(output_path, f"Result: Failed (code {self.current_process.returncode})")
                 return False
 
         except Exception as e:
             self.app_state.log(f"❌ Fast cut error: {e}", "ERROR")
+            self._append_command_log(output_path, f"Result: Error - {e}")
             return False
         finally:
             self.is_encoding = False
@@ -424,13 +440,16 @@ class VideoController:
 
             if self.current_process.returncode == 0:
                 self.app_state.log(f"✅ Join complete: {os.path.basename(output_path)}", "SUCCESS")
+                self._append_command_log(output_path, f"Result: Success (code 0)")
                 return True
             else:
                 self.app_state.log(f"❌ Join failed with code {self.current_process.returncode}", "ERROR")
+                self._append_command_log(output_path, f"Result: Failed (code {self.current_process.returncode})")
                 return False
 
         except Exception as e:
             self.app_state.log(f"❌ Join error: {e}", "ERROR")
+            self._append_command_log(output_path, f"Result: Error - {e}")
             return False
         finally:
             self.is_encoding = False

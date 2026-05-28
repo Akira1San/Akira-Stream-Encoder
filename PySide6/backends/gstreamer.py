@@ -13,6 +13,7 @@ import io
 import os
 import re
 import struct
+from datetime import datetime
 import subprocess
 import tempfile
 import threading
@@ -797,6 +798,10 @@ class GStreamerBackend(MediaBackend):
             fb = FFmpegBackend(app_state)
             cmd = fb.build_command(input_path, output_path, start_time, duration)
             self.app_state.log(f"FFmpeg fallback command: {' '.join(cmd)}", "INFO")
+            log_path = output_path + ".log"
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(log_path, "a") as f:
+                f.write(f"[{timestamp}] Command: {' '.join(cmd)}\n")
             return subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 universal_newlines=True, bufsize=1

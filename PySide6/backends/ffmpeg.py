@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import json
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from backends.base import MediaBackend
@@ -961,10 +962,18 @@ class FFmpegBackend(MediaBackend):
         cmd.extend(["-y", output_path])
         return cmd
 
+    def _save_command_log(self, output_path: str, cmd: list):
+        log_path = output_path + ".log"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        entry = f"[{timestamp}] Command: {' '.join(cmd)}\n"
+        with open(log_path, "a") as f:
+            f.write(entry)
+
     def encode(self, input_path: str, output_path: str,
                app_state, start_time=None, duration=None) -> subprocess.Popen:
         cmd = self.build_command(input_path, output_path, start_time, duration)
         self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             universal_newlines=True, bufsize=1
@@ -1014,6 +1023,7 @@ class FFmpegBackend(MediaBackend):
 
         cmd.extend(["-y", output_path])
         self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             universal_newlines=True, bufsize=1
@@ -1040,6 +1050,8 @@ class FFmpegBackend(MediaBackend):
         cmd.extend(["-c:a", audio_settings.get("codec", "aac")])
         cmd.extend(["-b:a", audio_settings.get("bitrate", "128k")])
         cmd.extend(["-y", output_path])
+        self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             universal_newlines=True, bufsize=1
