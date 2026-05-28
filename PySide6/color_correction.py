@@ -3,9 +3,11 @@ Color Correction (EQ) Panel (PySide6)
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QSlider, QPushButton, QFrame, QComboBox
+    QSlider, QPushButton, QFrame, QComboBox, QFileDialog,
+    QGroupBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer
+import os
 
 from models import AppState
 
@@ -168,7 +170,167 @@ class ColorCorrectionPanel(QWidget):
         
         # Enable/disable WB sliders based on enable state
         self._set_wb_sliders_enabled(self.app_state.eq.white_balance_enabled)
-        
+
+        # === Colorization Section (B&W → Color) ===
+        line3 = QFrame()
+        line3.setFrameShape(QFrame.HLine)
+        line3.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line3)
+
+        # Enable checkbox
+        self.colorize_check = QCheckBox("Enable Colorization (B&W → Color)")
+        self.colorize_check.setChecked(self.app_state.colorization.enabled)
+        self.colorize_check.setToolTip(
+            "Add color to black and white video using non-AI methods.\n"
+            "Tint: Uniform color tint (sepia, blue, etc.)\n"
+            "Pseudocolor: Map brightness levels to colors\n"
+            "LUT: Apply a color lookup table (.cube file)"
+        )
+        layout.addWidget(self.colorize_check)
+
+        # Method selector
+        method_layout = QHBoxLayout()
+        method_layout.addWidget(QLabel("Method:"))
+        self.colorize_method_combo = QComboBox()
+        self.colorize_method_combo.addItems(["Tint", "Pseudocolor", "LUT"])
+        self.colorize_method_combo.setCurrentText(
+            {"tint": "Tint", "pseudocolor": "Pseudocolor", "lut": "LUT"}
+            .get(self.app_state.colorization.method, "Tint")
+        )
+        self.colorize_method_combo.setEnabled(self.app_state.colorization.enabled)
+        self.colorize_method_combo.setToolTip(
+            "Tint: Applies a uniform color tint based on hue/saturation\n"
+            "Pseudocolor: Maps grayscale luminance to a color gradient\n"
+            "LUT: Uses a 3D LUT file for color transformation"
+        )
+        method_layout.addWidget(self.colorize_method_combo)
+        method_layout.addStretch()
+        layout.addLayout(method_layout)
+
+        # ---- Tint Controls ----
+        self.tint_group = QGroupBox("Tint Settings")
+        tint_layout = QVBoxLayout(self.tint_group)
+
+        # Color preset combo
+        preset_layout = QHBoxLayout()
+        preset_layout.addWidget(QLabel("Preset:"))
+        self.tint_preset_combo = QComboBox()
+        self.tint_preset_combo.addItems([
+            "Sepia", "Warm", "Cool", "Blue", "Green", "Red", "Purple"
+        ])
+        self.tint_preset_combo.setToolTip(
+            "Quick tint presets:\n"
+            "Sepia: Classic warm brown (30°)\n"
+            "Warm: Golden hour look (15°)\n"
+            "Cool: Blue/cold tone (200°)\n"
+            "Blue: Classic blue cast (240°)\n"
+            "Green: Green tint (120°)\n"
+            "Red: Red/pink tone (0°)\n"
+            "Purple: Purple/violet cast (280°)"
+        )
+        self.tint_preset_combo.setEnabled(self.app_state.colorization.enabled)
+        preset_layout.addWidget(self.tint_preset_combo)
+        preset_layout.addStretch()
+        tint_layout.addLayout(preset_layout)
+
+        # Hue slider
+        c = self.app_state.colorization
+        self.colorize_hue_slider = self.create_slider(
+            "Hue", c.tint_hue, 0.0, 360.0, 30.0,
+            "Tint color hue angle (0-360°).\n0=Red, 120=Green, 240=Blue, 360=Red"
+        )
+        tint_layout.addLayout(self.colorize_hue_slider['layout'])
+
+        # Saturation slider
+        self.colorize_sat_slider = self.create_slider(
+            "Saturation", c.tint_saturation, 0.0, 2.0, 0.6,
+            "Color saturation of the tint.\n0=Gray, 0.5=Pastel, 1.0=Full, 2.0=Oversaturated"
+        )
+        tint_layout.addLayout(self.colorize_sat_slider['layout'])
+
+        # Strength slider
+        self.colorize_strength_slider = self.create_slider(
+            "Strength", c.tint_strength, 0.0, 1.0, 1.0,
+            "How much tint to apply.\n0=Original, 0.5=Partial, 1.0=Full tint"
+        )
+        tint_layout.addLayout(self.colorize_strength_slider['layout'])
+
+        self.tint_group.setEnabled(self.app_state.colorization.enabled and c.method == "tint")
+        layout.addWidget(self.tint_group)
+
+        # ---- Pseudocolor Controls ----
+        self.pseudocolor_group = QGroupBox("Pseudocolor Settings")
+        pc_layout = QVBoxLayout(self.pseudocolor_group)
+
+        pc_preset_row = QHBoxLayout()
+        pc_preset_row.addWidget(QLabel("Preset:"))
+        self.pc_preset_combo = QComboBox()
+        presets = [
+            "rainbow", "rainbow_compressed", "rainbow4", "stripes",
+            "heat_stripe", "heat", "cool", "cold_warm",
+            "magma", "inferno", "plasma", "viridis", "turbo"
+        ]
+        self.pc_preset_combo.addItems(presets)
+        idx = presets.index(c.pseudocolor_preset) if c.pseudocolor_preset in presets else 0
+        self.pc_preset_combo.setCurrentIndex(idx)
+        self.pc_preset_combo.setEnabled(self.app_state.colorization.enabled)
+        self.pc_preset_combo.setToolTip(
+            "Color gradient preset for pseudocolor mapping.\n"
+            "Rainbow: Full spectrum (most colorful)\n"
+            "Heat: Infrared camera style\n"
+            "Cool: Blue/cyan tones\n"
+            "Viridis: Perceptually uniform"
+        )
+        pc_preset_row.addWidget(self.pc_preset_combo)
+        pc_preset_row.addStretch()
+        pc_layout.addLayout(pc_preset_row)
+
+        self.pc_opacity_slider = self.create_slider(
+            "Opacity", c.pseudocolor_opacity, 0.0, 1.0, 1.0,
+            "Opacity of the pseudocolor overlay.\n"
+            "1.0 = Full color, 0.0 = Original grayscale"
+        )
+        pc_layout.addLayout(self.pc_opacity_slider['layout'])
+
+        self.pseudocolor_group.setEnabled(self.app_state.colorization.enabled and c.method == "pseudocolor")
+        layout.addWidget(self.pseudocolor_group)
+
+        # ---- LUT Controls ----
+        self.lut_group = QGroupBox("LUT Settings")
+        lut_layout = QVBoxLayout(self.lut_group)
+
+        # Type selector
+        lut_type_row = QHBoxLayout()
+        lut_type_row.addWidget(QLabel("Type:"))
+        self.lut_type_combo = QComboBox()
+        self.lut_type_combo.addItems(["lut3d", "lutrgb", "lutyuv"])
+        lut_type_map = {"lut3d": "lut3d", "lutrgb": "lutrgb", "lutyuv": "lutyuv"}
+        self.lut_type_combo.setCurrentText(lut_type_map.get(c.lut_type, "lut3d"))
+        self.lut_type_combo.setEnabled(self.app_state.colorization.enabled)
+        self.lut_type_combo.setToolTip(
+            "lut3d: 3D LUT from .cube file (most common)\n"
+            "lutrgb: Per-channel RGB lookup table\n"
+            "lutyuv: Per-channel YUV lookup table"
+        )
+        lut_type_row.addWidget(self.lut_type_combo)
+        lut_type_row.addStretch()
+        lut_layout.addLayout(lut_type_row)
+
+        # File browser
+        lut_file_row = QHBoxLayout()
+        self.lut_path_label = QLabel(c.lut_path if c.lut_path else "No LUT file selected")
+        self.lut_path_label.setWordWrap(True)
+        self.lut_path_label.setStyleSheet("color: gray; font-size: 10px;")
+        lut_file_row.addWidget(self.lut_path_label, 1)
+        self.lut_browse_btn = QPushButton("Browse...")
+        self.lut_browse_btn.setEnabled(self.app_state.colorization.enabled)
+        self.lut_browse_btn.setToolTip("Select a .cube 3D LUT file")
+        lut_file_row.addWidget(self.lut_browse_btn)
+        lut_layout.addLayout(lut_file_row)
+
+        self.lut_group.setEnabled(self.app_state.colorization.enabled and c.method == "lut")
+        layout.addWidget(self.lut_group)
+
         layout.addStretch()
         
     def create_slider(self, label_text, value, min_val, max_val, default_val, tooltip=""):
@@ -254,6 +416,30 @@ class ColorCorrectionPanel(QWidget):
             lambda v: self.on_wb_slider_changed(v, self.wb_b_slider, 'wb_b')
         )
         
+        # Colorization signals
+        self.colorize_check.toggled.connect(self.on_colorize_enabled_changed)
+        self.colorize_method_combo.currentTextChanged.connect(self.on_colorize_method_changed)
+        # Tint controls
+        self.colorize_hue_slider['slider'].valueChanged.connect(
+            lambda v: self.on_colorize_slider_changed(v, self.colorize_hue_slider, 'tint_hue')
+        )
+        self.colorize_sat_slider['slider'].valueChanged.connect(
+            lambda v: self.on_colorize_slider_changed(v, self.colorize_sat_slider, 'tint_saturation')
+        )
+        self.colorize_strength_slider['slider'].valueChanged.connect(
+            lambda v: self.on_colorize_slider_changed(v, self.colorize_strength_slider, 'tint_strength')
+        )
+        # Tint preset combo
+        self.tint_preset_combo.currentTextChanged.connect(self.on_tint_preset_changed)
+        # Pseudocolor controls
+        self.pc_preset_combo.currentTextChanged.connect(self.on_pc_preset_changed)
+        self.pc_opacity_slider['slider'].valueChanged.connect(
+            lambda v: self.on_colorize_slider_changed(v, self.pc_opacity_slider, 'pseudocolor_opacity')
+        )
+        # LUT controls
+        self.lut_type_combo.currentTextChanged.connect(self.on_lut_type_changed)
+        self.lut_browse_btn.clicked.connect(self.on_lut_browse)
+        
     def update_engine_state(self):
         """Disable/enable EQ UI controls based on current backend's supported_filters()."""
         try:
@@ -318,6 +504,32 @@ class ColorCorrectionPanel(QWidget):
         self._set_slider_enabled_with_tip(self.wb_r_slider, wb_en, "WB Red" if is_gst else "")
         self._set_slider_enabled_with_tip(self.wb_g_slider, wb_en, "WB Green" if is_gst else "")
         self._set_slider_enabled_with_tip(self.wb_b_slider, wb_en, "WB Blue" if is_gst else "")
+
+        # Colorization
+        colorize_supported = support.get('colorization', False)
+        self._set_enabled_with_tip(
+            self.colorize_check, colorize_supported,
+            "Colorization" if is_gst else ""
+        )
+        cz_en = colorize_supported and self.app_state.colorization.enabled
+        self.colorize_method_combo.setEnabled(cz_en)
+        method = self.app_state.colorization.method
+        self.tint_group.setEnabled(cz_en and method == "tint")
+        self.pseudocolor_group.setEnabled(cz_en and method == "pseudocolor")
+        self.lut_group.setEnabled(cz_en and method == "lut")
+        is_tint = cz_en and method == "tint"
+        self.tint_preset_combo.setEnabled(is_tint)
+        self.colorize_hue_slider['slider'].setEnabled(is_tint)
+        self.colorize_sat_slider['slider'].setEnabled(is_tint)
+        self.colorize_strength_slider['slider'].setEnabled(is_tint)
+        # Pseudocolor controls
+        is_pc = cz_en and method == "pseudocolor"
+        self.pc_preset_combo.setEnabled(is_pc)
+        self.pc_opacity_slider['slider'].setEnabled(is_pc)
+        # LUT controls
+        is_lut = cz_en and method == "lut"
+        self.lut_type_combo.setEnabled(is_lut)
+        self.lut_browse_btn.setEnabled(is_lut)
 
     def _set_enabled_with_tip(self, widget, supported, feature_name):
         """Set a widget's enabled state; if not supported, append note to tooltip."""
@@ -519,7 +731,81 @@ class ColorCorrectionPanel(QWidget):
                 self.app_state.eq.wb_highlights_b = float_value
                 
         self.settings_changed.emit()
-                
+
+    # ---- Colorization Handlers ----
+
+    def on_colorize_enabled_changed(self, checked):
+        """Handle colorization enable checkbox change"""
+        self.app_state.colorization.enabled = checked
+        self.update_engine_state()
+        self.settings_changed.emit()
+
+    def on_colorize_method_changed(self, text):
+        """Handle colorization method change"""
+        method_map = {"Tint": "tint", "Pseudocolor": "pseudocolor", "LUT": "lut"}
+        self.app_state.colorization.method = method_map.get(text, "tint")
+        self.update_engine_state()
+        self.settings_changed.emit()
+
+    def on_colorize_slider_changed(self, value, slider_dict, attr_name):
+        """Handle colorization slider value change"""
+        multiplier = slider_dict['slider'].property("multiplier")
+        float_value = value / multiplier
+        slider_dict['value_label'].setText(f"{float_value:.2f}")
+        setattr(self.app_state.colorization, attr_name, float_value)
+        self.settings_changed.emit()
+
+    def on_tint_preset_changed(self, text):
+        """Handle tint preset combo change"""
+        presets = {
+            "Sepia":  (30, 0.6, 1.0),
+            "Warm":   (15, 0.5, 0.8),
+            "Cool":   (200, 0.5, 0.8),
+            "Blue":   (240, 0.7, 0.9),
+            "Green":  (120, 0.6, 0.8),
+            "Red":    (0, 0.6, 0.8),
+            "Purple": (280, 0.5, 0.8),
+        }
+        hue, saturation, strength = presets.get(text, (30, 0.6, 1.0))
+        self.app_state.colorization.tint_hue = hue
+        self.app_state.colorization.tint_saturation = saturation
+        self.app_state.colorization.tint_strength = strength
+        # Update slider positions
+        for attr, sdict in [
+            ('tint_hue', self.colorize_hue_slider),
+            ('tint_saturation', self.colorize_sat_slider),
+            ('tint_strength', self.colorize_strength_slider),
+        ]:
+            m = sdict['slider'].property("multiplier")
+            val = getattr(self.app_state.colorization, attr)
+            sdict['slider'].blockSignals(True)
+            sdict['slider'].setValue(int(val * m))
+            sdict['slider'].blockSignals(False)
+            sdict['value_label'].setText(f"{val:.2f}")
+        self.settings_changed.emit()
+
+    def on_pc_preset_changed(self, text):
+        """Handle pseudocolor preset change"""
+        self.app_state.colorization.pseudocolor_preset = text
+        self.settings_changed.emit()
+
+    def on_lut_type_changed(self, text):
+        """Handle LUT type change"""
+        self.app_state.colorization.lut_type = text
+        self.settings_changed.emit()
+
+    def on_lut_browse(self):
+        """Browse for a LUT file"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select LUT File", "",
+            "LUT Files (*.cube *.3dl *.dat);;All Files (*)"
+        )
+        if path:
+            self.app_state.colorization.lut_path = path
+            self.lut_path_label.setText(os.path.basename(path))
+            self.lut_path_label.setStyleSheet("color: white; font-size: 10px;")
+            self.settings_changed.emit()
+
     def reset_defaults(self):
         """Reset all EQ settings to defaults"""
         self.app_state.eq.brightness = 0.0
@@ -561,6 +847,46 @@ class ColorCorrectionPanel(QWidget):
             multiplier = slider_dict['slider'].property("multiplier")
             slider_dict['slider'].setValue(0)
             slider_dict['value_label'].setText("0.00")
+
+        # Reset colorization
+        self.app_state.colorization.enabled = False
+        self.app_state.colorization.method = "tint"
+        self.app_state.colorization.tint_hue = 30.0
+        self.app_state.colorization.tint_saturation = 0.6
+        self.app_state.colorization.tint_strength = 1.0
+        self.app_state.colorization.pseudocolor_preset = "rainbow"
+        self.app_state.colorization.pseudocolor_opacity = 1.0
+        self.app_state.colorization.lut_path = ""
+        self.app_state.colorization.lut_type = "lut3d"
+        # Update UI
+        self.colorize_check.setChecked(False)
+        self.colorize_method_combo.setCurrentText("Tint")
+        # Tint combo + sliders
+        self.tint_preset_combo.setCurrentText("Sepia")
+        for slider_dict in [
+            self.colorize_hue_slider,
+            self.colorize_sat_slider,
+            self.colorize_strength_slider
+        ]:
+            m = slider_dict['slider'].property("multiplier")
+            d = slider_dict['slider'].property("default_value")
+            slider_dict['slider'].blockSignals(True)
+            slider_dict['slider'].setValue(int(d * m))
+            slider_dict['slider'].blockSignals(False)
+            slider_dict['value_label'].setText(f"{d:.2f}")
+        # Pseudocolor
+        self.pc_preset_combo.setCurrentText("rainbow")
+        m_op = self.pc_opacity_slider['slider'].property("multiplier")
+        self.pc_opacity_slider['slider'].blockSignals(True)
+        self.pc_opacity_slider['slider'].setValue(int(1.0 * m_op))
+        self.pc_opacity_slider['slider'].blockSignals(False)
+        self.pc_opacity_slider['value_label'].setText("1.00")
+        # LUT
+        self.lut_type_combo.setCurrentText("lut3d")
+        self.lut_path_label.setText("No LUT file selected")
+        self.lut_path_label.setStyleSheet("color: gray; font-size: 10px;")
+        # Re-apply engine state
+        self.update_engine_state()
             
         self.settings_changed.emit()
         self.app_state.log("EQ settings reset to defaults", "INFO")

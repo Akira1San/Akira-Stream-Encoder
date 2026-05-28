@@ -244,6 +244,8 @@ class FFmpegBackend(MediaBackend):
             'eq_saturation': True,
             'eq_gamma': True,
             'white_balance': True,
+            # Colorization (B&W → Color)
+            'colorization': True,
             # Audio filters
             'volume': True,
             'audio_denoise': True,
@@ -523,6 +525,40 @@ class FFmpegBackend(MediaBackend):
             if wb_params:
                 video_filters.append(f"colorbalance={':'.join(wb_params)}")
 
+        # === Colorization (B&W → Color) ===
+        colorization = app_state.colorization
+        if colorization.enabled:
+            if colorization.method == "tint":
+                h = colorization.tint_hue / 360.0
+                s = min(colorization.tint_saturation, 1.0)
+                tint_r, tint_g, tint_b = self._hsl_to_rgb(h, s, 0.5)
+                strength = colorization.tint_strength
+                rc = (1.0 - strength + strength * tint_g) / 3.0
+                gc = (1.0 - strength + strength * tint_b) / 3.0
+                bc = (1.0 - strength + strength * tint_r) / 3.0
+                video_filters.append("format=gbrp")
+                video_filters.append(
+                    f"colorchannelmixer="
+                    f"rr={rc:.6f}:rg={rc:.6f}:rb={rc:.6f}:"
+                    f"gr={gc:.6f}:gg={gc:.6f}:gb={gc:.6f}:"
+                    f"br={bc:.6f}:bg={bc:.6f}:bb={bc:.6f}"
+                )
+            elif colorization.method == "pseudocolor":
+                preset = colorization.pseudocolor_preset
+                opacity = colorization.pseudocolor_opacity
+                video_filters.append(f"pseudocolor=colorpreset={preset}:opacity={opacity}")
+            elif colorization.method == "lut":
+                lut_path = colorization.lut_path
+                if lut_path and os.path.exists(lut_path):
+                    lut_type = colorization.lut_type
+                    escaped = lut_path.replace("'", "'\\''")
+                    if lut_type == "lut3d":
+                        video_filters.append(f"lut3d=file='{escaped}'")
+                    elif lut_type == "lutrgb":
+                        video_filters.append(f"lutrgb=file='{escaped}'")
+                    elif lut_type == "lutyuv":
+                        video_filters.append(f"lutyuv=file='{escaped}'")
+
         if filters.volume_enabled:
             audio_filters.append(f"volume={filters.volume_db}dB")
         if getattr(filters, 'audio_denoise', False):
@@ -540,6 +576,22 @@ class FFmpegBackend(MediaBackend):
             ",".join(video_filters) if video_filters else "",
             ",".join(audio_filters) if audio_filters else ""
         )
+
+    @staticmethod
+    def _hsl_to_rgb(h: float, s: float, l: float) -> tuple:
+        """Convert HSL (all 0.0-1.0) to RGB (0.0-1.0)"""
+        if s == 0.0:
+            return l, l, l
+        def hue_to_rgb(p, q, t):
+            if t < 0.0: t += 1.0
+            if t > 1.0: t -= 1.0
+            if t < 1.0 / 6.0: return p + (q - p) * 6.0 * t
+            if t < 1.0 / 2.0: return q
+            if t < 2.0 / 3.0: return p + (q - p) * (2.0 / 3.0 - t) * 6.0
+            return p
+        q = l * (1.0 + s) if l < 0.5 else l + s - l * s
+        p = 2.0 * l - q
+        return hue_to_rgb(p, q, h + 1.0 / 3.0), hue_to_rgb(p, q, h), hue_to_rgb(p, q, h - 1.0 / 3.0)
 
     def find_subtitle_file(self, video_path: str) -> Optional[str]:
         if not video_path:

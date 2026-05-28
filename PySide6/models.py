@@ -149,6 +149,26 @@ class GeometrySettings:
 
 
 @dataclass
+class ColorizationSettings:
+    """Colorization settings for B&W to color conversion (non-AI)"""
+    enabled: bool = False
+    method: str = "tint"  # "tint", "pseudocolor", "lut"
+
+    # Tint settings
+    tint_hue: float = 30.0        # 0-360 degrees (30 = sepia-like orange)
+    tint_saturation: float = 0.6  # 0.0-2.0
+    tint_strength: float = 1.0    # 0.0-1.0 mix with original
+
+    # Pseudocolor settings
+    pseudocolor_preset: str = "rainbow"  # rainbow, heat, cool, cold_warm, stripes
+    pseudocolor_opacity: float = 1.0     # 0.0-1.0
+
+    # LUT settings
+    lut_path: str = ""
+    lut_type: str = "lut3d"  # "lut3d", "lutrgb", "lutyuv"
+
+
+@dataclass
 class SplitSettings:
     """Video splitting settings"""
     enabled: bool = False
@@ -366,6 +386,7 @@ class AppState(QObject):
         self.tracks = TrackSettings()
         self.cut = CutSettings()
         self.dvd = DVDSettings()
+        self.colorization = ColorizationSettings()
         
         # Tracks list for Tracks Tab
         self.track_list: List[Track] = []

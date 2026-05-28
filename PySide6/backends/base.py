@@ -133,6 +133,9 @@ class MediaBackend(ABC):
             - 'eq_gamma'            (gamma element)
             - 'white_balance'       (colorbalance)
 
+          Colorization (B&W → Color):
+            - 'colorization'        (colorchannelmixer / pseudocolor / lut3d)
+
           Audio filters:
             - 'volume'
             - 'audio_denoise'
