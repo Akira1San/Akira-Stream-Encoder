@@ -1280,19 +1280,23 @@ class FFmpegBackend(MediaBackend):
 
         return True
 
+    def _resolve_upscaler_binary(self, upscaler: str) -> str:
+        import os
+        from config import REALESRGAN_NCNN, ANIME4K_NCNN
+
+        if upscaler == "realesrgan":
+            return self.app_state.realesrgan_path or REALESRGAN_NCNN
+        elif upscaler == "anime4k":
+            return self.app_state.anime4k_path or ANIME4K_NCNN
+        return ""
+
     def upscale_frames(self, frames_dir: str, upscaler: str,
                        model: str, scale: int, tile_size: int,
                        progress_callback=None) -> bool:
         import os
-        from config import UPSCALING_MODELS
 
-        upscaler_info = UPSCALING_MODELS.get(upscaler)
-        if not upscaler_info:
-            self.app_state.log(f"Unknown upscaler: {upscaler}", "ERROR")
-            return False
-
-        binary = upscaler_info["binary"]
-        if not os.path.isfile(binary):
+        binary = self._resolve_upscaler_binary(upscaler)
+        if not binary or not os.path.isfile(binary):
             self.app_state.log(f"Upscaler binary not found: {binary}", "ERROR")
             return False
 

@@ -523,12 +523,18 @@ class VideoController:
             self.app_state.log(f"Part {part_name} already upscaled", "INFO")
             return True
 
-        from config import UPSCALING_MODELS
-        upscaler_info = UPSCALING_MODELS.get(ai.upscaler)
-        if not upscaler_info:
+        from config import REALESRGAN_NCNN, ANIME4K_NCNN
+        if ai.upscaler == "realesrgan":
+            binary = self.app_state.realesrgan_path or REALESRGAN_NCNN
+        elif ai.upscaler == "anime4k":
+            binary = self.app_state.anime4k_path or ANIME4K_NCNN
+        else:
+            self.app_state.log(f"Unknown upscaler: {ai.upscaler}", "ERROR")
             return False
 
-        binary = upscaler_info["binary"]
+        if not os.path.isfile(binary):
+            self.app_state.log(f"Upscaler binary not found: {binary}", "ERROR")
+            return False
         cmd = [
             binary,
             "-i", src_dir,

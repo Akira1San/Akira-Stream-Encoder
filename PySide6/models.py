@@ -340,6 +340,8 @@ class AppState(QObject):
     handbrake_available_changed = Signal(bool)
     media_engine_changed = Signal(str)
     gstreamer_path_changed = Signal(str)
+    realesrgan_path_changed = Signal(str)
+    anime4k_path_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -376,6 +378,10 @@ class AppState(QObject):
         self._media_engine: str = "ffmpeg"
         self._gstreamer_path: str = "gst-launch-1.0"
         self._backend = None
+
+        # AI Upscaling paths
+        self._realesrgan_path: str = ""
+        self._anime4k_path: str = ""
 
         # UI State
         self._is_encoding: bool = False
@@ -486,6 +492,26 @@ class AppState(QObject):
         if self._gstreamer_path != value:
             self._gstreamer_path = value
             self.gstreamer_path_changed.emit(value)
+
+    @Property(str, notify=realesrgan_path_changed)
+    def realesrgan_path(self):
+        return self._realesrgan_path
+
+    @realesrgan_path.setter
+    def realesrgan_path(self, value):
+        if self._realesrgan_path != value:
+            self._realesrgan_path = value
+            self.realesrgan_path_changed.emit(value)
+
+    @Property(str, notify=anime4k_path_changed)
+    def anime4k_path(self):
+        return self._anime4k_path
+
+    @anime4k_path.setter
+    def anime4k_path(self, value):
+        if self._anime4k_path != value:
+            self._anime4k_path = value
+            self.anime4k_path_changed.emit(value)
 
     @property
     def backend(self):

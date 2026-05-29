@@ -417,6 +417,40 @@ class ConfigTab(QWidget):
         hb_layout.addWidget(self.hb_status_label)
         paths_layout.addLayout(hb_layout)
 
+        # AI Upscaling Paths
+        ai_paths_group = QGroupBox("AI Upscaling")
+        ai_paths_layout = QVBoxLayout(ai_paths_group)
+
+        # Real-ESRGAN path
+        realesrgan_layout = QHBoxLayout()
+        realesrgan_layout.addWidget(QLabel("Real-ESRGAN:"))
+        self.realesrgan_edit = QLineEdit(self.app_state.realesrgan_path)
+        self.realesrgan_edit.setPlaceholderText("Default: backends/realesrgan-ncnn-vulkan/")
+        realesrgan_layout.addWidget(self.realesrgan_edit)
+        browse_realesrgan_btn = QPushButton("Browse...")
+        browse_realesrgan_btn.clicked.connect(self.browse_realesrgan)
+        realesrgan_layout.addWidget(browse_realesrgan_btn)
+        auto_realesrgan_btn = QPushButton("Auto Detect")
+        auto_realesrgan_btn.clicked.connect(self.auto_detect_realesrgan)
+        realesrgan_layout.addWidget(auto_realesrgan_btn)
+        ai_paths_layout.addLayout(realesrgan_layout)
+
+        # Anime4K path
+        anime4k_layout = QHBoxLayout()
+        anime4k_layout.addWidget(QLabel("Anime4K:"))
+        self.anime4k_edit = QLineEdit(self.app_state.anime4k_path)
+        self.anime4k_edit.setPlaceholderText("Default: backends/anime4k-ncnn-vulkan/")
+        anime4k_layout.addWidget(self.anime4k_edit)
+        browse_anime4k_btn = QPushButton("Browse...")
+        browse_anime4k_btn.clicked.connect(self.browse_anime4k)
+        anime4k_layout.addWidget(browse_anime4k_btn)
+        auto_anime4k_btn = QPushButton("Auto Detect")
+        auto_anime4k_btn.clicked.connect(self.auto_detect_anime4k)
+        anime4k_layout.addWidget(auto_anime4k_btn)
+        ai_paths_layout.addLayout(anime4k_layout)
+
+        paths_layout.addWidget(ai_paths_group)
+
         layout.addWidget(paths_group)
         
         # === Output Settings Group ===
@@ -542,6 +576,8 @@ class ConfigTab(QWidget):
         self.handbrake_edit.textChanged.connect(self.on_handbrake_changed)
         self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
         self.app_state.media_engine_changed.connect(self._on_media_engine_changed)
+        self.realesrgan_edit.textChanged.connect(self.on_realesrgan_changed)
+        self.anime4k_edit.textChanged.connect(self.on_anime4k_changed)
         
     def on_engine_changed(self, text):
         engine = "gstreamer" if text == "GStreamer" else "ffmpeg"
@@ -705,6 +741,52 @@ class ConfigTab(QWidget):
         else:
             self.hb_status_label.setText("✗ Not Found")
             self.hb_status_label.setStyleSheet("color: red; font-size: 10px;")
+
+    # ── AI Upscaling path handlers ─────────────────────────────────
+
+    def browse_realesrgan(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Real-ESRGAN-ncnn-vulkan Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.realesrgan_edit.setText(file_path)
+
+    def auto_detect_realesrgan(self):
+        from config import REALESRGAN_NCNN
+        if os.path.isfile(REALESRGAN_NCNN):
+            self.realesrgan_edit.setText(REALESRGAN_NCNN)
+            self.app_state.log(f"Auto-detected Real-ESRGAN: {REALESRGAN_NCNN}", "INFO")
+        else:
+            QMessageBox.warning(self, "Not Found",
+                "Default Real-ESRGAN binary not found at:\n"
+                f"{REALESRGAN_NCNN}\n\n"
+                "Please browse to the executable manually.")
+
+    def browse_anime4k(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Anime4K-ncnn-vulkan Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.anime4k_edit.setText(file_path)
+
+    def auto_detect_anime4k(self):
+        from config import ANIME4K_NCNN
+        if os.path.isfile(ANIME4K_NCNN):
+            self.anime4k_edit.setText(ANIME4K_NCNN)
+            self.app_state.log(f"Auto-detected Anime4K: {ANIME4K_NCNN}", "INFO")
+        else:
+            QMessageBox.warning(self, "Not Found",
+                "Default Anime4K binary not found at:\n"
+                f"{ANIME4K_NCNN}\n\n"
+                "Please browse to the executable manually.")
+
+    def on_realesrgan_changed(self, text):
+        self.app_state.realesrgan_path = text
+
+    def on_anime4k_changed(self, text):
+        self.app_state.anime4k_path = text
             
     def browse_output_folder(self):
         """Browse for output folder"""

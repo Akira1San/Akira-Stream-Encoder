@@ -148,6 +148,10 @@ class MainWindow(QMainWindow):
                     self.app_state.media_engine = settings['media_engine']
                 if 'gstreamer_path' in settings:
                     self.app_state.gstreamer_path = settings['gstreamer_path']
+                if 'realesrgan_path' in settings:
+                    self.app_state.realesrgan_path = settings['realesrgan_path']
+                if 'anime4k_path' in settings:
+                    self.app_state.anime4k_path = settings['anime4k_path']
 
                 self.log("Settings loaded", "INFO")
         except Exception as e:
@@ -162,6 +166,8 @@ class MainWindow(QMainWindow):
                 'handbrake_path': self.app_state.handbrake_path,
                 'media_engine': self.app_state.media_engine,
                 'gstreamer_path': self.app_state.gstreamer_path,
+                'realesrgan_path': self.app_state.realesrgan_path,
+                'anime4k_path': self.app_state.anime4k_path,
             }
             
             import json
