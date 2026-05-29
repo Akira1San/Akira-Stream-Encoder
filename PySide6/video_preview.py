@@ -429,6 +429,7 @@ class FrameLoader(QObject):
 class FilterOverlay(QWidget):
     """
     Overlay widget that displays processed video frames with filters and subtitles.
+    Supports GIMP-style split preview (original on left, processed on right).
     Sits on top of the video widget and displays filtered preview.
     """
     
@@ -441,12 +442,19 @@ class FilterOverlay(QWidget):
         
         # Current processed frame to display
         self._current_image: Optional[QImage] = None
+        self._original_image: Optional[QImage] = None
         self._subtitle_text: str = ""
         self._frozen: bool = False
+        self._split_enabled: bool = False
         
         # Video dimensions for font scaling
         self._video_width: int = 1920
         self._video_height: int = 1080
+    
+    def set_split_enabled(self, enabled: bool):
+        """Enable or disable 50/50 split preview (original | processed)"""
+        self._split_enabled = enabled
+        self.update()
     
     def set_frozen(self, frozen: bool):
         """Set frozen state - shows message that preview is paused during playback"""
@@ -469,6 +477,12 @@ class FilterOverlay(QWidget):
                 self._video_height = image.height()
             self.update()
     
+    def set_original_image(self, image: QImage):
+        """Set the original (unfiltered) frame for split preview"""
+        if not image.isNull():
+            self._original_image = image.copy()
+            self.update()
+    
     def set_subtitle(self, text: str):
         """Set subtitle text to display"""
         self._subtitle_text = text
@@ -477,6 +491,7 @@ class FilterOverlay(QWidget):
     def clear(self):
         """Clear the overlay"""
         self._current_image = None
+        self._original_image = None
         self._subtitle_text = ""
         self.update()
     
@@ -565,29 +580,66 @@ class FilterOverlay(QWidget):
         return result
     
     def paintEvent(self, event):
-        """Draw the processed frame and subtitle on the overlay"""
+        """Draw the processed frame and subtitle on the overlay.
+        When split mode is on, shows original on left half and processed on right half
+        with a vertical divider line in the middle."""
         super().paintEvent(event)
         
         if self._current_image is None or self._current_image.isNull():
             return
         
         painter = QPainter(self)
+        w = self.width()
+        h = self.height()
+        mid_x = w // 2
         
-        # Get image to draw (apply subtitles if present)
-        image_to_draw = self._current_image
+        # Get processed image (with subtitles if present)
+        processed = self._current_image
         if self._subtitle_text:
-            image_to_draw = self.draw_subtitle_on_image(self._current_image.copy(), self._subtitle_text)
+            processed = self.draw_subtitle_on_image(self._current_image.copy(), self._subtitle_text)
         
-        # Scale the image to fill the widget (ignore aspect ratio to fill the panel)
-        pixmap = QPixmap.fromImage(image_to_draw)
-        scaled = pixmap.scaled(
-            self.size(),
-            Qt.IgnoreAspectRatio,
-            Qt.SmoothTransformation
-        )
-        
-        # Draw the image
-        painter.drawPixmap(0, 0, scaled)
+        if self._split_enabled and self._original_image is not None:
+            # ---- Split mode: original left, processed right ----
+            
+            # Scale original to left half
+            orig_pixmap = QPixmap.fromImage(self._original_image)
+            orig_left = orig_pixmap.scaled(
+                mid_x, h,
+                Qt.IgnoreAspectRatio,
+                Qt.SmoothTransformation
+            )
+            painter.drawPixmap(0, 0, mid_x, h, orig_left)
+            
+            # Scale processed to right half
+            proc_pixmap = QPixmap.fromImage(processed)
+            proc_right = proc_pixmap.scaled(
+                w - mid_x, h,
+                Qt.IgnoreAspectRatio,
+                Qt.SmoothTransformation
+            )
+            painter.drawPixmap(mid_x, 0, w - mid_x, h, proc_right)
+            
+            # Draw vertical divider line
+            painter.setPen(QPen(QColor(200, 200, 200), 2))
+            painter.drawLine(mid_x, 0, mid_x, h)
+            
+            # Draw "Original" / "Processed" labels
+            label_font = QFont("Arial", 9)
+            painter.setFont(label_font)
+            painter.setPen(QColor(220, 220, 220))
+            painter.drawText(4, 4, mid_x - 4, 16,
+                             Qt.AlignLeft | Qt.AlignVCenter, "Original")
+            painter.drawText(mid_x + 4, 4, w - mid_x - 4, 16,
+                             Qt.AlignRight | Qt.AlignVCenter, "Processed")
+        else:
+            # ---- Normal mode: full processed image ----
+            pixmap = QPixmap.fromImage(processed)
+            scaled = pixmap.scaled(
+                self.size(),
+                Qt.IgnoreAspectRatio,
+                Qt.SmoothTransformation
+            )
+            painter.drawPixmap(0, 0, scaled)
         
         if self._frozen:
             painter.setPen(QColor(128, 128, 128, 180))
@@ -651,6 +703,9 @@ class VideoPreview(QWidget):
         
         # Current subtitle text for overlay
         self._current_subtitle: str = ""
+        
+        # Split preview toggle (GIMP-style 50/50 original|processed)
+        self._split_preview: bool = False
         
         self.setup_ui()
         
@@ -788,6 +843,17 @@ class VideoPreview(QWidget):
         self.size_combo.currentTextChanged.connect(self.on_size_changed)
         self.size_combo.setMaximumWidth(80)
         playback_layout.addWidget(self.size_combo)
+        
+        playback_layout.addSpacing(15)
+        
+        # Split preview toggle (GIMP-style 50/50)
+        self.split_btn = QPushButton("⊞ Split")
+        self.split_btn.setMaximumWidth(80)
+        self.split_btn.setCheckable(True)
+        self.split_btn.setChecked(False)
+        self.split_btn.setToolTip("Toggle 50/50 split preview: original | processed")
+        self.split_btn.toggled.connect(self.on_split_toggled)
+        playback_layout.addWidget(self.split_btn)
         
         playback_layout.addSpacing(15)
         
@@ -1028,18 +1094,19 @@ class VideoPreview(QWidget):
             return
 
         # Downscale to preview size for performance
-        frame = frame.scaled(
+        original = frame.scaled(
             self.preview_width, self.preview_height,
             Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
 
         # Apply filters to the captured frame
-        processed = self.apply_filters(frame)
+        processed = self.apply_filters(original)
         
         # Get current subtitle text
         sub_text = self._get_current_subtitle()
         
-        # Update filter overlay with processed frame and subtitle
+        # Update filter overlay with both original and processed frames
+        self.filter_overlay.set_original_image(original)
         self.filter_overlay.set_image(processed)
         self.filter_overlay.set_subtitle(sub_text)
     
@@ -1392,6 +1459,7 @@ class VideoPreview(QWidget):
         
         # Apply filters and update the filter overlay (not the hidden label)
         processed = self.apply_filters(image)
+        self.filter_overlay.set_original_image(image)
         self.filter_overlay.set_image(processed)
         
         # For non-DVD sources, use QPainter overlay for subtitle display.
@@ -1689,6 +1757,7 @@ class VideoPreview(QWidget):
             self.display_image(self.original_label, self.current_frame)
             processed = self.apply_filters(self.current_frame)
             sub_text = self._get_current_subtitle()
+            self.filter_overlay.set_original_image(self.current_frame)
             self.filter_overlay.set_image(processed)
             self.filter_overlay.set_subtitle(sub_text)
             
@@ -1756,6 +1825,13 @@ class VideoPreview(QWidget):
         
         self.setMinimumHeight(h + 180)
         
+    def on_split_toggled(self, checked: bool):
+        """Handle split preview toggle"""
+        self._split_preview = checked
+        self.filter_overlay.set_split_enabled(checked)
+        mode = "ON" if checked else "OFF"
+        self.app_state.log(f"Split preview {mode}", "INFO")
+    
     def on_pause_clicked(self):
         """Handle pause button click"""
         self.is_playing = False
