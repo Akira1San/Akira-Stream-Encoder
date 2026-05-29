@@ -482,6 +482,203 @@ class EncodingPanel(QWidget):
             self.gst_algorithm_combo.setStyleSheet("color: gray;")
             self.scale_quality_combo.setStyleSheet("color: gray;")
         
+        # === AI Upscaling Section ===
+        line_ai = QFrame()
+        line_ai.setFrameShape(QFrame.HLine)
+        line_ai.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line_ai)
+        
+        self.ai_enabled_check = QCheckBox("AI Upscaling")
+        self.ai_enabled_check.setChecked(self.app_state.ai_upscaling.enabled)
+        self.ai_enabled_check.setToolTip("Enable AI-powered upscaling using Real-ESRGAN or Anime4K.\nExtract → Upscale → Recombine pipeline.")
+        layout.addWidget(self.ai_enabled_check)
+        
+        # AI Upscaling Group
+        self.ai_group = QGroupBox()
+        ai_group_layout = QVBoxLayout(self.ai_group)
+        ai_group_layout.setSpacing(5)
+        
+        # Upscaler row
+        upscaler_row = QHBoxLayout()
+        upscaler_row.addWidget(QLabel("Upscaler:"))
+        self.ai_upscaler_combo = QComboBox()
+        from config import UPSCALING_MODELS
+        for key, info in UPSCALING_MODELS.items():
+            self.ai_upscaler_combo.addItem(info["label"], key)
+        self.ai_upscaler_combo.setCurrentIndex(0)
+        self.ai_upscaler_combo.setToolTip(
+            "Select the AI upscaling engine:\n"
+            "• Real-ESRGAN — Neural network, best quality, 4 models\n"
+            "• Anime4K — Shader-based, very fast, 3 presets"
+        )
+        upscaler_row.addWidget(self.ai_upscaler_combo)
+        upscaler_row.addStretch()
+        ai_group_layout.addLayout(upscaler_row)
+        
+        # Model row (alone to avoid stretching)
+        model_row = QHBoxLayout()
+        model_row.addWidget(QLabel("Model:"))
+        self.ai_model_combo = QComboBox()
+        self.ai_model_combo.setMinimumWidth(300)
+        self.ai_model_combo.setToolTip(
+            "AI upscaling model:\n"
+            "• realesrgan-x4plus — General purpose (default)\n"
+            "• realesrnet-x4plus — Faster, slightly lower quality\n"
+            "• realesrgan-x4plus-anime — Optimized for anime\n"
+            "• reales-animevideov3 — Lightweight anime video\n\n"
+            "Anime4K models:\n"
+            "• A — Fastest\n"
+            "• B — Balanced\n"
+            "• C — Best quality"
+        )
+        model_row.addWidget(self.ai_model_combo)
+        model_row.addStretch()
+        ai_group_layout.addLayout(model_row)
+        
+        # Scale + Tile Size on same row
+        scale_tile_row = QHBoxLayout()
+        scale_tile_row.addWidget(QLabel("Scale:"))
+        self.ai_scale_combo = QComboBox()
+        self.ai_scale_combo.setToolTip("Upscaling factor:\n2x = double resolution\n3x = triple resolution\n4x = quadruple resolution")
+        scale_tile_row.addWidget(self.ai_scale_combo)
+        scale_tile_row.addSpacing(15)
+        scale_tile_row.addWidget(QLabel("Tile Size:"))
+        self.ai_tile_spin = QSpinBox()
+        self.ai_tile_spin.setRange(0, 1024)
+        self.ai_tile_spin.setValue(self.app_state.ai_upscaling.tile_size)
+        self.ai_tile_spin.setSingleStep(32)
+        self.ai_tile_spin.setSuffix(" px  (0 = auto)")
+        self.ai_tile_spin.setToolTip(
+            "Tile size for GPU memory management.\n"
+            "Smaller = less VRAM usage, slower\n"
+            "Larger = more VRAM, faster\n"
+            "0 = auto-detect best tile size.\n\n"
+            "Recommended:\n"
+            "• 128-256 for 4GB VRAM\n"
+            "• 256-512 for 8GB+ VRAM\n"
+            "• 0 for auto"
+        )
+        scale_tile_row.addWidget(self.ai_tile_spin)
+        scale_tile_row.addStretch()
+        ai_group_layout.addLayout(scale_tile_row)
+        
+        # Part duration
+        part_row = QHBoxLayout()
+        part_row.addWidget(QLabel("Part Duration:"))
+        self.ai_part_combo = QComboBox()
+        self.ai_part_combo.addItems(["1 min", "5 min"])
+        self.ai_part_combo.setCurrentText(f"{self.app_state.ai_upscaling.part_duration_minutes} min")
+        self.ai_part_combo.setToolTip(
+            "Duration of each frame part.\n"
+            "Shorter parts = more resumable but more folders.\n"
+            "• 1 min — Good for long videos, fine-grained resume\n"
+            "• 5 min — Fewer parts, faster overall"
+        )
+        part_row.addWidget(self.ai_part_combo)
+        part_row.addStretch()
+        ai_group_layout.addLayout(part_row)
+        
+        # Frames directory
+        frames_dir_row = QHBoxLayout()
+        frames_dir_row.addWidget(QLabel("Frames Dir:"))
+        self.ai_frames_dir_edit = QLineEdit(self.app_state.ai_upscaling.frames_dir)
+        self.ai_frames_dir_edit.setPlaceholderText("Auto (next to source video)")
+        self.ai_frames_dir_edit.setReadOnly(True)
+        self.ai_frames_dir_edit.setToolTip("Directory where extracted frame parts will be stored.\nLeave empty for auto (next to source video).")
+        frames_dir_row.addWidget(self.ai_frames_dir_edit)
+        self.ai_browse_frames_btn = QPushButton("Browse...")
+        self.ai_browse_frames_btn.setMaximumWidth(80)
+        self.ai_browse_frames_btn.setToolTip("Choose a custom directory for frame storage")
+        frames_dir_row.addWidget(self.ai_browse_frames_btn)
+        ai_group_layout.addLayout(frames_dir_row)
+        
+        # ── Pipeline Buttons ──
+        pipeline_line = QFrame()
+        pipeline_line.setFrameShape(QFrame.HLine)
+        pipeline_line.setFrameShadow(QFrame.Sunken)
+        ai_group_layout.addWidget(pipeline_line)
+        
+        # Extract
+        extract_row = QHBoxLayout()
+        self.ai_extract_btn = QPushButton("1. Extract Frames")
+        self.ai_extract_btn.setToolTip(
+            "Step 1: Split video into parts and extract PNG frames.\n"
+            "Each part is stored in its own folder (e.g., 001_00m-01m/).\n"
+            "Existing parts are skipped (resume-friendly)."
+        )
+        extract_row.addWidget(self.ai_extract_btn)
+        self.ai_extract_status = QLabel("Waiting...")
+        self.ai_extract_status.setStyleSheet("color: gray;")
+        self.ai_extract_status.setToolTip("Status of frame extraction")
+        extract_row.addWidget(self.ai_extract_status)
+        extract_row.addStretch()
+        ai_group_layout.addLayout(extract_row)
+        
+        # Part selector + Upscale Part
+        upscale_part_row = QHBoxLayout()
+        self.ai_part_combo_selector = QComboBox()
+        self.ai_part_combo_selector.setMinimumWidth(180)
+        self.ai_part_combo_selector.setToolTip("Select a specific part folder to upscale individually")
+        upscale_part_row.addWidget(QLabel("Part:"))
+        upscale_part_row.addWidget(self.ai_part_combo_selector)
+        self.ai_upscale_part_btn = QPushButton("2a. Upscale Part")
+        self.ai_upscale_part_btn.setToolTip(
+            "Upscale only the selected part.\n"
+            "Useful for testing or resuming from a specific point.\n"
+            "Creates a *_upscaled/ mirror folder."
+        )
+        upscale_part_row.addWidget(self.ai_upscale_part_btn)
+        upscale_part_row.addStretch()
+        ai_group_layout.addLayout(upscale_part_row)
+        
+        # Upscale All + progress
+        upscale_all_row = QHBoxLayout()
+        self.ai_upscale_all_btn = QPushButton("2b. Upscale All (remaining)")
+        self.ai_upscale_all_btn.setToolTip(
+            "Upscale all parts that haven't been processed yet.\n"
+            "Skips parts that already have a *_upscaled/ folder.\n"
+            "This is the main upscaling step — runs the AI model on each frame."
+        )
+        upscale_all_row.addWidget(self.ai_upscale_all_btn)
+        self.ai_upscale_progress = QLabel("")
+        self.ai_upscale_progress.setStyleSheet("color: gray;")
+        self.ai_upscale_progress.setToolTip("Progress of batch upscaling")
+        upscale_all_row.addWidget(self.ai_upscale_progress)
+        upscale_all_row.addStretch()
+        ai_group_layout.addLayout(upscale_all_row)
+        
+        # Recombine
+        recombine_row = QHBoxLayout()
+        self.ai_recombine_btn = QPushButton("3. Recombine Video")
+        self.ai_recombine_btn.setToolTip(
+            "Step 3: Combine all upscaled frame parts into a single video file.\n"
+            "Each *_upscaled/ folder is encoded to a temp MP4, then all are concatenated.\n"
+            "Result is saved as <video>_ai_upscaled.mp4 in the frames directory."
+        )
+        recombine_row.addWidget(self.ai_recombine_btn)
+        self.ai_recombine_status = QLabel("Waiting...")
+        self.ai_recombine_status.setStyleSheet("color: gray;")
+        self.ai_recombine_status.setToolTip("Status of video recombination")
+        recombine_row.addWidget(self.ai_recombine_status)
+        recombine_row.addStretch()
+        ai_group_layout.addLayout(recombine_row)
+        
+        # Cleanup checkbox
+        self.ai_cleanup_check = QCheckBox("Clean up temp frames after encode")
+        self.ai_cleanup_check.setChecked(self.app_state.ai_upscaling.cleanup_temp)
+        self.ai_cleanup_check.setToolTip(
+            "Delete all extracted and upscaled frame files after encoding completes.\n"
+            "Saves disk space but requires re-extraction if you want to upscale again."
+        )
+        ai_group_layout.addWidget(self.ai_cleanup_check)
+        
+        # Hide group initially if not enabled
+        self.ai_group.setVisible(self.app_state.ai_upscaling.enabled)
+        self._populate_ai_models()
+        self._populate_ai_scales()
+        
+        layout.addWidget(self.ai_group)
+        
         # === Advanced Encoding Settings (Collapsible) ===
         line4 = QFrame()
         line4.setFrameShape(QFrame.HLine)
@@ -702,6 +899,20 @@ class EncodingPanel(QWidget):
         self.external_audio_check.toggled.connect(self.on_external_audio_toggled)
         self.browse_audio_btn.clicked.connect(self.on_browse_external_audio)
         self.clear_audio_btn.clicked.connect(self.on_clear_external_audio)
+        
+        # AI Upscaling signals
+        self.ai_enabled_check.toggled.connect(self.on_ai_enabled_toggled)
+        self.ai_upscaler_combo.currentIndexChanged.connect(self.on_ai_upscaler_changed)
+        self.ai_model_combo.currentTextChanged.connect(self.on_ai_model_changed)
+        self.ai_scale_combo.currentTextChanged.connect(self.on_ai_scale_changed)
+        self.ai_tile_spin.valueChanged.connect(self.on_ai_tile_changed)
+        self.ai_part_combo.currentTextChanged.connect(self.on_ai_part_changed)
+        self.ai_browse_frames_btn.clicked.connect(self.on_ai_browse_frames)
+        self.ai_extract_btn.clicked.connect(self.on_ai_extract_frames)
+        self.ai_upscale_part_btn.clicked.connect(self.on_ai_upscale_part)
+        self.ai_upscale_all_btn.clicked.connect(self.on_ai_upscale_all)
+        self.ai_recombine_btn.clicked.connect(self.on_ai_recombine)
+        self.ai_cleanup_check.toggled.connect(self.on_ai_cleanup_changed)
         
         # Set initial preset visibility
         self.update_preset_visibility()
@@ -1142,3 +1353,195 @@ class EncodingPanel(QWidget):
         pix_fmt = text.split()[0]  # Extract just the format name (before the space and bit depth)
         self.app_state.encoding.pixel_format = pix_fmt
         self.settings_changed.emit()
+
+    # ── AI Upscaling Helpers ──────────────────────────────────────
+
+    def _populate_ai_models(self):
+        from config import UPSCALING_MODELS
+        key = self.ai_upscaler_combo.currentData()
+        info = UPSCALING_MODELS.get(key, {})
+        self.ai_model_combo.clear()
+        for model_key, desc in info.get("models", []):
+            self.ai_model_combo.addItem(f"{model_key} — {desc}", model_key)
+        default = info.get("default_model", "")
+        idx = self.ai_model_combo.findData(default)
+        if idx >= 0:
+            self.ai_model_combo.setCurrentIndex(idx)
+        self.app_state.ai_upscaling.upscaler = key
+
+    def _populate_ai_scales(self):
+        from config import UPSCALING_MODELS
+        key = self.ai_upscaler_combo.currentData()
+        info = UPSCALING_MODELS.get(key, {})
+        self.ai_scale_combo.clear()
+        for s in info.get("scales", [4]):
+            self.ai_scale_combo.addItem(f"{s}x", s)
+
+    def _refresh_part_list(self):
+        self.ai_part_combo_selector.clear()
+        ai = self.app_state.ai_upscaling
+        if not ai.frames_dir:
+            return
+        parts = self.app_state.backend.get_part_dirs(ai.frames_dir)
+        if parts:
+            self.ai_part_combo_selector.addItems(parts)
+
+    def on_ai_enabled_toggled(self, checked):
+        self.app_state.ai_upscaling.enabled = checked
+        self.ai_group.setVisible(checked)
+        self.settings_changed.emit()
+
+    def on_ai_upscaler_changed(self, index):
+        self._populate_ai_models()
+        self._populate_ai_scales()
+        self.settings_changed.emit()
+
+    def on_ai_model_changed(self, text):
+        self.app_state.ai_upscaling.model = self.ai_model_combo.currentData()
+        self.settings_changed.emit()
+
+    def on_ai_scale_changed(self, text):
+        self.app_state.ai_upscaling.scale = self.ai_scale_combo.currentData()
+        self.settings_changed.emit()
+
+    def on_ai_tile_changed(self, value):
+        self.app_state.ai_upscaling.tile_size = value
+        self.settings_changed.emit()
+
+    def on_ai_part_changed(self, text):
+        minutes = int(text.split()[0])
+        self.app_state.ai_upscaling.part_duration_minutes = minutes
+        self.settings_changed.emit()
+
+    def on_ai_cleanup_changed(self, checked):
+        self.app_state.ai_upscaling.cleanup_temp = checked
+        self.settings_changed.emit()
+
+    def on_ai_browse_frames(self):
+        import os
+        folder = QFileDialog.getExistingDirectory(self, "Select Frames Directory")
+        if folder:
+            self.ai_frames_dir_edit.setText(folder)
+            self.app_state.ai_upscaling.frames_dir = folder
+            self._refresh_part_list()
+
+    def _make_controller(self):
+        from controller import VideoController
+        return VideoController(self.app_state)
+
+    def on_ai_extract_frames(self):
+        import os
+        import threading
+
+        input_files = self.app_state.input_files
+        if not input_files:
+            self.app_state.log("No input file loaded.", "WARN")
+            return
+
+        input_path = input_files[0]
+        controller = self._make_controller()
+
+        self.ai_extract_btn.setEnabled(False)
+        self.ai_extract_status.setText("Extracting...")
+        self.ai_extract_status.setStyleSheet("color: orange;")
+
+        def run():
+            result = controller.extract_frames(input_path)
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._on_extract_done(result))
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_extract_done(self, result):
+        self.ai_extract_btn.setEnabled(True)
+        if result:
+            ai = self.app_state.ai_upscaling
+            self.ai_extract_status.setText(f"Done ✓ ({ai.total_parts} parts)")
+            self.ai_extract_status.setStyleSheet("color: green;")
+            self._refresh_part_list()
+        else:
+            self.ai_extract_status.setText("Failed ✗")
+            self.ai_extract_status.setStyleSheet("color: red;")
+
+    def on_ai_upscale_part(self):
+        import threading
+        part = self.ai_part_combo_selector.currentText()
+        if not part:
+            self.app_state.log("No part selected", "WARN")
+            return
+
+        controller = self._make_controller()
+
+        self.ai_upscale_part_btn.setEnabled(False)
+        self.ai_upscale_part_btn.setText("Upscaling...")
+
+        def run():
+            result = controller.upscale_part(part)
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._on_upscale_part_done(result))
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_upscale_part_done(self, result):
+        self.ai_upscale_part_btn.setEnabled(True)
+        self.ai_upscale_part_btn.setText("2a. Upscale Part")
+        if result:
+            self.app_state.log("Part upscaled successfully", "SUCCESS")
+        else:
+            self.app_state.log("Part upscale failed", "ERROR")
+
+    def on_ai_upscale_all(self):
+        import threading
+
+        controller = self._make_controller()
+
+        self.ai_upscale_all_btn.setEnabled(False)
+        self.ai_upscale_all_btn.setText("Upscaling...")
+
+        def run():
+            result = controller.upscale_frames()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._on_upscale_all_done(result))
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_upscale_all_done(self, result):
+        self.ai_upscale_all_btn.setEnabled(True)
+        self.ai_upscale_all_btn.setText("2b. Upscale All (remaining)")
+        ai = self.app_state.ai_upscaling
+        if result:
+            self.ai_upscale_progress.setText("Complete ✓")
+            self.ai_upscale_progress.setStyleSheet("color: green;")
+            ai.frames_upscaled = True
+        else:
+            self.ai_upscale_progress.setText("Failed ✗")
+            self.ai_upscale_progress.setStyleSheet("color: red;")
+
+    def on_ai_recombine(self):
+        import threading
+
+        controller = self._make_controller()
+
+        self.ai_recombine_btn.setEnabled(False)
+        self.ai_recombine_status.setText("Recombining...")
+        self.ai_recombine_status.setStyleSheet("color: orange;")
+
+        def run():
+            result = controller.recombine_frames()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._on_recombine_done(result))
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_recombine_done(self, output_path):
+        self.ai_recombine_btn.setEnabled(True)
+        if output_path:
+            self.ai_recombine_status.setText("Done ✓")
+            self.ai_recombine_status.setStyleSheet("color: green;")
+        else:
+            self.ai_recombine_status.setText("Failed ✗")
+            self.ai_recombine_status.setStyleSheet("color: red;")

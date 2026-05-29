@@ -454,3 +454,130 @@ class VideoController:
         finally:
             self.is_encoding = False
             self.current_process = None
+
+    # ── AI Upscaling Pipeline Orchestration ────────────────────────
+
+    def _get_frames_dir(self, input_path: str) -> str:
+        import os
+        from pathlib import Path
+        ai = self.app_state.ai_upscaling
+        if ai.frames_dir:
+            return ai.frames_dir
+        stem = Path(input_path).stem
+        base = os.path.join(os.path.dirname(input_path), f".{stem}_frames")
+        return base
+
+    def extract_frames(self, input_path: str, progress_callback=None) -> bool:
+        ai = self.app_state.ai_upscaling
+        frames_dir = self._get_frames_dir(input_path)
+        ai.frames_dir = frames_dir
+
+        fps = self.backend.get_fps(input_path)
+        part_min = ai.part_duration_minutes
+
+        self.app_state.log(f"Extracting frames to {frames_dir} ({part_min}min parts @ {fps:.2f}fps)...", "INFO")
+        result = self.backend.extract_frames(input_path, frames_dir, part_min, fps, progress_callback)
+
+        if result:
+            ai.frames_extracted = True
+            part_dirs = self.backend.get_part_dirs(frames_dir)
+            ai.total_parts = len(part_dirs)
+            self.app_state.log(f"Extraction complete: {ai.total_parts} parts", "SUCCESS")
+        else:
+            ai.frames_extracted = False
+            self.app_state.log("Frame extraction failed", "ERROR")
+
+        return result
+
+    def upscale_frames(self, progress_callback=None) -> bool:
+        ai = self.app_state.ai_upscaling
+        if not ai.frames_dir or not ai.frames_extracted:
+            self.app_state.log("No frames to upscale. Extract frames first.", "ERROR")
+            return False
+
+        self.app_state.log(f"Upscaling with {ai.upscaler}/{ai.model} ({ai.scale}x)...", "INFO")
+        result = self.backend.upscale_frames(
+            ai.frames_dir, ai.upscaler, ai.model,
+            ai.scale, ai.tile_size, progress_callback
+        )
+
+        if result:
+            ai.frames_upscaled = True
+            self.app_state.log("Upscaling complete", "SUCCESS")
+        else:
+            ai.frames_upscaled = False
+            self.app_state.log("Upscaling failed", "ERROR")
+
+        return result
+
+    def upscale_part(self, part_name: str, progress_callback=None) -> bool:
+        import os
+        ai = self.app_state.ai_upscaling
+        if not ai.frames_dir:
+            self.app_state.log("No frames directory set.", "ERROR")
+            return False
+
+        src_dir = os.path.join(ai.frames_dir, part_name)
+        out_dir = os.path.join(ai.frames_dir, f"{part_name}_{ai.upscaler}")
+        if os.path.isdir(out_dir) and os.listdir(out_dir):
+            self.app_state.log(f"Part {part_name} already upscaled", "INFO")
+            return True
+
+        from config import UPSCALING_MODELS
+        upscaler_info = UPSCALING_MODELS.get(ai.upscaler)
+        if not upscaler_info:
+            return False
+
+        binary = upscaler_info["binary"]
+        cmd = [
+            binary,
+            "-i", src_dir,
+            "-o", out_dir,
+            "-s", str(ai.scale),
+            "-n", ai.model,
+        ]
+        if ai.tile_size > 0:
+            cmd.extend(["-t", str(ai.tile_size)])
+        cmd.extend(["-f", "png"])
+
+        try:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            proc.wait()
+            if proc.returncode != 0:
+                self.app_state.log(f"Upscale part {part_name} failed: {proc.stderr.read()[:300]}", "ERROR")
+                return False
+        except Exception as e:
+            self.app_state.log(f"Upscale part error {part_name}: {e}", "ERROR")
+            return False
+
+        if progress_callback:
+            progress_callback(100)
+        self.app_state.log(f"Part {part_name} upscaled", "SUCCESS")
+        return True
+
+    def recombine_frames(self, progress_callback=None) -> str:
+        import os
+        from pathlib import Path
+        ai = self.app_state.ai_upscaling
+        if not ai.frames_dir or not ai.frames_upscaled:
+            self.app_state.log("No upscaled frames to recombine.", "ERROR")
+            return ""
+
+        input_path = self.app_state.input_files[0] if self.app_state.input_files else ""
+        stem = Path(input_path).stem if input_path else "upscaled"
+        output_path = os.path.join(ai.frames_dir, f"{stem}_ai_upscaled.mp4")
+        fps = self.backend.get_fps(input_path) if input_path else 24000 / 1001
+
+        self.app_state.log("Recombining upscaled frames into video...", "INFO")
+        result = self.backend.recombine_frames(ai.frames_dir, output_path, fps, progress_callback)
+
+        if result:
+            ai.frames_recombined = True
+            self.app_state.log(f"Recombined video: {output_path}", "SUCCESS")
+            return output_path
+        else:
+            ai.frames_recombined = False
+            self.app_state.log("Recombination failed", "ERROR")
+            return ""

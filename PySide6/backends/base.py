@@ -110,6 +110,35 @@ class MediaBackend(ABC):
         ...
 
     @abstractmethod
+    def get_fps(self, input_path: str) -> float:
+        ...
+
+    @abstractmethod
+    def extract_frames(self, input_path: str, frames_dir: str,
+                       part_duration_min: int, fps: float,
+                       progress_callback=None) -> bool:
+        ...
+
+    @abstractmethod
+    def upscale_frames(self, frames_dir: str, upscaler: str,
+                       model: str, scale: int, tile_size: int,
+                       progress_callback=None) -> bool:
+        ...
+
+    @abstractmethod
+    def recombine_frames(self, frames_dir: str, output_path: str,
+                         fps: float, progress_callback=None) -> bool:
+        ...
+
+    @abstractmethod
+    def get_part_dirs(self, frames_dir: str) -> list:
+        ...
+
+    @abstractmethod
+    def get_upscaled_part_dirs(self, frames_dir: str) -> list:
+        ...
+
+    @abstractmethod
     def supported_filters(self) -> Dict[str, bool]:
         """
         Returns a dict mapping filter feature names to bool indicating

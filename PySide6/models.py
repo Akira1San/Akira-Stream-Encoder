@@ -289,6 +289,24 @@ class CutSettings:
 
 
 @dataclass
+class AIUpscalingSettings:
+    """AI upscaling settings (Real-ESRGAN / Anime4K via ncnn-vulkan)"""
+    enabled: bool = False
+    upscaler: str = "realesrgan"  # "realesrgan" or "anime4k"
+    model: str = "realesrgan-x4plus"
+    scale: int = 4
+    tile_size: int = 0             # 0 = auto
+    part_duration_minutes: int = 1  # 1 or 5
+    frames_dir: str = ""
+    frames_extracted: bool = False
+    frames_upscaled: bool = False
+    frames_recombined: bool = False
+    cleanup_temp: bool = False
+    current_part_index: int = 0
+    total_parts: int = 0
+
+
+@dataclass
 class DVDSettings:
     """DVD (VIDEO_TS) source settings"""
     is_dvd_source: bool = False
@@ -352,6 +370,7 @@ class AppState(QObject):
         self.cut = CutSettings()
         self.dvd = DVDSettings()
         self.colorization = ColorizationSettings()
+        self.ai_upscaling = AIUpscalingSettings()
         
         # Media engine
         self._media_engine: str = "ffmpeg"

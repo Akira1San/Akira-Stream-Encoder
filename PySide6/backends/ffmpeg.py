@@ -1200,3 +1200,261 @@ class FFmpegBackend(MediaBackend):
         except Exception:
             pass
         return None
+
+    # ── AI Upscaling Pipeline ──────────────────────────────────────
+
+    def get_fps(self, input_path: str) -> float:
+        ffprobe_path = self._get_ffprobe_path()
+        try:
+            cmd = [
+                ffprobe_path, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=r_frame_rate",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                input_path
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, timeout=30)
+            if result.returncode == 0 and result.stdout.strip():
+                parts = result.stdout.strip().split('/')
+                if len(parts) == 2:
+                    num, den = float(parts[0]), float(parts[1])
+                    if den > 0:
+                        return num / den
+                return float(parts[0])
+        except Exception:
+            pass
+        return 24000 / 1001  # fallback
+
+    def extract_frames(self, input_path: str, frames_dir: str,
+                       part_duration_min: int, fps: float,
+                       progress_callback=None) -> bool:
+        import math
+        import os
+
+        os.makedirs(frames_dir, exist_ok=True)
+        duration = self.get_duration(input_path)
+        part_sec = part_duration_min * 60
+        total_parts = max(1, math.ceil(duration / part_sec))
+
+        ffmpeg_path = self.app_state.ffmpeg_path
+
+        for part_idx in range(total_parts):
+            start = part_idx * part_sec
+            end = min(start + part_sec, duration)
+            part_label = f"{part_idx + 1:03d}_{int(start // 60)}m-{int(end // 60)}m"
+            part_dir = os.path.join(frames_dir, part_label)
+
+            if os.path.isdir(part_dir) and os.listdir(part_dir):
+                continue
+
+            os.makedirs(part_dir, exist_ok=True)
+            output_pattern = os.path.join(part_dir, "frame_%08d.png")
+            part_dur = part_sec if end == start + part_sec else duration - start
+
+            cmd = [
+                ffmpeg_path, "-y",
+                "-ss", str(start),
+                "-i", input_path,
+                "-t", str(part_dur),
+                "-q:v", "2",
+                "-vf", f"fps={fps}",
+                "-pix_fmt", "rgb24",
+                output_pattern
+            ]
+
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+                proc.wait()
+                if proc.returncode != 0:
+                    self.app_state.log(f"Extract failed {part_label}: {proc.stderr.read()[:200]}", "ERROR")
+                    return False
+            except Exception as e:
+                self.app_state.log(f"Extract error {part_label}: {e}", "ERROR")
+                return False
+
+            if progress_callback:
+                progress_callback(int((part_idx + 1) / total_parts * 100))
+
+        return True
+
+    def upscale_frames(self, frames_dir: str, upscaler: str,
+                       model: str, scale: int, tile_size: int,
+                       progress_callback=None) -> bool:
+        import os
+        from config import UPSCALING_MODELS
+
+        upscaler_info = UPSCALING_MODELS.get(upscaler)
+        if not upscaler_info:
+            self.app_state.log(f"Unknown upscaler: {upscaler}", "ERROR")
+            return False
+
+        binary = upscaler_info["binary"]
+        if not os.path.isfile(binary):
+            self.app_state.log(f"Upscaler binary not found: {binary}", "ERROR")
+            return False
+
+        part_dirs = self.get_part_dirs(frames_dir)
+        if not part_dirs:
+            self.app_state.log("No parts found to upscale. Extract frames first.", "ERROR")
+            return False
+
+        processed = 0
+        for part in part_dirs:
+            src_dir = os.path.join(frames_dir, part)
+            out_dir = os.path.join(frames_dir, f"{part}_{upscaler}")
+            if os.path.isdir(out_dir) and os.listdir(out_dir):
+                processed += 1
+                continue
+
+            os.makedirs(out_dir, exist_ok=True)
+
+            cmd = [
+                binary,
+                "-i", src_dir,
+                "-o", out_dir,
+                "-s", str(scale),
+                "-n", model,
+            ]
+            if tile_size > 0:
+                cmd.extend(["-t", str(tile_size)])
+            cmd.extend(["-f", "png"])
+
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+                proc.wait()
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read()[:300]
+                    self.app_state.log(f"Upscale failed {part}: {stderr}", "ERROR")
+                    return False
+            except Exception as e:
+                self.app_state.log(f"Upscale error {part}: {e}", "ERROR")
+                return False
+
+            processed += 1
+            if progress_callback:
+                progress_callback(int(processed / len(part_dirs) * 100))
+
+        return True
+
+    def recombine_frames(self, frames_dir: str, output_path: str,
+                         fps: float, progress_callback=None) -> bool:
+        import os
+
+        ffmpeg_path = self.app_state.ffmpeg_path
+        tmp_parts = []
+        upscaler_suffix = None
+
+        for d in os.listdir(frames_dir):
+            if d.endswith("_realesrgan") or d.endswith("_anime4k"):
+                upscaler_suffix = d.rsplit("_", 1)[1]
+                break
+
+        if not upscaler_suffix:
+            self.app_state.log("No upscaled frame directories found", "ERROR")
+            return False
+
+        part_dirs = sorted([
+            d for d in os.listdir(frames_dir)
+            if d.endswith(f"_{upscaler_suffix}")
+        ])
+
+        total = len(part_dirs)
+        for idx, part in enumerate(part_dirs):
+            src_dir = os.path.join(frames_dir, part)
+            tmp_mp4 = os.path.join(frames_dir, f"tmp_{part}.mp4")
+            tmp_parts.append(tmp_mp4)
+
+            if os.path.isfile(tmp_mp4):
+                continue
+
+            input_pattern = os.path.join(src_dir, "frame_%08d.png")
+            cmd = [
+                ffmpeg_path, "-y",
+                "-framerate", str(fps),
+                "-i", input_pattern,
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-preset", "fast",
+                "-crf", "18",
+                tmp_mp4
+            ]
+
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+                proc.wait()
+                if proc.returncode != 0:
+                    self.app_state.log(f"Recombine failed {part}: {proc.stderr.read()[:200]}", "ERROR")
+                    return False
+            except Exception as e:
+                self.app_state.log(f"Recombine error {part}: {e}", "ERROR")
+                return False
+
+            if progress_callback:
+                progress_callback(int((idx + 1) / total * 100))
+
+        concat_file = os.path.join(frames_dir, "concat_list.txt")
+        try:
+            with open(concat_file, "w") as f:
+                for tmp_mp4 in tmp_parts:
+                    if os.path.isfile(tmp_mp4):
+                        f.write(f"file '{tmp_mp4}'\n")
+
+            cmd = [
+                ffmpeg_path, "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", concat_file,
+                "-c", "copy",
+                output_path
+            ]
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            proc.wait()
+            if proc.returncode != 0:
+                self.app_state.log(f"Concat failed: {proc.stderr.read()[:200]}", "ERROR")
+                return False
+        except Exception as e:
+            self.app_state.log(f"Concat error: {e}", "ERROR")
+            return False
+        finally:
+            for tmp_mp4 in tmp_parts:
+                try:
+                    os.remove(tmp_mp4)
+                except OSError:
+                    pass
+            try:
+                os.remove(concat_file)
+            except OSError:
+                pass
+
+        return True
+
+    def get_part_dirs(self, frames_dir: str) -> list:
+        import os
+        if not os.path.isdir(frames_dir):
+            return []
+        return sorted([
+            d for d in os.listdir(frames_dir)
+            if os.path.isdir(os.path.join(frames_dir, d))
+            and not d.endswith("_realesrgan")
+            and not d.endswith("_anime4k")
+            and not d.startswith("tmp_")
+        ])
+
+    def get_upscaled_part_dirs(self, frames_dir: str) -> list:
+        import os
+        if not os.path.isdir(frames_dir):
+            return []
+        return sorted([
+            d for d in os.listdir(frames_dir)
+            if os.path.isdir(os.path.join(frames_dir, d))
+            and (d.endswith("_realesrgan") or d.endswith("_anime4k"))
+        ])

@@ -1050,6 +1050,32 @@ class GStreamerBackend(MediaBackend):
                 info[k.strip().lower().replace(" ", "_")] = v.strip()
         return info
 
+    def get_fps(self, input_path: str) -> float:
+        return 24000 / 1001
+
+    def extract_frames(self, input_path: str, frames_dir: str,
+                       part_duration_min: int, fps: float,
+                       progress_callback=None) -> bool:
+        self.app_state.log("GStreamer: frame extraction not supported, use FFmpeg backend", "WARN")
+        return False
+
+    def upscale_frames(self, frames_dir: str, upscaler: str,
+                       model: str, scale: int, tile_size: int,
+                       progress_callback=None) -> bool:
+        self.app_state.log("GStreamer: AI upscaling not supported, use FFmpeg backend", "WARN")
+        return False
+
+    def recombine_frames(self, frames_dir: str, output_path: str,
+                         fps: float, progress_callback=None) -> bool:
+        self.app_state.log("GStreamer: frame recombination not supported, use FFmpeg backend", "WARN")
+        return False
+
+    def get_part_dirs(self, frames_dir: str) -> list:
+        return []
+
+    def get_upscaled_part_dirs(self, frames_dir: str) -> list:
+        return []
+
     def supported_filters(self) -> dict:
         """GStreamer per-filter support based on actual element availability."""
         return {
