@@ -122,12 +122,39 @@ class FFmpegBackend(MediaBackend):
             pass
         return None
 
+    def build_extra_preview_filter(self, app_state) -> str:
+        """Build just the drawtext filters from Extra panel for preview."""
+        extra = app_state.extra
+        drawtext_filters = []
+        for item in extra.text_overlays:
+            if item.enabled and item.text.strip():
+                dt = self._build_drawtext_string(item)
+                if dt:
+                    drawtext_filters.append(dt)
+        return ",".join(drawtext_filters)
+
+    def has_preview_image_overlays(self, app_state) -> bool:
+        """Check if there are image overlays to show in preview."""
+        extra = app_state.extra
+        return any(
+            item.enabled and item.image_path and os.path.exists(item.image_path)
+            for item in extra.image_overlays
+        )
+
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
                       first_vob_path: str = None,
-                      max_size: tuple = None) -> Optional[bytes]:
+                      max_size: tuple = None,
+                      extra_video_filter: str = "",
+                      extra_image_paths: list = None) -> Optional[bytes]:
         ffmpeg_path = self.app_state.ffmpeg_path
-        if is_dvd_source and first_vob_path and os.path.exists(first_vob_path):
+        is_generated = self.app_state.extra.generate_video
+        if is_generated:
+            extra = self.app_state.extra
+            res = extra.gen_resolution
+            color = extra.gen_color
+            cmd = [ffmpeg_path, "-f", "lavfi", "-i", f"color=c={color}:s={res}:r=1"]
+        elif is_dvd_source and first_vob_path and os.path.exists(first_vob_path):
             preview_timestamp = min(timestamp, 600.0)
             cmd = [ffmpeg_path, "-ss", str(preview_timestamp)]
             cmd.extend(["-i", first_vob_path])
@@ -138,15 +165,36 @@ class FFmpegBackend(MediaBackend):
         else:
             cmd = [ffmpeg_path, "-ss", str(timestamp)]
             cmd.extend(["-i", video_path])
+
+        # Add image overlay inputs
+        image_paths = extra_image_paths or []
+        for img_path in image_paths:
+            cmd.extend(["-i", img_path])
+
         scale_filter = ""
         if max_size:
             scale_filter = f"scale='min({max_size[0]},iw)':min'({max_size[1]},ih)':force_original_aspect_ratio=decrease"
-        if subtitle_filter and scale_filter:
-            cmd.extend(["-vf", f"{subtitle_filter},{scale_filter}"])
-        elif subtitle_filter:
-            cmd.extend(["-vf", subtitle_filter])
-        elif scale_filter:
-            cmd.extend(["-vf", scale_filter])
+
+        # Combine all video filters
+        vf_parts = []
+        if subtitle_filter:
+            vf_parts.append(subtitle_filter)
+        if extra_video_filter:
+            vf_parts.append(extra_video_filter)
+        if scale_filter:
+            vf_parts.append(scale_filter)
+
+        if image_paths:
+            main_vf = ",".join(vf_parts) if vf_parts else ""
+            fc, num_ov, last_label = self._build_overlay_filter_complex(self.app_state.extra, main_vf)
+            if fc:
+                cmd.extend(["-filter_complex", fc])
+                cmd.extend(["-map", f"[{last_label}]"])
+            elif main_vf:
+                cmd.extend(["-vf", main_vf])
+        elif vf_parts:
+            cmd.extend(["-vf", ",".join(vf_parts)])
+
         cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
         try:
             timeout = 30 if is_dvd_source else 10

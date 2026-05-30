@@ -401,12 +401,12 @@ class FrameLoader(QObject):
         self._cancelled = False
         self._is_dvd_source = False
         
-    def load_frame(self, video_path: str, timestamp: float, backend, is_dvd_source: bool = False, first_vob_path: str = None, subtitle_filter: str = "", max_size: tuple = None):
+    def load_frame(self, video_path: str, timestamp: float, backend, is_dvd_source: bool = False, first_vob_path: str = None, subtitle_filter: str = "", max_size: tuple = None, extra_video_filter: str = "", extra_image_paths: list = None):
         """Load a frame from video at specified timestamp using backend"""
         self._cancelled = False
         self._is_dvd_source = is_dvd_source
 
-        data = backend.capture_frame(video_path, timestamp, subtitle_filter, is_dvd_source, first_vob_path, max_size)
+        data = backend.capture_frame(video_path, timestamp, subtitle_filter, is_dvd_source, first_vob_path, max_size, extra_video_filter, extra_image_paths)
 
         if self._cancelled:
             return
@@ -1385,14 +1385,14 @@ class VideoPreview(QWidget):
             
     def seek_preview(self, timestamp: float):
         """Seek to specific timestamp and update preview"""
-        if not self.current_video_path:
+        if not self.current_video_path and not self.app_state.extra.generate_video:
             return
             
         # Cancel any pending load and clean up previous thread
         self._cleanup_thread()
         
         # Check if this is a DVD source
-        is_dvd_source = self.app_state.dvd.is_dvd_source and self.current_video_path.endswith('.txt')
+        is_dvd_source = self.app_state.dvd.is_dvd_source and self.current_video_path and self.current_video_path.endswith('.txt')
         
         # Get first VOB path for DVD preview fallback
         first_vob_path = None
@@ -1414,6 +1414,17 @@ class VideoPreview(QWidget):
                 if sub_path:
                     subtitle_filter = self._build_subtitle_filter_string(sub_path)
         
+        # Build Extra overlay filters for preview (drawtext + images)
+        extra_video_filter = ""
+        extra_image_paths = []
+        backend = self.app_state.backend
+        if hasattr(backend, 'build_extra_preview_filter'):
+            extra_video_filter = backend.build_extra_preview_filter(self.app_state)
+        if hasattr(backend, 'has_preview_image_overlays') and backend.has_preview_image_overlays(self.app_state):
+            for item in self.app_state.extra.image_overlays:
+                if item.enabled and item.image_path and os.path.exists(item.image_path):
+                    extra_image_paths.append(item.image_path)
+        
         # Create new loader thread
         self._loader_thread = QThread()
         self._frame_loader = FrameLoader()
@@ -1426,7 +1437,8 @@ class VideoPreview(QWidget):
             lambda: self._frame_loader.load_frame(
                 self.current_video_path, timestamp, self.app_state.backend,
                 is_dvd_source, first_vob_path, subtitle_filter,
-                (self.preview_width, self.preview_height)
+                (self.preview_width, self.preview_height),
+                extra_video_filter, extra_image_paths
             )
         )
         
@@ -1743,6 +1755,8 @@ class VideoPreview(QWidget):
             value = self.timeline_slider.value()
             timestamp = self.timeline_slider.value_to_time(value)
             self.seek_preview(timestamp)
+        elif self.app_state.extra.generate_video:
+            self.seek_preview(0)
             
     def resizeEvent(self, event):
         """Handle resize - rescale images"""
