@@ -805,6 +805,8 @@ class FFmpegBackend(MediaBackend):
         if encoding.use_gpu and "nvenc" in encoder:
             cmd.extend(["-preset", encoding.gpu_preset])
             cmd.extend(["-cq", str(encoding.cq)])
+        elif encoder == "mpeg2video":
+            cmd.extend(["-b:v", "6000k"])
         else:
             cmd.extend(["-crf", str(encoding.cq)])
             cmd.extend(["-preset", encoding.cpu_preset])
@@ -816,6 +818,11 @@ class FFmpegBackend(MediaBackend):
 
         if encoder == "libx265":
             cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+        elif encoder == "mpeg2video":
+            cmd.extend(["-g", "12"])
+            cmd.extend(["-bf", "2"])
+            cmd.extend(["-profile:v", "main"])
+            cmd.extend(["-level:v", "1"])
         else:
             cmd.extend(["-g", "144"])
             cmd.extend(["-bf", "0"])
