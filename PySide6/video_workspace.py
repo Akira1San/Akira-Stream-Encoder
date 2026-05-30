@@ -576,9 +576,8 @@ class VideoWorkspace(QWidget):
                 "crf": self.app_state.encoding.cq,
                 "preset": self.app_state.encoding.cpu_preset if not self.app_state.encoding.use_gpu else self.app_state.encoding.gpu_preset
             }
-            audio_codec = self.app_state.encoding.audio_codec
             audio_settings = {
-                "codec": audio_codec if audio_codec != "copy" else "aac",
+                "codec": self.app_state.encoding.audio_codec,
                 "bitrate": "128k"
             }
             

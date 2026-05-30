@@ -776,10 +776,10 @@ class EncodingPanel(QWidget):
         audio_codec_layout = QHBoxLayout()
         audio_codec_layout.addWidget(QLabel("Audio Codec:"))
         self.audio_codec_combo = QComboBox()
-        self.audio_codec_combo.addItems(["aac", "mp2", "ac3", "mp3", "copy"])
+        self.audio_codec_combo.addItems(["aac", "mp2", "ac3", "mp3"])
         self.audio_codec_combo.setCurrentText(self.app_state.encoding.audio_codec)
         self.audio_codec_combo.setMinimumWidth(100)
-        self.audio_codec_combo.setToolTip("Audio codec to use for encoding.\naac: Best compatibility (default)\nmp2: MPEG-1 Audio Layer II (DVD compatible)\nac3: Dolby Digital (DVD compatible)\nmp3: MPEG-1 Audio Layer III\ncopy: Stream copy (no re-encode)")
+        self.audio_codec_combo.setToolTip("Audio codec to use when Audio Mode is set to Encode.\naac: Best compatibility (default)\nmp2: MPEG-1 Audio Layer II (DVD compatible)\nac3: Dolby Digital (DVD compatible)\nmp3: MPEG-1 Audio Layer III")
         audio_codec_layout.addWidget(self.audio_codec_combo)
         audio_codec_layout.addStretch()
         advanced_layout.addLayout(audio_codec_layout)
@@ -1138,6 +1138,11 @@ class EncodingPanel(QWidget):
             self.app_state.encoding.container = "mpg"
             self.audio_codec_combo.setCurrentText("mp2")
             self.app_state.encoding.audio_codec = "mp2"
+        elif self.app_state.encoding.container in ("mpg", "vob"):
+            self.container_combo.setCurrentText("mp4")
+            self.app_state.encoding.container = "mp4"
+            self.audio_codec_combo.setCurrentText("aac")
+            self.app_state.encoding.audio_codec = "aac"
         self.update_preset_visibility()
         self.settings_changed.emit()
     

@@ -94,8 +94,18 @@ class MediaBackend(ABC):
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
                       first_vob_path: str = None,
-                      max_size: tuple = None) -> Optional[bytes]:
+                      max_size: tuple = None,
+                      extra_video_filter: str = "",
+                      extra_image_paths: list = None) -> Optional[bytes]:
         ...
+
+    def build_extra_preview_filter(self, app_state) -> str:
+        """Build extra drawtext filters for preview. Override in backends that support it."""
+        return ""
+
+    def has_preview_image_overlays(self, app_state) -> bool:
+        """Check if there are image overlays for preview."""
+        return False
 
     @abstractmethod
     def apply_video_filter(self, image_bytes: bytes, filter_str: str) -> Optional[bytes]:

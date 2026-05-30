@@ -569,7 +569,6 @@ class GStreamerBackend(MediaBackend):
                 "mp2": "avenc_mp2",
                 "ac3": "avenc_ac3",
                 "mp3": "lamemp3enc",
-                "copy": "identity",
             }
             gst_codec = codec_map.get(encoding.audio_codec, "voaacenc")
             elements.append(gst_codec)
