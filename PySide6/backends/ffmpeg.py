@@ -18,7 +18,10 @@ class FFmpegBackend(MediaBackend):
         self.app_state = app_state
 
     def _audio_codec(self) -> str:
-        """Return appropriate audio codec based on container."""
+        """Return audio codec from user selection, with container-safe fallback."""
+        codec = self.app_state.encoding.audio_codec
+        if codec:
+            return codec
         container = getattr(self.app_state.encoding, 'container', 'mp4')
         return "mp2" if container in ("mpg", "vob") else "aac"
 

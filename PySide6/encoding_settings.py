@@ -757,7 +757,7 @@ class EncodingPanel(QWidget):
         self.audio_mode_combo.addItems(["Encode", "Copy"])
         self.audio_mode_combo.setCurrentText(self.app_state.encoding.audio_mode.capitalize())
         self.audio_mode_combo.setMinimumWidth(100)
-        self.audio_mode_combo.setToolTip("Audio processing mode:\nEncode: Re-encode audio to AAC (recommended)\nCopy: Copy original audio stream without re-encoding (faster)")
+        self.audio_mode_combo.setToolTip("Audio processing mode:\nEncode: Re-encode audio (see Audio Codec selection)\nCopy: Copy original audio stream without re-encoding (faster)")
         audio_mode_layout.addWidget(self.audio_mode_combo)
         audio_mode_layout.addStretch()
         advanced_layout.addLayout(audio_mode_layout)
@@ -771,6 +771,18 @@ class EncodingPanel(QWidget):
         audio_track_layout.addWidget(self.audio_track_combo)
         audio_track_layout.addStretch()
         advanced_layout.addLayout(audio_track_layout)
+        
+        # Audio Codec Selection
+        audio_codec_layout = QHBoxLayout()
+        audio_codec_layout.addWidget(QLabel("Audio Codec:"))
+        self.audio_codec_combo = QComboBox()
+        self.audio_codec_combo.addItems(["aac", "mp2", "ac3", "mp3", "copy"])
+        self.audio_codec_combo.setCurrentText(self.app_state.encoding.audio_codec)
+        self.audio_codec_combo.setMinimumWidth(100)
+        self.audio_codec_combo.setToolTip("Audio codec to use for encoding.\naac: Best compatibility (default)\nmp2: MPEG-1 Audio Layer II (DVD compatible)\nac3: Dolby Digital (DVD compatible)\nmp3: MPEG-1 Audio Layer III\ncopy: Stream copy (no re-encode)")
+        audio_codec_layout.addWidget(self.audio_codec_combo)
+        audio_codec_layout.addStretch()
+        advanced_layout.addLayout(audio_codec_layout)
         
         # External Audio File Selection
         ext_audio_group = QGroupBox("External Audio")
@@ -903,6 +915,7 @@ class EncodingPanel(QWidget):
         self.aspect_ratio_combo.currentTextChanged.connect(self.on_aspect_ratio_changed)
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
+        self.audio_codec_combo.currentTextChanged.connect(self.on_audio_codec_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
         self.cpu_preset_combo.currentTextChanged.connect(self.on_cpu_preset_changed)
         self.cpu_tune_combo.currentTextChanged.connect(self.on_cpu_tune_changed)
@@ -1120,6 +1133,11 @@ class EncodingPanel(QWidget):
     def on_encoder_changed(self, text):
         """Handle encoder selection change"""
         self.app_state.encoding.encoder = text
+        if text == "mpeg2video":
+            self.container_combo.setCurrentText("mpg")
+            self.app_state.encoding.container = "mpg"
+            self.audio_codec_combo.setCurrentText("mp2")
+            self.app_state.encoding.audio_codec = "mp2"
         self.update_preset_visibility()
         self.settings_changed.emit()
     
@@ -1182,6 +1200,11 @@ class EncodingPanel(QWidget):
     def on_audio_mode_changed(self, text):
         """Handle audio mode change (Encode/Copy)"""
         self.app_state.encoding.audio_mode = text.lower()
+        self.settings_changed.emit()
+        
+    def on_audio_codec_changed(self, text):
+        """Handle audio codec selection change"""
+        self.app_state.encoding.audio_codec = text
         self.settings_changed.emit()
         
     def on_resolution_changed(self, text):

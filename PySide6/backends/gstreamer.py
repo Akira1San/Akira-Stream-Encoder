@@ -564,8 +564,17 @@ class GStreamerBackend(MediaBackend):
         if audio_copy:
             elements.append("identity")
         else:
-            elements.append("voaacenc")
-            elements.append("bitrate=128000")
+            codec_map = {
+                "aac": "voaacenc",
+                "mp2": "avenc_mp2",
+                "ac3": "avenc_ac3",
+                "mp3": "lamemp3enc",
+                "copy": "identity",
+            }
+            gst_codec = codec_map.get(encoding.audio_codec, "voaacenc")
+            elements.append(gst_codec)
+            if gst_codec != "identity":
+                elements.append("bitrate=128000")
 
         return elements
 

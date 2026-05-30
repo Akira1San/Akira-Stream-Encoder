@@ -35,6 +35,8 @@ class EncodingSettings:
     pixel_format: str = "yuv420p"  # yuv420p (8-bit), yuv420p10le (10-bit)
     # Custom resolution (e.g., "1920x1080")
     custom_resolution: str = ""
+    # Audio codec selection
+    audio_codec: str = "aac"  # aac, mp2, ac3, mp3, copy
     # Libplacebo tone mapping settings
     libplacebo_tonemapping: str = "none"  # none, bt2390, bt2446, reinhard, mobius, linear, clip, spline
     libplacebo_tonemapping_mode: str = "auto"  # auto, rgb, max, lum
