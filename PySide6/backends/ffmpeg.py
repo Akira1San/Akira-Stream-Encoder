@@ -573,10 +573,186 @@ class FFmpegBackend(MediaBackend):
             if delay_ms > 0:
                 audio_filters.append(f"adelay={delay_ms}|{delay_ms}")
 
+        # ── Extra: Text overlays (drawtext) ──
+        extra = app_state.extra
+        for item in extra.text_overlays:
+            if item.enabled and item.text.strip():
+                dt = self._build_drawtext_string(item)
+                if dt:
+                    video_filters.append(dt)
+
         return (
             ",".join(video_filters) if video_filters else "",
             ",".join(audio_filters) if audio_filters else ""
         )
+
+    # ── Extra: Text Overlays (drawtext) ─────────────────────────────
+
+    @staticmethod
+    def _build_drawtext_string(item) -> str:
+        """Build a drawtext filter string for a single text overlay."""
+        text = item.text.replace("'", "'\\''").replace(":", "\\:")
+        fontcolor = item.font_color
+        x, y = item.x, item.y
+        anim = item.animation
+        expr_x = str(x)
+        expr_y = str(y)
+
+        if anim == "Slide In Left":
+            expr_x = f"if(between(t,0,1),-w+(t/1)*({x}+w),{x})"
+            expr_y = str(y)
+        elif anim == "Slide In Right":
+            expr_x = f"if(between(t,0,1),W-(t/1)*(W-{x}),{x})"
+        elif anim == "Slide In Top":
+            expr_y = f"if(between(t,0,1),-h+(t/1)*({y}+h),{y})"
+        elif anim == "Slide In Bottom":
+            expr_y = f"if(between(t,0,1),H-(t/1)*(H-{y}),{y})"
+        elif anim == "Bounce":
+            expr_y = f"{y}+abs(sin(t*10))*20"
+        elif anim == "Typewriter":
+            speed = max(50, item.font_size * 3)
+            expr_x = f"W-t*{speed}"
+
+        dt = (
+            f"drawtext=text='{text}'"
+            f":fontsize={item.font_size}"
+            f":fontcolor={fontcolor}"
+            f":x={expr_x}"
+            f":y={expr_y}"
+            f":borderw=1"
+            f":bordercolor=black@0.5"
+        )
+        return dt
+
+    # ── Extra: Image Overlays (overlay) ─────────────────────────────
+
+    @staticmethod
+    def _build_overlay_filter_complex(extra, main_video_filter: str = "") -> tuple:
+        """
+        Build filter_complex string for image overlays on top of a main video chain.
+        Args:
+            main_video_filter: comma-joined video filter string for the main video
+                               (includes drawtext, subtitles, etc.)
+        Returns:
+            (filter_complex_str, num_images, last_output_label)
+        """
+        enabled_images = [
+            item for item in extra.image_overlays
+            if item.enabled and item.image_path and os.path.exists(item.image_path)
+        ]
+        if not enabled_images:
+            return "", 0, ""
+
+        parts = []
+        if main_video_filter:
+            parts.append(f"[0:v]{main_video_filter}[base]")
+        else:
+            parts.append("[0:v]null[base]")
+
+        current_label = "base"
+        img_idx = 1
+
+        for item in enabled_images:
+            stream_label = f"ov{img_idx}"
+            out_label = f"out{img_idx}"
+            scale_pct = item.scale
+            x, y = item.x, item.y
+            opacity = item.opacity
+            anim = item.animation
+
+            overlay_x = str(x)
+            overlay_y = str(y)
+            overlay_alpha = str(opacity)
+            scale_w = f"iw*{scale_pct}"
+            scale_h = f"ih*{scale_pct}"
+
+            if anim == "Fade In":
+                overlay_alpha = f"if(between(t,0,1),t/1,{opacity})"
+            elif anim == "Fade Out":
+                overlay_alpha = f"if(between(t,0,1),{opacity},{opacity}*max(0,1-(t-1)/1))"
+            elif anim == "Slide In Left":
+                overlay_x = f"if(between(t,0,1),-w+(t/1)*({x}+w),{x})"
+            elif anim == "Slide In Right":
+                overlay_x = f"if(between(t,0,1),W-(t/1)*(W-{x}),{x})"
+            elif anim == "Slide In Top":
+                overlay_y = f"if(between(t,0,1),-h+(t/1)*({y}+h),{y})"
+            elif anim == "Slide In Bottom":
+                overlay_y = f"if(between(t,0,1),H-(t/1)*(H-{y}),{y})"
+            elif anim == "Bounce":
+                overlay_y = f"{y}+abs(sin(t*10))*20"
+            elif anim == "Pulse":
+                pulse = "1+0.1*sin(t*5)"
+                scale_w = f"iw*{scale_pct}*({pulse})"
+                scale_h = f"ih*{scale_pct}*({pulse})"
+
+            # Format + scale the image input
+            scale_expr = (
+                f"scale='min({scale_w},iw)':min'({scale_h},ih)':force_original_aspect_ratio=decrease"
+            )
+            parts.append(f"[{img_idx}:v]format=rgba,{scale_expr}[{stream_label}]")
+
+            # Overlay onto current chain
+            parts.append(
+                f"[{current_label}][{stream_label}]"
+                f"overlay=x={overlay_x}:y={overlay_y}:alpha={overlay_alpha}[{out_label}]"
+            )
+
+            current_label = out_label
+            img_idx += 1
+
+        return ",".join(parts), len(enabled_images), current_label
+
+    # ── Extra: Standalone Generated Video ───────────────────────────
+
+    def build_generate_video_command(self, output_path: str) -> list:
+        """Build command for generating a standalone color video."""
+        extra = self.app_state.extra
+        encoding = self.app_state.encoding
+
+        color = extra.gen_color
+        res = extra.gen_resolution
+        duration = extra.gen_duration_sec
+        framerate = extra.gen_framerate
+
+        cmd = [self.app_state.ffmpeg_path]
+
+        # Color video source via lavfi
+        cmd.extend(["-f", "lavfi"])
+        cmd.extend(["-i", f"color=c={color}:s={res}:d={duration}:r={framerate}"])
+
+        # Optional silent audio
+        if extra.gen_include_audio:
+            cmd.extend(["-f", "lavfi"])
+            cmd.extend(["-i", "anullsrc=r=44100:cl=stereo"])
+
+        # Video encoder settings
+        encoder = encoding.encoder
+        cmd.extend(["-c:v", encoder])
+        if encoding.use_gpu and "nvenc" in encoder:
+            cmd.extend(["-preset", encoding.gpu_preset])
+            cmd.extend(["-cq", str(encoding.cq)])
+        else:
+            cmd.extend(["-crf", str(encoding.cq)])
+            cmd.extend(["-preset", encoding.cpu_preset])
+            if encoding.cpu_tune != "none":
+                cmd.extend(["-tune", encoding.cpu_tune])
+
+        pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
+        cmd.extend(["-pix_fmt", pix_fmt])
+
+        if encoder == "libx265":
+            cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+        else:
+            cmd.extend(["-g", "144"])
+            cmd.extend(["-bf", "0"])
+            cmd.extend(["-profile:v", "main"])
+            cmd.extend(["-level:v", "4.0"])
+
+        if extra.gen_include_audio:
+            cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"])
+
+        cmd.extend(["-y", output_path])
+        return cmd
 
     @staticmethod
     def _hsl_to_rgb(h: float, s: float, l: float) -> tuple:
@@ -689,6 +865,10 @@ class FFmpegBackend(MediaBackend):
         encoder = encoding.encoder
         if encoding.use_gpu and "nvenc" in encoder:
             cmd.extend(["-hwaccel", "cuda"])
+
+        # ── Extra: Standalone generated video ──
+        if self.app_state.extra.generate_video:
+            return self.build_generate_video_command(output_path)
 
         is_dvd_source = dvd.is_dvd_source and input_path.endswith('.txt')
 
@@ -831,6 +1011,20 @@ class FFmpegBackend(MediaBackend):
             ext_audio_enabled = False
         self._external_audio = ext_audio_enabled
 
+        # ── Extra: Image overlay inputs ──
+        extra = self.app_state.extra
+        self._extra_img_count = 0
+        for item in extra.image_overlays:
+            if item.enabled and item.image_path and os.path.exists(item.image_path):
+                cmd.extend(["-i", item.image_path])
+                self._extra_img_count += 1
+
+        # ── Extra: Audio track addition ──
+        self._extra_audio_path = ""
+        if extra.add_audio_track and extra.audio_track_path and os.path.exists(extra.audio_track_path):
+            self._extra_audio_path = extra.audio_track_path
+            cmd.extend(["-i", extra.audio_track_path])
+
         if start_time:
             cmd.extend(["-ss", start_time])
         if duration:
@@ -901,8 +1095,42 @@ class FFmpegBackend(MediaBackend):
         audio_mode = getattr(encoding, 'audio_mode', 'encode')
         audio_copy = (audio_mode == "copy") or tracks.audio_copy_mode
         use_external = (self._external_audio and tracks.audio_selected and getattr(tracks, 'external_audio_path', ''))
+        use_extra_audio = bool(self._extra_audio_path)
+        self._extra_audio_mix = False
 
-        if use_external:
+        # extra audio is added as the last extra input (after images)
+        extra_audio_ix = 1 + (1 if use_external else 0) + self._extra_img_count
+
+        if use_extra_audio:
+            mix_mode = extra.audio_mix_mode
+            if mix_mode == "replace":
+                cmd.extend(["-map", f"{extra_audio_ix}:a"])
+                ext = os.path.splitext(self._extra_audio_path)[1].lower()
+                if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
+                    cmd.extend(["-c:a", "copy"])
+                else:
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+            elif mix_mode == "mix":
+                audio_stream_idx = tracks.audio_stream_index
+                if audio_stream_idx is None or audio_stream_idx < 0:
+                    audio_stream_idx = 0
+                cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+                cmd.extend(["-map", f"{extra_audio_ix}:a"])
+                self._extra_audio_mix = True
+                cmd.extend(["-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+            else:  # add_track
+                if tracks.audio_selected:
+                    audio_stream_idx = tracks.audio_stream_index
+                    if audio_stream_idx is None or audio_stream_idx < 0:
+                        audio_stream_idx = 0
+                    cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+                cmd.extend(["-map", f"{extra_audio_ix}:a"])
+                ext = os.path.splitext(self._extra_audio_path)[1].lower()
+                if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
+                    cmd.extend(["-c:a", "copy"])
+                else:
+                    cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+        elif use_external:
             cmd.extend(["-map", "1:a"])
             if audio_copy:
                 ext_path = tracks.external_audio_path
@@ -943,25 +1171,45 @@ class FFmpegBackend(MediaBackend):
         if burn_dvd_subs:
             sub_path = None  # DVD subs handled by HandBrake fallback in controller
 
-        if skip_vf:
-            if video_filters_str:
-                self.app_state.log(
-                    "Video filters not supported with stream copy mode. "
-                    "Switch to 'Encode' mode for filters.", "WARN")
-        elif sub_path:
+        # ── Build the full video filter string (may include subtitles + drawtext) ──
+        full_vf_str = video_filters_str
+        if sub_path:
             subs_filter = self.build_subtitle_filter(sub_path)
-            filter_parts = []
-            if video_filters_str:
-                filter_parts.append(video_filters_str)
-            filter_parts.append(subs_filter)
-            cmd.extend(["-vf", ",".join(filter_parts)])
-            # Exclude embedded subtitle streams from output to prevent
-            # double subtitles (burned external + embedded) in the output file
-            cmd.extend(["-map", "-0:s"])
-        elif video_filters_str:
-            cmd.extend(["-vf", video_filters_str])
+            if full_vf_str:
+                full_vf_str = f"{full_vf_str},{subs_filter}"
+            else:
+                full_vf_str = subs_filter
 
-        if audio_filters_str and not audio_copy:
+        # ── Extra: Image overlays (filter_complex) ──
+        overlay_fc, num_overlays, last_label = self._build_overlay_filter_complex(extra, full_vf_str)
+        if overlay_fc and num_overlays > 0:
+            cmd.extend(["-filter_complex", overlay_fc])
+            cmd.extend(["-map", f"[{last_label}]"])
+            if sub_path:
+                cmd.extend(["-map", "-0:s"])
+        elif sub_path:
+            cmd.extend(["-vf", full_vf_str])
+            cmd.extend(["-map", "-0:s"])
+        elif full_vf_str:
+            cmd.extend(["-vf", full_vf_str])
+
+        # ── Extra: Audio mix from extra audio track ──
+        if getattr(self, '_extra_audio_mix', False):
+            audio_stream_idx = tracks.audio_stream_index
+            if audio_stream_idx is None or audio_stream_idx < 0:
+                audio_stream_idx = 0
+            if overlay_fc:
+                self.app_state.log("Audio mixing with image overlays not supported in this version. Skipping audio mix.", "WARN")
+                self._extra_audio_mix = False
+            else:
+                audio_mix_fc = (
+                    f"[0:a:{audio_stream_idx}][{extra_audio_ix}:a]"
+                    f"amix=inputs=2:duration=first[outa]"
+                )
+                cmd.extend(["-filter_complex", audio_mix_fc])
+                cmd.extend(["-map", "[outa]"])
+
+        if audio_filters_str and not audio_copy and not self._extra_audio_mix:
             cmd.extend(["-af", audio_filters_str])
 
         cmd.extend(["-y", output_path])

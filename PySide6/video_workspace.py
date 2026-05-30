@@ -17,6 +17,7 @@ from geometry import GeometryPanel
 from color_correction import ColorCorrectionPanel
 from subtitles import SubtitlesPanel
 from filters import FiltersPanel
+from extra_panel import ExtraPanel
 from trim_panel import TrimPanel
 from video_preview import VideoPreview
 
@@ -129,6 +130,14 @@ class VideoWorkspace(QWidget):
         self.filters_panel.settings_changed.connect(self.on_settings_changed)
         filters_collapsible.content_layout().addWidget(self.filters_panel)
         scroll_layout.addWidget(filters_collapsible)
+        
+        # Extra (Collapsible - collapsed by default)
+        extra_collapsible = CollapsibleFrame("Extra")
+        self.extra_panel = ExtraPanel(self.app_state)
+        self.extra_panel.settings_changed.connect(self.on_settings_changed)
+        extra_collapsible.content_layout().addWidget(self.extra_panel)
+        extra_collapsible.collapse()
+        scroll_layout.addWidget(extra_collapsible)
         
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)

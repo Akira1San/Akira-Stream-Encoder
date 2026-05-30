@@ -307,6 +307,46 @@ class AIUpscalingSettings:
 
 
 @dataclass
+class TextOverlay:
+    """Single text overlay item"""
+    enabled: bool = True
+    text: str = "Your Text"
+    font_size: int = 36
+    font_color: str = "#FFFFFF"
+    x: int = 10
+    y: int = 10
+    animation: str = "none"
+
+
+@dataclass
+class ImageOverlay:
+    """Single image overlay item"""
+    enabled: bool = True
+    image_path: str = ""
+    x: int = 10
+    y: int = 10
+    scale: float = 1.0
+    opacity: float = 1.0
+    animation: str = "none"
+
+
+@dataclass
+class ExtraSettings:
+    """Extra overlay and video generation settings"""
+    text_overlays: List[TextOverlay] = field(default_factory=list)
+    image_overlays: List[ImageOverlay] = field(default_factory=list)
+    generate_video: bool = False
+    gen_color: str = "#0000FF"
+    gen_resolution: str = "1920x1080"
+    gen_duration_sec: int = 30
+    gen_framerate: str = "30"
+    gen_include_audio: bool = True
+    add_audio_track: bool = False
+    audio_track_path: str = ""
+    audio_mix_mode: str = "replace"
+
+
+@dataclass
 class DVDSettings:
     """DVD (VIDEO_TS) source settings"""
     is_dvd_source: bool = False
@@ -373,6 +413,7 @@ class AppState(QObject):
         self.dvd = DVDSettings()
         self.colorization = ColorizationSettings()
         self.ai_upscaling = AIUpscalingSettings()
+        self.extra = ExtraSettings()
         
         # Media engine
         self._media_engine: str = "ffmpeg"

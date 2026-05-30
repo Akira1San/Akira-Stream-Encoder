@@ -92,6 +92,10 @@ class VideoController:
         Returns:
             True if successful, False otherwise
         """
+        # ── Extra: Standalone generated video ──
+        if self.app_state.extra.generate_video:
+            return self._encode_generated_video(output_path, progress_callback)
+
         # Handle extract clip mode (applies to both HandBrake and FFmpeg paths)
         if start_time is None and duration is None and self.app_state.split.extract_clip_enabled:
             start_min = self.app_state.split.extract_start_min
@@ -344,6 +348,46 @@ class VideoController:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(log_path, "a") as f:
             f.write(f"[{timestamp}] {message}\n")
+
+    def _encode_generated_video(self, output_path: str, progress_callback=None) -> bool:
+        """Encode a standalone generated video (color background + optional silent audio)"""
+        extra = self.app_state.extra
+        self.app_state.log(f"Generating standby video: {os.path.basename(output_path)}", "INFO")
+
+        try:
+            self.is_encoding = True
+            cmd = self.backend.build_generate_video_command(output_path)
+            self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+            self._append_command_log(output_path, f"Command: {' '.join(cmd)}")
+
+            self.current_process = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                universal_newlines=True, bufsize=1
+            )
+
+            for line in self.current_process.stdout:
+                line = line.strip()
+                if line:
+                    self.app_state.log(f"Generate: {line}", "DEBUG")
+
+            self.current_process.wait()
+
+            if self.current_process.returncode == 0 and os.path.exists(output_path):
+                self.app_state.log(f"✅ Generated video: {os.path.basename(output_path)}", "SUCCESS")
+                self._append_command_log(output_path, f"Result: Success (code 0)")
+                return True
+            else:
+                self.app_state.log(f"❌ Generate failed with code {self.current_process.returncode}", "ERROR")
+                self._append_command_log(output_path, f"Result: Failed (code {self.current_process.returncode})")
+                return False
+
+        except Exception as e:
+            self.app_state.log(f"❌ Generate error: {e}", "ERROR")
+            self._append_command_log(output_path, f"Result: Error - {e}")
+            return False
+        finally:
+            self.is_encoding = False
+            self.current_process = None
 
     def cancel_encode(self):
         """Cancel the current encoding operation"""
