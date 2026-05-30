@@ -831,6 +831,9 @@ class FFmpegBackend(MediaBackend):
             audio_idx = len(image_paths) + 1
             cmd.extend(["-map", f"{audio_idx}:a"])
 
+        # Force duration to prevent lavfi PTS drift
+        cmd.extend(["-t", str(duration)])
+
         cmd.extend(["-y", output_path])
         return cmd
 
