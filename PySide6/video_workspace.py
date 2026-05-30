@@ -738,7 +738,7 @@ class VideoWorkspace(QWidget):
 
     def on_encode_clicked(self):
         """Handle encode button click"""
-        if not self.app_state.input_files:
+        if not self.app_state.input_files and not self.app_state.extra.generate_video:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "No Files", "Please add video files first.")
             return
@@ -751,11 +751,37 @@ class VideoWorkspace(QWidget):
         self.encode_btn.setVisible(False)
         self.cancel_btn.setVisible(True)
         
+        # Resolve output path for generated video (main thread — QFileDialog)
+        gen_output_path = None
+        if self.app_state.extra.generate_video:
+            container = self.app_state.encoding.container
+            if self.app_state.output_folder:
+                gen_output_path = os.path.join(self.app_state.output_folder, f"generated_video.{container}")
+            else:
+                from PySide6.QtWidgets import QFileDialog
+                gen_output_path, _ = QFileDialog.getSaveFileName(
+                    self, "Save Generated Video", f"generated_video.{container}",
+                    f"Video (*.{container})")
+                if not gen_output_path:
+                    self.encode_btn.setVisible(True)
+                    self.cancel_btn.setVisible(False)
+                    return
+        
         # Start encoding in a separate thread to keep UI responsive
         import threading
         def encode_worker():
             split = self.app_state.split
             subs = self.app_state.subtitles
+            
+            # Handle standalone generated video
+            if self.app_state.extra.generate_video:
+                success = self.controller.encode_file(None, gen_output_path)
+                if not success:
+                    self.app_state.log("Failed to generate video", "ERROR")
+                self.encode_btn.setVisible(True)
+                self.cancel_btn.setVisible(False)
+                return
+            
             for input_file in self.app_state.input_files:
                 if split.enabled:
                     # Split by duration

@@ -753,7 +753,7 @@ class FFmpegBackend(MediaBackend):
     # ── Extra: Standalone Generated Video ───────────────────────────
 
     def build_generate_video_command(self, output_path: str) -> list:
-        """Build command for generating a standalone color video."""
+        """Build command for generating a standalone color video with overlays."""
         extra = self.app_state.extra
         encoding = self.app_state.encoding
 
@@ -768,10 +768,36 @@ class FFmpegBackend(MediaBackend):
         cmd.extend(["-f", "lavfi"])
         cmd.extend(["-i", f"color=c={color}:s={res}:d={duration}:r={framerate}"])
 
+        # Image overlay inputs
+        image_paths = []
+        for item in extra.image_overlays:
+            if item.enabled and item.image_path and os.path.exists(item.image_path):
+                image_paths.append(item.image_path)
+                cmd.extend(["-i", item.image_path])
+
         # Optional silent audio
         if extra.gen_include_audio:
             cmd.extend(["-f", "lavfi"])
             cmd.extend(["-i", "anullsrc=r=44100:cl=stereo"])
+
+        # Build text overlay filters (drawtext)
+        text_parts = []
+        for item in extra.text_overlays:
+            if item.enabled and item.text.strip():
+                dt = self._build_drawtext_string(item)
+                if dt:
+                    text_parts.append(dt)
+        text_filter = ",".join(text_parts)
+
+        if image_paths:
+            fc, num_ov, last_label = self._build_overlay_filter_complex(extra, text_filter)
+            if fc:
+                cmd.extend(["-filter_complex", fc])
+                cmd.extend(["-map", f"[{last_label}]"])
+            elif text_filter:
+                cmd.extend(["-vf", text_filter])
+        elif text_filter:
+            cmd.extend(["-vf", text_filter])
 
         # Video encoder settings
         encoder = encoding.encoder
@@ -798,6 +824,12 @@ class FFmpegBackend(MediaBackend):
 
         if extra.gen_include_audio:
             cmd.extend(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"])
+
+        if not image_paths:
+            cmd.extend(["-map", "0:v"])
+        if extra.gen_include_audio:
+            audio_idx = len(image_paths) + 1
+            cmd.extend(["-map", f"{audio_idx}:a"])
 
         cmd.extend(["-y", output_path])
         return cmd
