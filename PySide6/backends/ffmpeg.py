@@ -1025,11 +1025,15 @@ class FFmpegBackend(MediaBackend):
                     if not bitrate_is_set:
                         cmd.extend(["-cq", str(encoding.cq)])
                 else:
-                    if not bitrate_is_set:
-                        cmd.extend(["-crf", str(encoding.cq)])
-                    cmd.extend(["-preset", encoding.cpu_preset])
-                    if encoding.cpu_tune != "none":
-                        cmd.extend(["-tune", encoding.cpu_tune])
+                    if encoder == "mpeg2video":
+                        if not bitrate_is_set:
+                            cmd.extend(["-b:v", "6000k"])
+                    else:
+                        if not bitrate_is_set:
+                            cmd.extend(["-crf", str(encoding.cq)])
+                        cmd.extend(["-preset", encoding.cpu_preset])
+                        if encoding.cpu_tune != "none":
+                            cmd.extend(["-tune", encoding.cpu_tune])
                 if encoding.resolution != "none" and encoding.scale_mode == "off":
                     res_value = encoding.custom_resolution if encoding.resolution == "Custom" else encoding.resolution
                     cmd.extend(["-s", res_value])
@@ -1037,11 +1041,15 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-pix_fmt", pix_fmt])
                 if encoder == "libx265":
                     cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+                elif encoder == "mpeg2video":
+                    cmd.extend(["-g", "12"])
+                    cmd.extend(["-bf", "2"])
+                    cmd.extend(["-profile:v", "main"])
+                    cmd.extend(["-level:v", "1"])
                 else:
                     cmd.extend(["-g", "144"])
                     cmd.extend(["-bf", "0"])
-                cmd.extend(["-profile:v", "main"])
-                if encoder != "libx265":
+                    cmd.extend(["-profile:v", "main"])
                     cmd.extend(["-level:v", "4.0"])
                 cmd.extend(["-force_key_frames:v", "0"])
 
@@ -1126,11 +1134,15 @@ class FFmpegBackend(MediaBackend):
                 if not bitrate_is_set:
                     cmd.extend(["-cq", str(encoding.cq)])
             else:
-                if not bitrate_is_set:
-                    cmd.extend(["-crf", str(encoding.cq)])
-                cmd.extend(["-preset", encoding.cpu_preset])
-                if encoding.cpu_tune != "none":
-                    cmd.extend(["-tune", encoding.cpu_tune])
+                if encoder == "mpeg2video":
+                    if not bitrate_is_set:
+                        cmd.extend(["-b:v", "6000k"])
+                else:
+                    if not bitrate_is_set:
+                        cmd.extend(["-crf", str(encoding.cq)])
+                    cmd.extend(["-preset", encoding.cpu_preset])
+                    if encoding.cpu_tune != "none":
+                        cmd.extend(["-tune", encoding.cpu_tune])
             if encoding.resolution != "none" and encoding.scale_mode == "off":
                 res_value = encoding.custom_resolution if encoding.resolution == "Custom" else encoding.resolution
                 ar_enabled = getattr(filters, 'ar_convert_enabled', False)
@@ -1139,6 +1151,9 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-r", encoding.framerate])
             if encoder == "libx265":
                 cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+            elif encoder == "mpeg2video":
+                cmd.extend(["-g", "12"])
+                cmd.extend(["-bf", "2"])
             else:
                 cmd.extend(["-g", "144"])
                 cmd.extend(["-bf", "0"])
@@ -1146,6 +1161,9 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-pix_fmt", pix_fmt])
             if encoder == "libx265":
                 cmd.extend(["-profile:v", "main"])
+            elif encoder == "mpeg2video":
+                cmd.extend(["-profile:v", "main"])
+                cmd.extend(["-level:v", "1"])
             else:
                 cmd.extend(["-profile:v", "main"])
                 cmd.extend(["-level:v", "4.0"])
