@@ -607,7 +607,7 @@ class GStreamerBackend(MediaBackend):
         encoding = self.app_state.encoding
         tracks = self.app_state.tracks
 
-        muxer_map = {"mp4": "mp4mux", "mkv": "matroskamux", "avi": "avimux"}
+        muxer_map = {"mp4": "mp4mux", "mkv": "matroskamux", "avi": "avimux", "mpg": "mpegpsmux", "vob": "mpegpsmux"}
         muxer_el = muxer_map.get(encoding.container, "mp4mux")
 
         video_enc = self._build_video_encoder(encoding)
@@ -972,7 +972,9 @@ class GStreamerBackend(MediaBackend):
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
                       first_vob_path: str = None,
-                      max_size: tuple = None) -> Optional[bytes]:
+                      max_size: tuple = None,
+                      extra_video_filter: str = "",
+                      extra_image_paths: list = None) -> Optional[bytes]:
         target = first_vob_path if is_dvd_source and first_vob_path else video_path
         if not os.path.exists(target):
             return None

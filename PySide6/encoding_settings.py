@@ -59,11 +59,11 @@ class EncodingPanel(QWidget):
         encoder_layout.addWidget(QLabel("Encoder:"))
         self.encoder_combo = QComboBox()
         self.encoder_combo.addItems([
-            "h264_nvenc", "hevc_nvenc", "libx264", "libx265"
+            "h264_nvenc", "hevc_nvenc", "libx264", "libx265", "mpeg2video"
         ])
         self.encoder_combo.setCurrentText(self.app_state.encoding.encoder)
         self.encoder_combo.setMinimumWidth(140)
-        self.encoder_combo.setToolTip("Video codec to use:\nh264_nvenc: H.264 with GPU acceleration\nhevc_nvenc: H.265/HEVC with GPU (smaller files)\nlibx264: H.264 CPU encoding (compatible)\nlibx265: H.265/HEVC CPU (best compression)")
+        self.encoder_combo.setToolTip("Video codec to use:\nh264_nvenc: H.264 with GPU acceleration\nhevc_nvenc: H.265/HEVC with GPU (smaller files)\nlibx264: H.264 CPU encoding (compatible)\nlibx265: H.265/HEVC CPU (best compression)\nmpeg2video: MPEG-2 for DVD/legacy compatibility")
         encoder_layout.addWidget(self.encoder_combo)
         encoder_layout.addStretch()
         layout.addLayout(encoder_layout)
@@ -163,8 +163,8 @@ class EncodingPanel(QWidget):
 
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems([
-            "original", "1920x1080", "1280x720", "720x480",
-            "720x404", "720x400", "640x480", "640x368", "Custom"
+            "original", "1920x1080", "1280x720", "NTSC (720x480)", "PAL (720x576)",
+            "720x480", "720x404", "720x400", "640x480", "640x368", "Custom"
         ])
         current_res = self.app_state.encoding.resolution
         if current_res == "none":
@@ -323,11 +323,11 @@ class EncodingPanel(QWidget):
         # === Container Format ===
         container_layout = QHBoxLayout()
         container_label = QLabel("Container:")
-        container_label.setToolTip("Output file format/container.\nmp4: Best compatibility (recommended)\nmkv: Supports more codecs and features\navi: Older format, limited codec support")
+        container_label.setToolTip("Output file format/container.\nmp4: Best compatibility (recommended)\nmkv: Supports more codecs and features\navi: Older format, limited codec support\nmpg: MPEG Program Stream (DVD/VOB compatible)\nvob: DVD VOB container")
         container_layout.addWidget(container_label)
         
         self.container_combo = QComboBox()
-        self.container_combo.addItems(["mp4", "mkv", "avi"])
+        self.container_combo.addItems(["mp4", "mkv", "avi", "mpg", "vob"])
         self.container_combo.setCurrentText(self.app_state.encoding.container)
         self.container_combo.setToolTip("Select output container format")
         container_layout.addWidget(self.container_combo)
@@ -847,18 +847,31 @@ class EncodingPanel(QWidget):
         gop_layout.addStretch()
         advanced_layout.addLayout(gop_layout)
         
-        # Framerate - fixed at 23.976 fps
+        # Framerate selector
+        self.framerate_values = {
+            "23.976 fps": "24000/1001",
+            "25 fps (PAL)": "25/1",
+            "29.97 fps (NTSC)": "30000/1001",
+            "30 fps": "30/1",
+            "50 fps": "50/1",
+            "59.94 fps": "60000/1001",
+            "60 fps": "60/1",
+        }
         framerate_layout = QHBoxLayout()
         framerate_layout.addWidget(QLabel("Framerate:"))
-        self.framerate_label = QLabel("23.976 fps")
-        self.framerate_label.setStyleSheet("color: gray;")
-        self.framerate_label.setToolTip("Framerate is fixed at 23.976 fps (24000/1001)")
-        framerate_layout.addWidget(self.framerate_label)
+        self.framerate_combo = QComboBox()
+        self.framerate_combo.addItems(list(self.framerate_values.keys()))
+        current_fps = self.app_state.encoding.framerate
+        current_display = "23.976 fps"
+        for display, value in self.framerate_values.items():
+            if value == current_fps:
+                current_display = display
+                break
+        self.framerate_combo.setCurrentText(current_display)
+        self.framerate_combo.setToolTip("Output framerate.\nNTSC/PAL auto-set when those resolution standards are selected.")
+        framerate_layout.addWidget(self.framerate_combo)
         framerate_layout.addStretch()
         advanced_layout.addLayout(framerate_layout)
-        
-        # Always set framerate to 23.976
-        self.app_state.encoding.framerate = "24000/1001"
         
         layout.addWidget(advanced_collapsible)
         
@@ -873,7 +886,7 @@ class EncodingPanel(QWidget):
         self.video_mode_combo.currentTextChanged.connect(self.on_video_mode_changed)
         self.resolution_combo.currentTextChanged.connect(self.on_resolution_changed)
         self.custom_res_edit.textChanged.connect(self.on_custom_res_changed)
-        # Framerate is fixed at 23.976 fps - no signal connection needed
+        self.framerate_combo.currentTextChanged.connect(self.on_framerate_changed)
         self.cq_slider.valueChanged.connect(self.on_cq_changed)
         self.bitrate_mode_combo.currentTextChanged.connect(self.on_bitrate_mode_changed)
         self.bitrate_edit.textChanged.connect(self.on_target_bitrate_changed)
@@ -1095,9 +1108,9 @@ class EncodingPanel(QWidget):
         current = self.encoder_combo.currentText()
         self.encoder_combo.clear()
         if checked:
-            self.encoder_combo.addItems(["h264_nvenc", "hevc_nvenc", "libx264", "libx265"])
+            self.encoder_combo.addItems(["h264_nvenc", "hevc_nvenc", "libx264", "libx265", "mpeg2video"])
         else:
-            self.encoder_combo.addItems(["libx264", "libx265"])
+            self.encoder_combo.addItems(["libx264", "libx265", "mpeg2video"])
         # Try to restore selection
         index = self.encoder_combo.findText(current)
         if index >= 0:
@@ -1177,6 +1190,14 @@ class EncodingPanel(QWidget):
             self.app_state.encoding.resolution = "none"
         elif text == "Custom":
             self.app_state.encoding.resolution = "Custom"
+        elif text == "NTSC (720x480)":
+            self.app_state.encoding.resolution = "720x480"
+            self.app_state.encoding.framerate = "30000/1001"
+            self.framerate_combo.setCurrentText("29.97 fps (NTSC)")
+        elif text == "PAL (720x576)":
+            self.app_state.encoding.resolution = "720x576"
+            self.app_state.encoding.framerate = "25/1"
+            self.framerate_combo.setCurrentText("25 fps (PAL)")
         else:
             self.app_state.encoding.resolution = text
         
@@ -1189,12 +1210,10 @@ class EncodingPanel(QWidget):
         self.app_state.encoding.custom_resolution = text
         self.settings_changed.emit()
         
-    # Framerate is fixed at 23.976 fps - method removed
-    # def on_framerate_changed(self, button):
-    #     """Handle framerate selection change"""
-    #     value = button.property("value")
-    #     self.app_state.encoding.framerate = value
-    #     self.settings_changed.emit()
+    def on_framerate_changed(self, text):
+        """Handle framerate selection change"""
+        self.app_state.encoding.framerate = self.framerate_values.get(text, "24000/1001")
+        self.settings_changed.emit()
         
     def on_cq_changed(self, value):
         """Handle CQ slider change"""

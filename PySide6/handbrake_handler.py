@@ -60,6 +60,7 @@ class HandBrakeHandler:
         "hevc_nvenc": "nvenc_h265",
         "libx264": "x264",
         "libx265": "x265",
+        "mpeg2video": "mpeg2",
     }
 
     def __init__(self, handbrake_path: str = "HandBrakeCLI", log_callback: Callable = None):
