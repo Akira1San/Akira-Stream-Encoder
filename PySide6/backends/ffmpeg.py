@@ -744,7 +744,8 @@ class FFmpegBackend(MediaBackend):
                 if video_filters_str:
                     cmd.extend(["-vf", video_filters_str])
                 elif encoding.resolution != "none" and encoding.scale_mode == "off":
-                    cmd.extend(["-s", encoding.resolution])
+                    res_value = encoding.custom_resolution if encoding.resolution == "Custom" else encoding.resolution
+                    cmd.extend(["-s", res_value])
                 if burn_subs and not is_dvd_source:
                     pass
 
@@ -767,7 +768,8 @@ class FFmpegBackend(MediaBackend):
                     if encoding.cpu_tune != "none":
                         cmd.extend(["-tune", encoding.cpu_tune])
                 if encoding.resolution != "none" and encoding.scale_mode == "off":
-                    cmd.extend(["-s", encoding.resolution])
+                    res_value = encoding.custom_resolution if encoding.resolution == "Custom" else encoding.resolution
+                    cmd.extend(["-s", res_value])
                 pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
                 cmd.extend(["-pix_fmt", pix_fmt])
                 if encoder == "libx265":
@@ -853,9 +855,10 @@ class FFmpegBackend(MediaBackend):
                 if encoding.cpu_tune != "none":
                     cmd.extend(["-tune", encoding.cpu_tune])
             if encoding.resolution != "none" and encoding.scale_mode == "off":
+                res_value = encoding.custom_resolution if encoding.resolution == "Custom" else encoding.resolution
                 ar_enabled = getattr(filters, 'ar_convert_enabled', False)
                 if not ar_enabled:
-                    cmd.extend(["-s", encoding.resolution])
+                    cmd.extend(["-s", res_value])
             cmd.extend(["-r", encoding.framerate])
             if encoder == "libx265":
                 cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])

@@ -128,6 +128,13 @@ class VideoController:
                     self.app_state.log("Tip: HandBrake does not support stream copy. Switch to encode mode.", "INFO")
                 self.app_state.dvd.selected_subtitle_index = -1
         
+        # Validate custom resolution format
+        if self.app_state.encoding.resolution == "Custom":
+            custom_res = self.app_state.encoding.custom_resolution
+            if not custom_res or not re.match(r'^\d+x\d+$', custom_res):
+                self.app_state.log(f"Invalid custom resolution: '{custom_res}'. Expected format: WxH (e.g. 1920x1080)", "ERROR")
+                return False
+
         self.app_state.log(f"Starting encode: {os.path.basename(input_path)}", "INFO")
 
         try:
@@ -192,7 +199,7 @@ class VideoController:
         
         # Parse resolution for HandBrake
         width, height = 0, 0
-        res = self.app_state.encoding.resolution
+        res = self.app_state.encoding.custom_resolution if self.app_state.encoding.resolution == "Custom" else self.app_state.encoding.resolution
         if res and res != "none" and 'x' in res:
             parts = res.split('x')
             width = int(parts[0])
