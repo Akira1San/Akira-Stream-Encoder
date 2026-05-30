@@ -37,6 +37,12 @@ class EncodingSettings:
     custom_resolution: str = ""
     # Audio codec selection
     audio_codec: str = "aac"  # aac, mp2, ac3, mp3
+    # Advanced settings
+    profile: str = "main"  # baseline, main, high
+    level: str = "4.0"  # 3.0, 3.1, 4.0, 4.1, 4.2, 5.0, 5.1
+    bframes: str = "0"  # 0-3
+    gop_size: str = "144"  # keyframe interval
+    audio_sample_rate: str = "44100"  # 44100, 48000, 96000
     # Libplacebo tone mapping settings
     libplacebo_tonemapping: str = "none"  # none, bt2390, bt2446, reinhard, mobius, linear, clip, spline
     libplacebo_tonemapping_mode: str = "auto"  # auto, rgb, max, lum

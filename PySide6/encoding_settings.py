@@ -696,8 +696,7 @@ class EncodingPanel(QWidget):
         self.profile_combo = QComboBox()
         self.profile_combo.addItems(["baseline", "main", "high"])
         self.profile_combo.setCurrentText("main")
-        self.profile_combo.setEnabled(False)  # Display only
-        self.profile_combo.setToolTip("Video profile (fixed to 'main' for compatibility)")
+        self.profile_combo.setToolTip("Video profile (default: main; DVD: main)")
         profile_layout.addWidget(self.profile_combo)
         profile_layout.addStretch()
         advanced_layout.addLayout(profile_layout)
@@ -708,8 +707,7 @@ class EncodingPanel(QWidget):
         self.level_combo = QComboBox()
         self.level_combo.addItems(["3.0", "3.1", "4.0", "4.1", "4.2", "5.0", "5.1"])
         self.level_combo.setCurrentText("4.0")
-        self.level_combo.setEnabled(False)  # Display only
-        self.level_combo.setToolTip("Video level (fixed to '4.0' for compatibility)")
+        self.level_combo.setToolTip("Video level — not used by mpeg2video (default: 4.0; DVD: N/A)")
         level_layout.addWidget(self.level_combo)
         level_layout.addStretch()
         advanced_layout.addLayout(level_layout)
@@ -720,8 +718,7 @@ class EncodingPanel(QWidget):
         self.bframes_combo = QComboBox()
         self.bframes_combo.addItems(["0", "1", "2", "3"])
         self.bframes_combo.setCurrentText("0")
-        self.bframes_combo.setEnabled(False)  # Display only
-        self.bframes_combo.setToolTip("B-frames count (fixed to '0' for compatibility)")
+        self.bframes_combo.setToolTip("Number of B-frames between I/P frames (default: 0; DVD: 2)")
         bframes_layout.addWidget(self.bframes_combo)
         bframes_layout.addStretch()
         advanced_layout.addLayout(bframes_layout)
@@ -841,8 +838,7 @@ class EncodingPanel(QWidget):
         self.sample_rate_combo = QComboBox()
         self.sample_rate_combo.addItems(["44100 Hz", "48000 Hz", "96000 Hz"])
         self.sample_rate_combo.setCurrentText("44100 Hz")
-        self.sample_rate_combo.setEnabled(False)  # Display only
-        self.sample_rate_combo.setToolTip("Audio sample rate (fixed to '44100 Hz' for compatibility)")
+        self.sample_rate_combo.setToolTip("Audio sample rate in Hz (default: 44100; DVD: 48000)")
         sample_rate_layout.addWidget(self.sample_rate_combo)
         sample_rate_layout.addStretch()
         advanced_layout.addLayout(sample_rate_layout)
@@ -853,8 +849,7 @@ class EncodingPanel(QWidget):
         self.gop_combo = QComboBox()
         self.gop_combo.addItems(["48", "96", "144", "250"])
         self.gop_combo.setCurrentText("144")
-        self.gop_combo.setEnabled(False)  # Display only
-        self.gop_combo.setToolTip("Group of Pictures size (fixed to '144' for compatibility)")
+        self.gop_combo.setToolTip("Keyframe interval (GOP size). Lower = better seeking (default: 144; DVD: 12)")
         gop_layout.addWidget(self.gop_combo)
         gop_layout.addStretch()
         advanced_layout.addLayout(gop_layout)
@@ -920,6 +915,11 @@ class EncodingPanel(QWidget):
         self.cpu_preset_combo.currentTextChanged.connect(self.on_cpu_preset_changed)
         self.cpu_tune_combo.currentTextChanged.connect(self.on_cpu_tune_changed)
         self.pix_fmt_combo.currentTextChanged.connect(self.on_pix_fmt_changed)
+        self.profile_combo.currentTextChanged.connect(self.on_profile_changed)
+        self.level_combo.currentTextChanged.connect(self.on_level_changed)
+        self.bframes_combo.currentTextChanged.connect(self.on_bframes_changed)
+        self.sample_rate_combo.currentTextChanged.connect(self.on_sample_rate_changed)
+        self.gop_combo.currentTextChanged.connect(self.on_gop_changed)
         
         # External audio signals
         self.external_audio_check.toggled.connect(self.on_external_audio_toggled)
@@ -1138,11 +1138,21 @@ class EncodingPanel(QWidget):
             self.app_state.encoding.container = "mpg"
             self.audio_codec_combo.setCurrentText("mp2")
             self.app_state.encoding.audio_codec = "mp2"
+            self.bframes_combo.setCurrentText("2")
+            self.app_state.encoding.bframes = "2"
+            self.gop_combo.setCurrentText("12")
+            self.app_state.encoding.gop_size = "12"
         elif self.app_state.encoding.container in ("mpg", "vob"):
             self.container_combo.setCurrentText("mp4")
             self.app_state.encoding.container = "mp4"
             self.audio_codec_combo.setCurrentText("aac")
             self.app_state.encoding.audio_codec = "aac"
+            self.bframes_combo.setCurrentText("0")
+            self.app_state.encoding.bframes = "0"
+            self.gop_combo.setCurrentText("144")
+            self.app_state.encoding.gop_size = "144"
+            self.level_combo.setCurrentText("4.0")
+            self.app_state.encoding.level = "4.0"
         self.update_preset_visibility()
         self.settings_changed.emit()
     
@@ -1399,6 +1409,32 @@ class EncodingPanel(QWidget):
         """Handle pixel format change"""
         pix_fmt = text.split()[0]  # Extract just the format name (before the space and bit depth)
         self.app_state.encoding.pixel_format = pix_fmt
+        self.settings_changed.emit()
+
+    def on_profile_changed(self, text):
+        """Handle profile change"""
+        self.app_state.encoding.profile = text
+        self.settings_changed.emit()
+
+    def on_level_changed(self, text):
+        """Handle level change"""
+        self.app_state.encoding.level = text
+        self.settings_changed.emit()
+
+    def on_bframes_changed(self, text):
+        """Handle B-frames change"""
+        self.app_state.encoding.bframes = text
+        self.settings_changed.emit()
+
+    def on_sample_rate_changed(self, text):
+        """Handle audio sample rate change"""
+        rate = text.split()[0]
+        self.app_state.encoding.audio_sample_rate = rate
+        self.settings_changed.emit()
+
+    def on_gop_changed(self, text):
+        """Handle GOP size change"""
+        self.app_state.encoding.gop_size = text
         self.settings_changed.emit()
 
     # ── AI Upscaling Helpers ──────────────────────────────────────

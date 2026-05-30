@@ -827,17 +827,17 @@ class FFmpegBackend(MediaBackend):
         if encoder == "libx265":
             cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
         elif encoder == "mpeg2video":
-            cmd.extend(["-g", "12"])
-            cmd.extend(["-bf", "2"])
-            cmd.extend(["-profile:v", "main"])
+            cmd.extend(["-g", encoding.gop_size])
+            cmd.extend(["-bf", encoding.bframes])
+            cmd.extend(["-profile:v", encoding.profile])
         else:
-            cmd.extend(["-g", "144"])
-            cmd.extend(["-bf", "0"])
-            cmd.extend(["-profile:v", "main"])
-            cmd.extend(["-level:v", "4.0"])
+            cmd.extend(["-g", encoding.gop_size])
+            cmd.extend(["-bf", encoding.bframes])
+            cmd.extend(["-profile:v", encoding.profile])
+            cmd.extend(["-level:v", encoding.level])
 
         if extra.gen_include_audio:
-            cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", "44100", "-ac", "2"])
+            cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2"])
 
         if not image_paths:
             cmd.extend(["-map", "0:v"])
@@ -1056,14 +1056,14 @@ class FFmpegBackend(MediaBackend):
                 if encoder == "libx265":
                     cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
                 elif encoder == "mpeg2video":
-                    cmd.extend(["-g", "12"])
-                    cmd.extend(["-bf", "2"])
-                    cmd.extend(["-profile:v", "main"])
+                    cmd.extend(["-g", encoding.gop_size])
+                    cmd.extend(["-bf", encoding.bframes])
+                    cmd.extend(["-profile:v", encoding.profile])
                 else:
-                    cmd.extend(["-g", "144"])
-                    cmd.extend(["-bf", "0"])
-                    cmd.extend(["-profile:v", "main"])
-                    cmd.extend(["-level:v", "4.0"])
+                    cmd.extend(["-g", encoding.gop_size])
+                    cmd.extend(["-bf", encoding.bframes])
+                    cmd.extend(["-profile:v", encoding.profile])
+                    cmd.extend(["-level:v", encoding.level])
                 cmd.extend(["-force_key_frames:v", "0"])
 
             if tracks.video_selected:
@@ -1165,20 +1165,20 @@ class FFmpegBackend(MediaBackend):
             if encoder == "libx265":
                 cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
             elif encoder == "mpeg2video":
-                cmd.extend(["-g", "12"])
-                cmd.extend(["-bf", "2"])
+                cmd.extend(["-g", encoding.gop_size])
+                cmd.extend(["-bf", encoding.bframes])
             else:
-                cmd.extend(["-g", "144"])
-                cmd.extend(["-bf", "0"])
+                cmd.extend(["-g", encoding.gop_size])
+                cmd.extend(["-bf", encoding.bframes])
             pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
             cmd.extend(["-pix_fmt", pix_fmt])
             if encoder == "libx265":
                 cmd.extend(["-profile:v", "main"])
             elif encoder == "mpeg2video":
-                cmd.extend(["-profile:v", "main"])
+                cmd.extend(["-profile:v", encoding.profile])
             else:
-                cmd.extend(["-profile:v", "main"])
-                cmd.extend(["-level:v", "4.0"])
+                cmd.extend(["-profile:v", encoding.profile])
+                cmd.extend(["-level:v", encoding.level])
             cmd.extend(["-force_key_frames:v", "0"])
             if encoding.use_original_bitrate:
                 orig_br = self.get_video_bitrate(input_path)
@@ -1222,7 +1222,7 @@ class FFmpegBackend(MediaBackend):
                 if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
             elif mix_mode == "mix":
                 audio_stream_idx = tracks.audio_stream_index
                 if audio_stream_idx is None or audio_stream_idx < 0:
@@ -1230,7 +1230,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
                 cmd.extend(["-map", f"{extra_audio_ix}:a"])
                 self._extra_audio_mix = True
-                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "256k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "256k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
             else:  # add_track
                 if tracks.audio_selected:
                     audio_stream_idx = tracks.audio_stream_index
@@ -1242,7 +1242,7 @@ class FFmpegBackend(MediaBackend):
                 if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
         elif use_external:
             cmd.extend(["-map", "1:a"])
             if audio_copy:
@@ -1251,9 +1251,9 @@ class FFmpegBackend(MediaBackend):
                 if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", "44100", "-ac", "2"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2"])
             else:
-                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
             cmd.extend(["-shortest"])
         elif tracks.audio_selected:
             audio_stream_idx = tracks.audio_stream_index
@@ -1263,7 +1263,7 @@ class FFmpegBackend(MediaBackend):
             if audio_copy:
                 cmd.extend(["-c:a", "copy"])
             else:
-                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
         else:
             cmd.extend(["-an"])
             audio_copy = True
@@ -1377,7 +1377,7 @@ class FFmpegBackend(MediaBackend):
                 elif ext == '.flac':
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", "44100", "-ac", "2"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2"])
             else:
                 audio_stream_idx = tracks.audio_stream_index
                 cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
@@ -1386,7 +1386,7 @@ class FFmpegBackend(MediaBackend):
                 if audio_copy:
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", "44100", "-ac", "2", "-channel_layout", "stereo"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
         else:
             cmd.extend(["-an"])
 
