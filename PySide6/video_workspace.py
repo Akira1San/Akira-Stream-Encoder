@@ -62,6 +62,7 @@ class VideoWorkspace(QWidget):
         super().__init__(parent)
         self.app_state = app_state
         self.controller = None
+        self._cut_controller = None
         
         # Create log widget
         self.log_widget = LogWidget()
@@ -457,6 +458,7 @@ class VideoWorkspace(QWidget):
         # Initialize controller
         from controller import VideoController
         controller = VideoController(self.app_state)
+        self._cut_controller = controller
         
         # Get video duration
         duration = controller.get_video_duration(input_file)
@@ -606,6 +608,10 @@ class VideoWorkspace(QWidget):
             # Generate output path
             output_path = os.path.join(output_folder, f"{base_name}_{seg_name}.{container}")
             
+            # Remove stale 0-byte files from previous runs
+            if os.path.exists(output_path) and os.path.getsize(output_path) == 0:
+                os.remove(output_path)
+            
             # Check for existing file and append counter if needed
             counter = 1
             while os.path.exists(output_path):
@@ -636,6 +642,8 @@ class VideoWorkspace(QWidget):
         
         if all_success:
             self.app_state.log(f"Successfully encoded {len(segments_data)} segment(s)!", "SUCCESS")
+        
+        self._cut_controller = None
     
     def _format_time(self, seconds: float) -> str:
         """Format seconds as time string"""
@@ -797,6 +805,9 @@ class VideoWorkspace(QWidget):
         if self.controller and self.controller.is_encoding:
             self.controller.cancel_encode()
             self.app_state.log("Encoding cancelled by user", "INFO")
+        elif self._cut_controller and self._cut_controller.is_encoding:
+            self._cut_controller.cancel_encode()
+            self.app_state.log("Cut export cancelled by user", "INFO")
         
         # Reset buttons
         self.encode_btn.setVisible(True)

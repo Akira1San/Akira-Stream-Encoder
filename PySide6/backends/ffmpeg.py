@@ -984,7 +984,10 @@ class FFmpegBackend(MediaBackend):
     def fast_cut(self, input_path: str, output_path: str,
                  start_time: Optional[str] = None,
                  duration: Optional[str] = None) -> subprocess.Popen:
-        cmd = [self.app_state.ffmpeg_path, "-i", input_path]
+        cmd = [self.app_state.ffmpeg_path]
+        if start_time:
+            cmd.extend(["-ss", start_time])
+        cmd.extend(["-i", input_path])
         if duration:
             cmd.extend(["-t", duration])
         cmd.extend(["-c:v", "copy"])
