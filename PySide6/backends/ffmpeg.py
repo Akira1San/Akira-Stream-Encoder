@@ -822,7 +822,6 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-g", "12"])
             cmd.extend(["-bf", "2"])
             cmd.extend(["-profile:v", "main"])
-            cmd.extend(["-level:v", "1"])
         else:
             cmd.extend(["-g", "144"])
             cmd.extend(["-bf", "0"])
@@ -1052,7 +1051,6 @@ class FFmpegBackend(MediaBackend):
                     cmd.extend(["-g", "12"])
                     cmd.extend(["-bf", "2"])
                     cmd.extend(["-profile:v", "main"])
-                    cmd.extend(["-level:v", "1"])
                 else:
                     cmd.extend(["-g", "144"])
                     cmd.extend(["-bf", "0"])
@@ -1170,7 +1168,6 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-profile:v", "main"])
             elif encoder == "mpeg2video":
                 cmd.extend(["-profile:v", "main"])
-                cmd.extend(["-level:v", "1"])
             else:
                 cmd.extend(["-profile:v", "main"])
                 cmd.extend(["-level:v", "4.0"])
