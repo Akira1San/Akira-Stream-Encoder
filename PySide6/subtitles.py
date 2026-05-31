@@ -83,7 +83,7 @@ class SubtitlesPanel(QWidget):
         
         # Subtitle File Selector
         sub_file_layout = QHBoxLayout()
-        sub_file_layout.addWidget(QLabel("Subtitle File:"))
+        sub_file_layout.addWidget(QLabel("Subtitle:"))
         
         self.subtitle_combo = QComboBox()
         self.subtitle_combo.setMinimumWidth(200)
@@ -97,8 +97,9 @@ class SubtitlesPanel(QWidget):
         self.refresh_btn.clicked.connect(self.on_refresh_clicked)
         sub_file_layout.addWidget(self.refresh_btn)
 
-        self.load_ext_btn = QPushButton("Load...")
+        self.load_ext_btn = QPushButton("...")
         self.load_ext_btn.setToolTip("Load external subtitle file from a different folder")
+        self.load_ext_btn.setMaximumWidth(30)
         self.load_ext_btn.clicked.connect(self.on_load_external_clicked)
         sub_file_layout.addWidget(self.load_ext_btn)
 
