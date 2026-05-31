@@ -1627,6 +1627,14 @@ class EncodingPanel(QWidget):
         if self._upscale_controller:
             self._upscale_controller.cancel_upscale()
 
+    def reset_upscale_buttons(self):
+        self._upscale_controller = None
+        self.ai_upscale_part_btn.setEnabled(True)
+        self.ai_upscale_part_btn.setText("2a. Upscale Part")
+        self.ai_upscale_all_btn.setEnabled(True)
+        self.ai_upscale_all_btn.setText("2b. Upscale All (remaining)")
+        self.upscaling_active.emit(False)
+
     def on_ai_recombine(self):
         import threading
 

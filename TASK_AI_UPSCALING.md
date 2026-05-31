@@ -12,13 +12,15 @@ Add AI-based super-resolution upscaling to MyEncoder using external Vulkan-power
 |---|---|---|---|
 | **Real-ESRGAN-ncnn-vulkan** | Neural network (ncnn) | https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan | `realesrgan-x4plus`, `realesrnet-x4plus`, `realesrgan-x4plus-anime`, `reales-animevideov3` |
 | **Anime4K-ncnn-vulkan** | GLSL shader (ncnn port) | https://github.com/Tps-F/Anime4K-ncnn-vulkan | `A`, `B`, `C` (strength presets) |
+| **Upscayl-ncnn** *(future)* | Neural network (ncnn) | https://github.com/upscayl/upscayl-ncnn | Additional models: Remacri, Ultrasharp, HFA2k, etc. |
 
 ### Download links (Linux)
 
 - Real-ESRGAN: https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
 - Anime4K: https://github.com/Tps-F/Anime4K-ncnn-vulkan/releases
+- Upscayl-ncnn: https://github.com/upscayl/upscayl-ncnn/releases
 
-Extract both into `PySide6/backends/` as `realesrgan-ncnn-vulkan/` and `anime4k-ncnn-vulkan/`.
+Extract into `PySide6/backends/` as `realesrgan-ncnn-vulkan/`, `anime4k-ncnn-vulkan/`, or `upscayl-ncnn/`.
 
 ---
 
@@ -171,7 +173,9 @@ Inserted inside the Scale section of `encoding_settings.py`, after the aspect ra
 
 ## Future Improvements
 
+- **Upscayl-ncnn backend** — add as a third upscaler option with additional models (Remacri, Ultrasharp, HFA2k, etc.). Uses the same ncnn Vulkan infrastructure. See https://github.com/upscayl/upscayl-ncnn
 - **Python Real-ESRGAN backend** — optional PyTorch-based backend for users who want CUDA acceleration and face enhancement
+- **Target resolution** — upscale by nearest integer then downscale to exact output resolution (e.g., 480p → 720p) during recombine via `-vf scale=W:H`
 - **Preview** — show a before/after comparison of a sample frame after upscaling
 - **Batch queue** — process multiple videos in sequence
 - **GPU selection** — for multi-GPU systems

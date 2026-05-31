@@ -846,6 +846,7 @@ class VideoWorkspace(QWidget):
             self.app_state.log("Cut export cancelled by user", "INFO")
         elif hasattr(self, 'enc_panel') and self.enc_panel.is_upscaling:
             self.enc_panel.cancel_upscale()
+            self.enc_panel.reset_upscale_buttons()
             self.app_state.log("Upscaling cancelled by user", "INFO")
         
         # Reset buttons
