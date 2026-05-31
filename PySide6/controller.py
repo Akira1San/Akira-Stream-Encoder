@@ -569,10 +569,11 @@ class VideoController:
             return False
 
         src_dir = os.path.join(ai.frames_dir, part_name)
-        out_dir = os.path.join(ai.frames_dir, f"{part_name}_{ai.upscaler}")
+        out_dir = os.path.join(ai.frames_dir, f"{part_name}_{ai.upscaler}.png")
         if os.path.isdir(out_dir) and os.listdir(out_dir):
             self.app_state.log(f"Part {part_name} already upscaled", "INFO")
             return True
+        os.makedirs(out_dir, exist_ok=True)
 
         from config import REALESRGAN_NCNN, ANIME4K_NCNN
         if ai.upscaler == "realesrgan":
@@ -586,6 +587,9 @@ class VideoController:
         if not os.path.isfile(binary):
             self.app_state.log(f"Upscaler binary not found: {binary}", "ERROR")
             return False
+        if not os.access(binary, os.X_OK):
+            self.app_state.log(f"Upscaler binary is not executable: {binary}. Run 'chmod +x \"{binary}\"' to fix.", "ERROR")
+            return False
         cmd = [
             binary,
             "-i", src_dir,
@@ -597,22 +601,44 @@ class VideoController:
             cmd.extend(["-t", str(ai.tile_size)])
         cmd.extend(["-f", "png"])
 
+        self.app_state.log(f"Upscaling part {part_name}...", "INFO")
+
         try:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
+            self.current_process = proc
+            self.is_encoding = True
+
+            for line in iter(proc.stderr.readline, ''):
+                line = line.strip()
+                if line and "%" in line and not line.startswith("["):
+                    self.app_state.log(f"📷 {part_name}: {line}", "INFO")
+
             proc.wait()
             if proc.returncode != 0:
-                self.app_state.log(f"Upscale part {part_name} failed: {proc.stderr.read()[:300]}", "ERROR")
+                self.app_state.log(f"Upscale part {part_name} failed", "ERROR")
                 return False
         except Exception as e:
             self.app_state.log(f"Upscale part error {part_name}: {e}", "ERROR")
             return False
+        finally:
+            self.current_process = None
+            self.is_encoding = False
 
         if progress_callback:
             progress_callback(100)
         self.app_state.log(f"Part {part_name} upscaled", "SUCCESS")
         return True
+
+    def cancel_upscale(self):
+        if self.current_process:
+            self.current_process.terminate()
+            self.app_state.log("Upscaling cancelled by user", "INFO")
+        else:
+            self.backend.cancel_upscale = True
+            if self.backend._current_upscale_proc:
+                self.backend._current_upscale_proc.terminate()
 
     def recombine_frames(self, progress_callback=None) -> str:
         import os

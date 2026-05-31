@@ -16,6 +16,8 @@ class FFmpegBackend(MediaBackend):
 
     def __init__(self, app_state):
         self.app_state = app_state
+        self._current_upscale_proc = None
+        self.cancel_upscale = False
 
     def _audio_codec(self) -> str:
         """Return audio codec from user selection, with container-safe fallback."""
@@ -1662,9 +1664,14 @@ class FFmpegBackend(MediaBackend):
                        progress_callback=None) -> bool:
         import os
 
+        self.cancel_upscale = False
+
         binary = self._resolve_upscaler_binary(upscaler)
         if not binary or not os.path.isfile(binary):
             self.app_state.log(f"Upscaler binary not found: {binary}", "ERROR")
+            return False
+        if not os.access(binary, os.X_OK):
+            self.app_state.log(f"Upscaler binary is not executable: {binary}. Run 'chmod +x \"{binary}\"' to fix.", "ERROR")
             return False
 
         part_dirs = self.get_part_dirs(frames_dir)
@@ -1674,8 +1681,12 @@ class FFmpegBackend(MediaBackend):
 
         processed = 0
         for part in part_dirs:
+            if self.cancel_upscale:
+                self.app_state.log("Upscaling cancelled", "WARN")
+                return False
+
             src_dir = os.path.join(frames_dir, part)
-            out_dir = os.path.join(frames_dir, f"{part}_{upscaler}")
+            out_dir = os.path.join(frames_dir, f"{part}_{upscaler}.png")
             if os.path.isdir(out_dir) and os.listdir(out_dir):
                 processed += 1
                 continue
@@ -1693,18 +1704,32 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-t", str(tile_size)])
             cmd.extend(["-f", "png"])
 
+            self.app_state.log(f"Upscaling part {part}...", "INFO")
+
             try:
                 proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
                 )
+                self._current_upscale_proc = proc
+
+                for line in iter(proc.stderr.readline, ''):
+                    if self.cancel_upscale:
+                        proc.terminate()
+                        self.app_state.log("Upscaling cancelled", "WARN")
+                        return False
+                    line = line.strip()
+                    if line and "%" in line and not line.startswith("["):
+                        self.app_state.log(f"📷 {part}: {line}", "INFO")
+
                 proc.wait()
                 if proc.returncode != 0:
-                    stderr = proc.stderr.read()[:300]
-                    self.app_state.log(f"Upscale failed {part}: {stderr}", "ERROR")
+                    self.app_state.log(f"Upscale failed {part}", "ERROR")
                     return False
             except Exception as e:
                 self.app_state.log(f"Upscale error {part}: {e}", "ERROR")
                 return False
+            finally:
+                self._current_upscale_proc = None
 
             processed += 1
             if progress_callback:
@@ -1721,7 +1746,7 @@ class FFmpegBackend(MediaBackend):
         upscaler_suffix = None
 
         for d in os.listdir(frames_dir):
-            if d.endswith("_realesrgan") or d.endswith("_anime4k"):
+            if d.endswith("_realesrgan.png") or d.endswith("_anime4k.png"):
                 upscaler_suffix = d.rsplit("_", 1)[1]
                 break
 
@@ -1815,8 +1840,8 @@ class FFmpegBackend(MediaBackend):
         return sorted([
             d for d in os.listdir(frames_dir)
             if os.path.isdir(os.path.join(frames_dir, d))
-            and not d.endswith("_realesrgan")
-            and not d.endswith("_anime4k")
+            and not d.endswith("_realesrgan.png")
+            and not d.endswith("_anime4k.png")
             and not d.startswith("tmp_")
         ])
 
@@ -1827,5 +1852,5 @@ class FFmpegBackend(MediaBackend):
         return sorted([
             d for d in os.listdir(frames_dir)
             if os.path.isdir(os.path.join(frames_dir, d))
-            and (d.endswith("_realesrgan") or d.endswith("_anime4k"))
+            and (d.endswith("_realesrgan.png") or d.endswith("_anime4k.png"))
         ])

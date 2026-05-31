@@ -16,10 +16,12 @@ class EncodingPanel(QWidget):
     """Panel for encoding settings"""
     
     settings_changed = Signal()
+    upscaling_active = Signal(bool)
     
     def __init__(self, app_state: AppState, parent=None):
         super().__init__(parent)
         self.app_state = app_state
+        self._upscale_controller = None
         
         self.setup_ui()
         self.connect_signals()
@@ -1554,10 +1556,13 @@ class EncodingPanel(QWidget):
             self.app_state.log("No part selected", "WARN")
             return
 
-        controller = self._make_controller()
+        self._upscale_controller = self._make_controller()
 
         self.ai_upscale_part_btn.setEnabled(False)
         self.ai_upscale_part_btn.setText("Upscaling...")
+        self.upscaling_active.emit(True)
+
+        controller = self._upscale_controller
 
         def run():
             result = controller.upscale_part(part)
@@ -1570,6 +1575,8 @@ class EncodingPanel(QWidget):
     def _on_upscale_part_done(self, result):
         self.ai_upscale_part_btn.setEnabled(True)
         self.ai_upscale_part_btn.setText("2a. Upscale Part")
+        self._upscale_controller = None
+        self.upscaling_active.emit(False)
         if result:
             self.app_state.log("Part upscaled successfully", "SUCCESS")
         else:
@@ -1578,10 +1585,12 @@ class EncodingPanel(QWidget):
     def on_ai_upscale_all(self):
         import threading
 
-        controller = self._make_controller()
+        self._upscale_controller = self._make_controller()
+        controller = self._upscale_controller
 
         self.ai_upscale_all_btn.setEnabled(False)
         self.ai_upscale_all_btn.setText("Upscaling...")
+        self.upscaling_active.emit(True)
 
         def run():
             result = controller.upscale_frames()
@@ -1594,6 +1603,8 @@ class EncodingPanel(QWidget):
     def _on_upscale_all_done(self, result):
         self.ai_upscale_all_btn.setEnabled(True)
         self.ai_upscale_all_btn.setText("2b. Upscale All (remaining)")
+        self._upscale_controller = None
+        self.upscaling_active.emit(False)
         ai = self.app_state.ai_upscaling
         if result:
             self.ai_upscale_progress.setText("Complete ✓")
@@ -1602,6 +1613,14 @@ class EncodingPanel(QWidget):
         else:
             self.ai_upscale_progress.setText("Failed ✗")
             self.ai_upscale_progress.setStyleSheet("color: red;")
+
+    @property
+    def is_upscaling(self):
+        return self._upscale_controller is not None and self._upscale_controller.is_encoding
+
+    def cancel_upscale(self):
+        if self._upscale_controller:
+            self._upscale_controller.cancel_upscale()
 
     def on_ai_recombine(self):
         import threading

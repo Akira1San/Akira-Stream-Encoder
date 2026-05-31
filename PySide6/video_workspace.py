@@ -259,6 +259,7 @@ class VideoWorkspace(QWidget):
     def connect_signals(self):
         """Connect signals"""
         self.app_state.current_video_changed.connect(self.on_video_changed)
+        self.enc_panel.upscaling_active.connect(self.on_upscaling_active)
         
     def clear_log(self):
         """Clear the log widget"""
@@ -843,11 +844,17 @@ class VideoWorkspace(QWidget):
         elif self._cut_controller and self._cut_controller.is_encoding:
             self._cut_controller.cancel_encode()
             self.app_state.log("Cut export cancelled by user", "INFO")
+        elif hasattr(self, 'enc_panel') and self.enc_panel.is_upscaling:
+            self.enc_panel.cancel_upscale()
+            self.app_state.log("Upscaling cancelled by user", "INFO")
         
         # Reset buttons
         self.encode_btn.setVisible(True)
         self.cancel_btn.setVisible(False)
         
+    def on_upscaling_active(self, active: bool):
+        self.cancel_btn.setVisible(active)
+
     def on_refresh_subtitles(self):
         """Handle refresh subtitle files button click"""
         self._scan_and_update_subtitles()
