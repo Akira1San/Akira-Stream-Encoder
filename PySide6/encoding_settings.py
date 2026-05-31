@@ -1466,10 +1466,13 @@ class EncodingPanel(QWidget):
         self.ai_part_combo_selector.clear()
         ai = self.app_state.ai_upscaling
         if not ai.frames_dir:
+            self.app_state.log("No frames directory set", "WARN")
             return
         parts = self.app_state.backend.get_part_dirs(ai.frames_dir)
         if parts:
             self.ai_part_combo_selector.addItems(parts)
+        else:
+            self.app_state.log(f"No part folders found in: {ai.frames_dir}", "WARN")
 
     def on_ai_enabled_toggled(self, checked):
         self.app_state.ai_upscaling.enabled = checked
@@ -1508,6 +1511,7 @@ class EncodingPanel(QWidget):
         if folder:
             self.ai_frames_dir_edit.setText(folder)
             self.app_state.ai_upscaling.frames_dir = folder
+            self.app_state.log(f"Frames directory set to: {folder}", "INFO")
             self._refresh_part_list()
 
     def _make_controller(self):
@@ -1544,6 +1548,7 @@ class EncodingPanel(QWidget):
             ai = self.app_state.ai_upscaling
             self.ai_extract_status.setText(f"Done ✓ ({ai.total_parts} parts)")
             self.ai_extract_status.setStyleSheet("color: green;")
+            self.ai_frames_dir_edit.setText(ai.frames_dir)
             self._refresh_part_list()
         else:
             self.ai_extract_status.setText("Failed ✗")
