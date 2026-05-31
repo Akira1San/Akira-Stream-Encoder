@@ -824,7 +824,8 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-tune", encoding.cpu_tune])
 
         pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
-        cmd.extend(["-pix_fmt", pix_fmt])
+        if not (encoding.use_gpu and "nvenc" in encoder and pix_fmt == "yuv420p"):
+            cmd.extend(["-pix_fmt", pix_fmt])
 
         if encoder == "libx265":
             cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
@@ -1054,7 +1055,8 @@ class FFmpegBackend(MediaBackend):
                     res_value = encoding.custom_resolution if encoding.resolution == "Custom" else encoding.resolution
                     cmd.extend(["-s", res_value])
                 pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
-                cmd.extend(["-pix_fmt", pix_fmt])
+                if not (encoding.use_gpu and "nvenc" in encoder and pix_fmt == "yuv420p"):
+                    cmd.extend(["-pix_fmt", pix_fmt])
                 if encoder == "libx265":
                     cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
                 elif encoder == "mpeg2video":
@@ -1067,6 +1069,27 @@ class FFmpegBackend(MediaBackend):
                     cmd.extend(["-profile:v", encoding.profile])
                     cmd.extend(["-level:v", encoding.level])
                 cmd.extend(["-force_key_frames:v", "0"])
+                if encoding.use_original_bitrate:
+                    orig_br = self.get_video_bitrate(input_path)
+                    if orig_br:
+                        cmd.extend(["-b:v", f"{orig_br}k"])
+                        if encoding.use_max_bitrate:
+                            cmd.extend(["-maxrate", f"{encoding.max_bitrate}k"])
+                            cmd.extend(["-bufsize", f"{encoding.max_bitrate * 2}k"])
+                        else:
+                            cmd.extend(["-maxrate", f"{orig_br}k"])
+                            cmd.extend(["-bufsize", f"{orig_br * 2}k"])
+                else:
+                    target_br = encoding.target_bitrate
+                    if target_br and target_br.isdigit():
+                        target_br_int = int(target_br)
+                        cmd.extend(["-b:v", f"{target_br_int}k"])
+                        if encoding.use_max_bitrate:
+                            cmd.extend(["-maxrate", f"{encoding.max_bitrate}k"])
+                            cmd.extend(["-bufsize", f"{encoding.max_bitrate * 2}k"])
+                        else:
+                            cmd.extend(["-maxrate", f"{target_br_int}k"])
+                            cmd.extend(["-bufsize", f"{target_br_int * 2}k"])
 
             if tracks.video_selected:
                 cmd.extend(["-map", "0:v:0"])
@@ -1173,7 +1196,8 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-g", encoding.gop_size])
                 cmd.extend(["-bf", encoding.bframes])
             pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
-            cmd.extend(["-pix_fmt", pix_fmt])
+            if not (encoding.use_gpu and "nvenc" in encoder and pix_fmt == "yuv420p"):
+                cmd.extend(["-pix_fmt", pix_fmt])
             if encoder == "libx265":
                 cmd.extend(["-profile:v", "main"])
             elif encoder == "mpeg2video":
