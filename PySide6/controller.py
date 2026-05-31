@@ -590,16 +590,22 @@ class VideoController:
         if not os.access(binary, os.X_OK):
             self.app_state.log(f"Upscaler binary is not executable: {binary}. Run 'chmod +x \"{binary}\"' to fix.", "ERROR")
             return False
+        model_dir = os.path.join(os.path.dirname(binary), "models")
+        model_bin = os.path.join(model_dir, f"{ai.model}.bin")
+        if not os.path.isfile(model_bin):
+            self.app_state.log(f"Model not found: {model_bin}. Check your model selection in AI Upscaling settings.", "ERROR")
+            return False
         cmd = [
             binary,
             "-i", src_dir,
             "-o", out_dir,
             "-s", str(ai.scale),
             "-n", ai.model,
+            "-m", model_dir,
         ]
         if ai.tile_size > 0:
             cmd.extend(["-t", str(ai.tile_size)])
-        cmd.extend(["-f", "png"])
+        cmd.extend(["-g", "0", "-f", "png"])
 
         self.app_state.log(f"Upscaling part {part_name}...", "INFO")
 

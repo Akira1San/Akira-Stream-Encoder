@@ -593,6 +593,17 @@ class EncodingPanel(QWidget):
         self.ai_browse_frames_btn.setToolTip("Choose a custom directory for frame storage")
         frames_dir_row.addWidget(self.ai_browse_frames_btn)
         ai_group_layout.addLayout(frames_dir_row)
+
+        # Single image upscale
+        single_img_row = QHBoxLayout()
+        self.ai_upscale_img_btn = QPushButton("Upscale Single Image")
+        self.ai_upscale_img_btn.setToolTip(
+            "Upscale a single image file (not from a video).\n"
+            "Uses the current model and scale settings."
+        )
+        single_img_row.addWidget(self.ai_upscale_img_btn)
+        single_img_row.addStretch()
+        ai_group_layout.addLayout(single_img_row)
         
         # ── Pipeline Buttons ──
         pipeline_line = QFrame()
@@ -630,6 +641,13 @@ class EncodingPanel(QWidget):
             "Creates a *_upscaled/ mirror folder."
         )
         upscale_part_row.addWidget(self.ai_upscale_part_btn)
+        self.ai_test_frame_btn = QPushButton("Test")
+        self.ai_test_frame_btn.setMaximumWidth(60)
+        self.ai_test_frame_btn.setToolTip(
+            "Upscale only the first frame of the selected part for a quick test.\n"
+            "Result is saved next to the original frame."
+        )
+        upscale_part_row.addWidget(self.ai_test_frame_btn)
         upscale_part_row.addStretch()
         ai_group_layout.addLayout(upscale_part_row)
         
@@ -938,6 +956,8 @@ class EncodingPanel(QWidget):
         self.ai_browse_frames_btn.clicked.connect(self.on_ai_browse_frames)
         self.ai_extract_btn.clicked.connect(self.on_ai_extract_frames)
         self.ai_upscale_part_btn.clicked.connect(self.on_ai_upscale_part)
+        self.ai_test_frame_btn.clicked.connect(self.on_ai_test_frame)
+        self.ai_upscale_img_btn.clicked.connect(self.on_ai_upscale_single_image)
         self.ai_upscale_all_btn.clicked.connect(self.on_ai_upscale_all)
         self.ai_recombine_btn.clicked.connect(self.on_ai_recombine)
         self.ai_cleanup_check.toggled.connect(self.on_ai_cleanup_changed)
@@ -1442,12 +1462,26 @@ class EncodingPanel(QWidget):
     # ── AI Upscaling Helpers ──────────────────────────────────────
 
     def _populate_ai_models(self):
-        from config import UPSCALING_MODELS
+        import os
+        from config import UPSCALING_MODELS, REALESRGAN_NCNN, ANIME4K_NCNN
         key = self.ai_upscaler_combo.currentData()
         info = UPSCALING_MODELS.get(key, {})
         self.ai_model_combo.clear()
+
+        binary = ""
+        if key == "realesrgan":
+            binary = self.app_state.realesrgan_path or REALESRGAN_NCNN
+        elif key == "anime4k":
+            binary = self.app_state.anime4k_path or ANIME4K_NCNN
+        model_dir = os.path.join(os.path.dirname(binary), "models") if binary else ""
+
         for model_key, desc in info.get("models", []):
+            if model_dir and os.path.isdir(model_dir):
+                model_bin = os.path.join(model_dir, f"{model_key}.bin")
+                if not os.path.isfile(model_bin):
+                    continue
             self.ai_model_combo.addItem(f"{model_key} — {desc}", model_key)
+
         default = info.get("default_model", "")
         idx = self.ai_model_combo.findData(default)
         if idx >= 0:
@@ -1587,6 +1621,184 @@ class EncodingPanel(QWidget):
         else:
             self.app_state.log("Part upscale failed", "ERROR")
 
+    def on_ai_test_frame(self):
+        import os, shutil, threading
+        part = self.ai_part_combo_selector.currentText()
+        if not part:
+            self.app_state.log("No part selected for test", "WARN")
+            return
+
+        ai = self.app_state.ai_upscaling
+        if not ai.frames_dir:
+            self.app_state.log("No frames directory set", "WARN")
+            return
+
+        src_dir = os.path.join(ai.frames_dir, part)
+        first_frame = os.path.join(src_dir, "frame_00000001.png")
+        if not os.path.isfile(first_frame):
+            self.app_state.log(f"No frame_00000001.png found in {part}", "ERROR")
+            return
+
+        self.ai_test_frame_btn.setEnabled(False)
+        self.ai_test_frame_btn.setText("Test...")
+
+        def run():
+            import subprocess
+            from config import REALESRGAN_NCNN, ANIME4K_NCNN
+            if ai.upscaler == "realesrgan":
+                binary = self.app_state.realesrgan_path or REALESRGAN_NCNN
+            elif ai.upscaler == "anime4k":
+                binary = self.app_state.anime4k_path or ANIME4K_NCNN
+            else:
+                self.app_state.log(f"Unknown upscaler: {ai.upscaler}", "ERROR")
+                self._finish_test_frame()
+                return
+
+            if not os.path.isfile(binary):
+                self.app_state.log(f"Upscaler binary not found: {binary}", "ERROR")
+                self._finish_test_frame()
+                return
+
+            model_dir = os.path.join(os.path.dirname(binary), "models")
+            model_bin = os.path.join(model_dir, f"{ai.model}.bin")
+            if not os.path.isfile(model_bin):
+                self.app_state.log(f"Model not found: {model_bin}. Available models: {os.listdir(model_dir)}", "ERROR")
+                self._finish_test_frame()
+                return
+
+            test_dir = os.path.join(ai.frames_dir, f"__test_{part}")
+            os.makedirs(test_dir, exist_ok=True)
+            test_frame = os.path.join(test_dir, "frame_00000001.png")
+            shutil.copy2(first_frame, test_frame)
+
+            out_dir = os.path.join(ai.frames_dir, f"__test_{part}_{ai.upscaler}.png")
+            os.makedirs(out_dir, exist_ok=True)
+
+            cmd = [binary, "-i", test_dir, "-o", out_dir, "-s", str(ai.scale),
+                   "-n", ai.model, "-m", model_dir, "-g", "0", "-v", "-f", "png"]
+            self.app_state.log(f"Running: {' '.join(cmd)}", "INFO")
+
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                for line in iter(proc.stderr.readline, ''):
+                    line = line.strip()
+                    if line and "%" in line and not line.startswith("["):
+                        self.app_state.log(f"📷 test: {line}", "INFO")
+                proc.wait()
+            except Exception as e:
+                self.app_state.log(f"Test upscale error: {e}", "ERROR")
+                self._finish_test_frame()
+                return
+
+            result_file = os.path.join(out_dir, "frame_00000001.png")
+            if proc.returncode == 0 and os.path.isfile(result_file):
+                self.app_state.log(f"Test result: {result_file}", "SUCCESS")
+                subprocess.Popen(["xdg-open", result_file])
+            else:
+                self.app_state.log("Test upscale failed", "ERROR")
+
+            shutil.rmtree(test_dir, ignore_errors=True)
+            self._finish_test_frame()
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _finish_test_frame(self):
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._reset_test_frame_btn())
+
+    def _reset_test_frame_btn(self):
+        self.ai_test_frame_btn.setEnabled(True)
+        self.ai_test_frame_btn.setText("Test")
+
+    def on_ai_upscale_single_image(self):
+        from PySide6.QtWidgets import QFileDialog
+        ai = self.app_state.ai_upscaling
+
+        src_path, _ = QFileDialog.getOpenFileName(
+            self, "Select an image to upscale", "",
+            "Images (*.png *.jpg *.jpeg *.webp)"
+        )
+        if not src_path:
+            return
+
+        import os
+        base, ext = os.path.splitext(src_path)
+        out_path, _ = QFileDialog.getSaveFileName(
+            self, "Save upscaled image as",
+            f"{base}_{ai.scale}x.png",
+            "PNG (*.png);;JPEG (*.jpg *.jpeg);;WebP (*.webp)"
+        )
+        if not out_path:
+            return
+
+        self.app_state.log(f"Upscaling single image: {src_path} → {out_path}", "INFO")
+        self.ai_upscale_img_btn.setEnabled(False)
+        self.ai_upscale_img_btn.setText("Upscaling...")
+
+        import threading
+        thread = threading.Thread(target=self._run_single_upscale, args=(src_path, out_path))
+        thread.start()
+
+    def _run_single_upscale(self, src_path: str, out_path: str):
+        import subprocess, os
+        from PySide6.QtCore import QTimer
+        from config import REALESRGAN_NCNN, ANIME4K_NCNN
+
+        ai = self.app_state.ai_upscaling
+        out_format = os.path.splitext(out_path)[1].lstrip(".")
+
+        if ai.upscaler == "realesrgan":
+            binary = self.app_state.realesrgan_path or REALESRGAN_NCNN
+        elif ai.upscaler == "anime4k":
+            binary = self.app_state.anime4k_path or ANIME4K_NCNN
+        else:
+            self.app_state.log(f"Unknown upscaler: {ai.upscaler}", "ERROR")
+            QTimer.singleShot(0, self._reset_upscale_img_btn)
+            return
+
+        if not os.path.isfile(binary):
+            self.app_state.log(f"Upscaler binary not found: {binary}", "ERROR")
+            QTimer.singleShot(0, self._reset_upscale_img_btn)
+            return
+
+        model_dir = os.path.join(os.path.dirname(binary), "models")
+        model_bin = os.path.join(model_dir, f"{ai.model}.bin")
+        if not os.path.isfile(model_bin):
+            self.app_state.log(f"Model not found: {model_bin}. Check your model selection.", "ERROR")
+            QTimer.singleShot(0, self._reset_upscale_img_btn)
+            return
+
+        cmd = [binary, "-i", src_path, "-o", out_path,
+               "-s", str(ai.scale), "-n", ai.model, "-m", model_dir, "-g", "0",
+               "-f", out_format]
+        if ai.tile_size > 0:
+            cmd.extend(["-t", str(ai.tile_size)])
+
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for line in iter(proc.stderr.readline, ''):
+                line = line.strip()
+                if line and "%" in line and not line.startswith("["):
+                    self.app_state.log(f"📷 upscale: {line}", "INFO")
+            proc.wait()
+        except Exception as e:
+            self.app_state.log(f"Upscale error: {e}", "ERROR")
+            QTimer.singleShot(0, self._reset_upscale_img_btn)
+            return
+
+        if proc.returncode == 0 and os.path.isfile(out_path):
+            self.app_state.log(f"Upscaled image saved: {out_path}", "SUCCESS")
+            subprocess.Popen(["xdg-open", out_path])
+        else:
+            self.app_state.log("Upscale failed", "ERROR")
+
+        QTimer.singleShot(0, self._reset_upscale_img_btn)
+
+    def _reset_upscale_img_btn(self):
+        self.ai_upscale_img_btn.setEnabled(True)
+        self.ai_upscale_img_btn.setText("Upscale Single Image")
+
     def on_ai_upscale_all(self):
         import threading
 
@@ -1633,6 +1845,10 @@ class EncodingPanel(QWidget):
         self.ai_upscale_part_btn.setText("2a. Upscale Part")
         self.ai_upscale_all_btn.setEnabled(True)
         self.ai_upscale_all_btn.setText("2b. Upscale All (remaining)")
+        self.ai_test_frame_btn.setEnabled(True)
+        self.ai_test_frame_btn.setText("Test")
+        self.ai_upscale_img_btn.setEnabled(True)
+        self.ai_upscale_img_btn.setText("Upscale Single Image")
         self.upscaling_active.emit(False)
 
     def on_ai_recombine(self):
