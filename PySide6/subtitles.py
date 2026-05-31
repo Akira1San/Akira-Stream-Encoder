@@ -5,7 +5,8 @@ import os
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QComboBox, QSlider, QPushButton, QColorDialog, QSpinBox
+    QComboBox, QSlider, QPushButton, QColorDialog, QSpinBox,
+    QFileDialog
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -95,7 +96,12 @@ class SubtitlesPanel(QWidget):
         self.refresh_btn.setMaximumWidth(30)
         self.refresh_btn.clicked.connect(self.on_refresh_clicked)
         sub_file_layout.addWidget(self.refresh_btn)
-        
+
+        self.load_ext_btn = QPushButton("Load...")
+        self.load_ext_btn.setToolTip("Load external subtitle file from a different folder")
+        self.load_ext_btn.clicked.connect(self.on_load_external_clicked)
+        sub_file_layout.addWidget(self.load_ext_btn)
+
         sub_file_layout.addStretch()
         layout.addLayout(sub_file_layout)
         
@@ -361,6 +367,30 @@ class SubtitlesPanel(QWidget):
     def on_refresh_clicked(self):
         """Handle refresh button click"""
         self.refresh_subtitles.emit()
+
+    def on_load_external_clicked(self):
+        """Handle load external subtitle button click"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Subtitle File",
+            "",
+            "Subtitle Files (*.srt *.ass *.ssa *.sub);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        for i in range(self.subtitle_combo.count()):
+            if self.subtitle_combo.itemData(i) == file_path:
+                self.subtitle_combo.setCurrentIndex(i)
+                return
+
+        self.subtitle_combo.blockSignals(True)
+        self.subtitle_combo.addItem(os.path.basename(file_path), file_path)
+        self.subtitle_combo.setCurrentIndex(self.subtitle_combo.count() - 1)
+        self.subtitle_combo.blockSignals(False)
+
+        self.app_state.subtitles.selected_subtitle = file_path
+        self.settings_changed.emit()
         
     def set_subtitle_files(self, files: list):
         """Populate the subtitle combobox with found files"""
@@ -374,8 +404,13 @@ class SubtitlesPanel(QWidget):
             # Add file with full path as data
             self.subtitle_combo.addItem(os.path.basename(f), f)
         
+        # If there's a saved external subtitle not in the scanned folder,
+        # add it so the selection is preserved across refreshes
+        if current_selection and current_selection not in files and os.path.exists(current_selection):
+            self.subtitle_combo.addItem(os.path.basename(current_selection), current_selection)
+        
         # Auto-select: prioritize .srt files
-        if files:
+        if self.subtitle_combo.count() > 1:
             # Find first .srt file
             srt_index = -1
             for i in range(1, self.subtitle_combo.count()):  # Start from 1 (skip auto-detect)
@@ -384,7 +419,7 @@ class SubtitlesPanel(QWidget):
                     break
             
             # If saved selection exists and still available, use it
-            if current_selection and current_selection in files:
+            if current_selection:
                 for i in range(1, self.subtitle_combo.count()):
                     if self.subtitle_combo.itemData(i) == current_selection:
                         self.subtitle_combo.setCurrentIndex(i)
