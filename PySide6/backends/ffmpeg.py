@@ -987,7 +987,7 @@ class FFmpegBackend(MediaBackend):
             if is_dvd_source:
                 cmd.extend(["-f", "concat", "-safe", "0"])
 
-            if burn_subs and sub_path and not is_dvd_source:
+            if burn_subs and sub_path:
                 cmd.extend(["-i", input_path])
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
@@ -1275,7 +1275,7 @@ class FFmpegBackend(MediaBackend):
         # Subtitle burning (text subtitles)
         skip_vf = (video_mode == "copy")
         sub_path = None
-        if subtitles.burn_subs and not is_dvd_source:
+        if subtitles.burn_subs:
             if skip_vf:
                 self.app_state.log(
                     "Cannot burn subtitles with video stream copy mode. "
@@ -1674,6 +1674,12 @@ class FFmpegBackend(MediaBackend):
             self.app_state.log(f"Upscaler binary is not executable: {binary}. Run 'chmod +x \"{binary}\"' to fix.", "ERROR")
             return False
 
+        model_dir = os.path.join(os.path.dirname(binary), "models")
+        model_bin = os.path.join(model_dir, f"{model}.bin")
+        if not os.path.isfile(model_bin):
+            self.app_state.log(f"Model not found: {model_bin}. Check your model selection in AI Upscaling settings.", "ERROR")
+            return False
+
         part_dirs = self.get_part_dirs(frames_dir)
         if not part_dirs:
             self.app_state.log("No parts found to upscale. Extract frames first.", "ERROR")
@@ -1699,10 +1705,11 @@ class FFmpegBackend(MediaBackend):
                 "-o", out_dir,
                 "-s", str(scale),
                 "-n", model,
+                "-m", model_dir,
             ]
             if tile_size > 0:
                 cmd.extend(["-t", str(tile_size)])
-            cmd.extend(["-f", "png"])
+            cmd.extend(["-g", "0", "-f", "png"])
 
             self.app_state.log(f"Upscaling part {part}...", "INFO")
 

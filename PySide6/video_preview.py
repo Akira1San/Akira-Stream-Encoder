@@ -1133,14 +1133,20 @@ class VideoPreview(QWidget):
         if not self.app_state.subtitles.burn_subs or not self.current_video_path:
             return ""
         
-        # Look for external subtitle file
-        base = os.path.splitext(self.current_video_path)[0]
+        # Check user-selected subtitle file first
         sub_path = None
-        for ext in [".srt", ".ass", ".ssa", ".sub"]:
-            test_path = base + ext
-            if os.path.exists(test_path):
-                sub_path = test_path
-                break
+        selected = self.app_state.subtitles.selected_subtitle
+        if selected and os.path.exists(selected):
+            sub_path = selected
+        
+        # Fall back to auto-detect by basename
+        if not sub_path:
+            base = os.path.splitext(self.current_video_path)[0]
+            for ext in [".srt", ".ass", ".ssa", ".sub"]:
+                test_path = base + ext
+                if os.path.exists(test_path):
+                    sub_path = test_path
+                    break
         
         if not sub_path:
             return ""
@@ -1474,14 +1480,15 @@ class VideoPreview(QWidget):
         self.filter_overlay.set_original_image(image)
         self.filter_overlay.set_image(processed)
         
-        # For non-DVD sources, use QPainter overlay for subtitle display.
+        # Use QPainter overlay for subtitle display (text-based subs).
         # FFmpeg may also burn subtitles into the frame but the overlay is
         # the reliable fallback for external SRT/ASS files.
-        # For DVD sources, the overlay can't handle bitmap subs so skip it.
+        # For DVD sources, skip the overlay unless the user loaded an external text subtitle.
         is_dvd_source = (self.app_state.dvd.is_dvd_source
                          and self.current_video_path
                          and self.current_video_path.endswith('.txt'))
-        if not is_dvd_source:
+        has_external_sub = bool(self.app_state.subtitles.selected_subtitle)
+        if not is_dvd_source or has_external_sub:
             sub_text = self._get_current_subtitle()
             self.filter_overlay.set_subtitle(sub_text)
         else:
