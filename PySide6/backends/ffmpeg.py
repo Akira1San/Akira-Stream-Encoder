@@ -989,6 +989,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-f", "concat", "-safe", "0"])
 
             if burn_subs and sub_path:
+                cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", input_path])
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
@@ -997,7 +998,6 @@ class FFmpegBackend(MediaBackend):
                     self._external_audio = True
                 else:
                     self._external_audio = False
-                cmd.extend(["-ss", start_time])
                 cmd.extend(["-t", duration])
                 video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
                 subs_filter = self.build_subtitle_filter(sub_path)
@@ -1010,6 +1010,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-vf", ",".join(filter_parts)])
                 cmd.extend(["-af", "asetpts=PTS-STARTPTS"])
             else:
+                cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", input_path])
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
@@ -1018,7 +1019,6 @@ class FFmpegBackend(MediaBackend):
                     self._external_audio = True
                 else:
                     self._external_audio = False
-                cmd.extend(["-ss", start_time])
                 cmd.extend(["-t", duration])
                 video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
                 if video_filters_str:
@@ -1130,6 +1130,11 @@ class FFmpegBackend(MediaBackend):
         if is_dvd_source:
             cmd.extend(["-f", "concat", "-safe", "0"])
 
+        # Fast seek to keyframe for non-zero start times
+        # PTS is shifted to 0 by accurate seek; subtitle PTS is restored via setpts in the filter chain
+        if start_time and float(start_time) > 0:
+            cmd.extend(["-ss", start_time])
+
         cmd.extend(["-i", input_path])
 
         ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
@@ -1154,7 +1159,7 @@ class FFmpegBackend(MediaBackend):
             self._extra_audio_path = extra.audio_track_path
             cmd.extend(["-i", extra.audio_track_path])
 
-        if start_time:
+        if start_time and float(start_time) == 0:
             cmd.extend(["-ss", start_time])
         if duration:
             cmd.extend(["-t", duration])
@@ -1314,6 +1319,16 @@ class FFmpegBackend(MediaBackend):
         full_vf_str = video_filters_str
         if sub_path:
             subs_filter = self.build_subtitle_filter(sub_path)
+            # When seeking, PTS is shifted to 0 by accurate input seeking.
+            # Restore original PTS before subtitle filter so it looks up correct subs,
+            # then reset to 0 for the output.
+            seeking = start_time and float(start_time) > 0
+            if seeking:
+                subs_filter = (
+                    f"setpts=PTS+{float(start_time)}/TB,"
+                    f"{subs_filter}"
+                    f",setpts=PTS-STARTPTS"
+                )
             if full_vf_str:
                 full_vf_str = f"{full_vf_str},{subs_filter}"
             else:
