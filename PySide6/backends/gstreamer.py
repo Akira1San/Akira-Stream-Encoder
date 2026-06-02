@@ -981,20 +981,21 @@ class GStreamerBackend(MediaBackend):
     def _get_vob_duration(self, vob_path: str) -> float:
         if vob_path in self._vob_duration_cache:
             return self._vob_duration_cache[vob_path]
-        ffprobe = self.app_state.ffprobe_path or "ffprobe"
-        try:
-            cmd = [ffprobe, "-v", "error", "-i", vob_path,
-                   "-show_entries", "format=duration",
-                   "-of", "default=noprint_wrappers=1:nokey=1"]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, timeout=30)
-            if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
-                duration = float(result.stdout.strip())
-                if duration > 0:
-                    self._vob_duration_cache[vob_path] = duration
-                    return duration
-        except Exception:
-            pass
+        probes = [self.app_state.ffprobe_path or "ffprobe", self.app_state.ffmpeg_path]
+        for probe in probes:
+            try:
+                cmd = [probe, "-v", "error", "-i", vob_path,
+                       "-show_entries", "format=duration",
+                       "-of", "default=noprint_wrappers=1:nokey=1"]
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        text=True, timeout=15)
+                if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
+                    duration = float(result.stdout.strip())
+                    if duration > 0:
+                        self._vob_duration_cache[vob_path] = duration
+                        return duration
+            except Exception:
+                continue
         self._vob_duration_cache[vob_path] = 0.0
         return 0.0
 
@@ -1002,6 +1003,7 @@ class GStreamerBackend(MediaBackend):
         """
         Find the correct VOB file and relative timestamp for a DVD seek.
         Probes actual VOB durations with ffprobe (cached).
+        Falls back to file-size proportion.
         Returns (vob_path, adjusted_timestamp) or (None, timestamp) on failure.
         """
         if not self.app_state.dvd.available_titles:
@@ -1011,13 +1013,29 @@ class GStreamerBackend(MediaBackend):
                 vobs = title.vob_files
                 if not vobs:
                     return None, timestamp
+                vob_durs = [self._get_vob_duration(v) for v in vobs]
+                all_zero = all(d <= 0 for d in vob_durs)
+                if all_zero:
+                    sizes = []
+                    total_size = 0
+                    for v in vobs:
+                        try:
+                            sz = os.path.getsize(v)
+                        except OSError:
+                            sz = 0
+                        sizes.append(sz)
+                        total_size += sz
+                    vob_durs = [
+                        max(title.duration / max(len(vobs), 1), 1.0)
+                        if total_size <= 0 else
+                        max(title.duration * (sz / total_size), 1.0)
+                        for sz in sizes
+                    ]
                 cum_time = 0.0
                 for i, v in enumerate(vobs):
-                    vob_dur = self._get_vob_duration(v)
-                    if vob_dur <= 0:
-                        vob_dur = max(title.duration / len(vobs), 1.0)
+                    vob_dur = vob_durs[i]
                     if timestamp < cum_time + vob_dur or i == len(vobs) - 1:
-                        return v, max(0.0, min(timestamp - cum_time, vob_dur - 0.1))
+                        return v, max(0.0, min(timestamp - cum_time, vob_dur - 1.0))
                     cum_time += vob_dur
                 break
         return None, timestamp

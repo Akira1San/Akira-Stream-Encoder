@@ -1123,9 +1123,12 @@ class VideoPreview(QWidget):
     def _update_filter_overlay(self):
         """
         Timer callback to update the filter overlay.
-        This is called periodically during playback to refresh the preview.
         Uses FFmpeg as fallback if QVideoSink doesn't work.
+        During playback the overlay is frozen — skip FFmpeg fallback entirely.
         """
+        if self.is_playing:
+            return
+
         # First try to get frame from QVideoSink
         last_frame = self._video_player.get_last_frame()
         
@@ -1388,15 +1391,14 @@ class VideoPreview(QWidget):
             # Use QMediaPlayer for smooth seeking
             # For DVD sources, cap to the first VOB's actual duration
             self._video_player.seek(self._cap_seek(timestamp))
-            # Update filter overlay immediately after seeking (for dual-view)
-            self._update_filter_overlay()
             
             # Sync playback time (keep actual slider position, not capped seek)
             self._playback_time = timestamp
             
-            # Resume overlay timer if playing
-            if self.is_playing:
-                self._overlay_timer.start()
+            # Update processed preview only when paused (during playback the
+            # overlay is intentionally frozen to prevent FFmpeg blocking the UI)
+            if not self.is_playing:
+                self._update_filter_overlay()
             
     def get_current_timestamp(self):
         """Get the current timeline position in seconds"""
