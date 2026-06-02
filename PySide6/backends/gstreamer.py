@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 import zlib
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -114,6 +114,7 @@ class GStreamerBackend(MediaBackend):
         self.app_state = app_state
         self._gst_path = "gst-launch-1.0"
         self._discoverer_path = "gst-discoverer-1.0"
+        self._vob_duration_cache: Dict[str, float] = {}
 
     # ------------------------------------------------------------------ #
     #  Helpers
@@ -977,10 +978,30 @@ class GStreamerBackend(MediaBackend):
             return result
         return _run_decodebin()
 
+    def _get_vob_duration(self, vob_path: str) -> float:
+        if vob_path in self._vob_duration_cache:
+            return self._vob_duration_cache[vob_path]
+        ffprobe = self.app_state.ffprobe_path or "ffprobe"
+        try:
+            cmd = [ffprobe, "-v", "error", "-i", vob_path,
+                   "-show_entries", "format=duration",
+                   "-of", "default=noprint_wrappers=1:nokey=1"]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, timeout=30)
+            if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
+                duration = float(result.stdout.strip())
+                if duration > 0:
+                    self._vob_duration_cache[vob_path] = duration
+                    return duration
+        except Exception:
+            pass
+        self._vob_duration_cache[vob_path] = 0.0
+        return 0.0
+
     def _find_dvd_vob_for_timestamp(self, timestamp: float):
         """
         Find the correct VOB file and relative timestamp for a DVD seek.
-        Uses file-size proportions to estimate per-VOB durations.
+        Probes actual VOB durations with ffprobe (cached).
         Returns (vob_path, adjusted_timestamp) or (None, timestamp) on failure.
         """
         if not self.app_state.dvd.available_titles:
@@ -988,24 +1009,15 @@ class GStreamerBackend(MediaBackend):
         for title in self.app_state.dvd.available_titles:
             if title.title_number == self.app_state.dvd.selected_title_number:
                 vobs = title.vob_files
-                if not vobs or title.duration <= 0:
-                    return (vobs[0], timestamp) if vobs else (None, timestamp)
-                vob_sizes = []
-                total_size = 0
-                for v in vobs:
-                    try:
-                        sz = os.path.getsize(v)
-                    except OSError:
-                        sz = 0
-                    vob_sizes.append(sz)
-                    total_size += sz
-                if total_size <= 0:
-                    return vobs[0], timestamp
+                if not vobs:
+                    return None, timestamp
                 cum_time = 0.0
-                for i, (v, sz) in enumerate(zip(vobs, vob_sizes)):
-                    vob_dur = title.duration * (sz / total_size)
+                for i, v in enumerate(vobs):
+                    vob_dur = self._get_vob_duration(v)
+                    if vob_dur <= 0:
+                        vob_dur = max(title.duration / len(vobs), 1.0)
                     if timestamp < cum_time + vob_dur or i == len(vobs) - 1:
-                        return v, max(0.0, timestamp - cum_time)
+                        return v, max(0.0, min(timestamp - cum_time, vob_dur - 0.1))
                     cum_time += vob_dur
                 break
         return None, timestamp
