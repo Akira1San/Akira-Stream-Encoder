@@ -28,6 +28,21 @@ class FFmpegBackend(MediaBackend):
         container = getattr(self.app_state.encoding, 'container', 'mp4')
         return "mp2" if container in ("mpg", "vob") else "aac"
 
+    def _get_dvd_concat_input(self) -> Optional[str]:
+        """Build concat: protocol input for DVD VOB files (byte-level concat).
+
+        VOB files are byte-splits of a single MPEG-PS stream, so the concat:
+        protocol (not the concat demuxer) produces a continuous stream with no
+        PTS discontinuity at VOB boundaries.
+        """
+        dvd = self.app_state.dvd
+        if not dvd.is_dvd_source or not dvd.available_titles:
+            return None
+        for title in dvd.available_titles:
+            if title.title_number == dvd.selected_title_number and title.vob_files:
+                return "concat:" + "|".join(title.vob_files)
+        return None
+
     def _get_ffprobe_path(self) -> str:
         ffprobe = self.app_state.ffprobe_path
         ffmpeg = self.app_state.ffmpeg_path
@@ -43,13 +58,15 @@ class FFmpegBackend(MediaBackend):
         ffprobe_path = self._get_ffprobe_path()
         ffmpeg_path = self.app_state.ffmpeg_path
         is_dvd_concat = input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
+        dvd_concat_input = self._get_dvd_concat_input() if is_dvd_concat else None
+        probe_path = dvd_concat_input if dvd_concat_input else input_path
 
         if ffprobe_path:
             try:
                 cmd = [ffprobe_path, "-v", "error"]
-                if is_dvd_concat:
-                    cmd.extend(["-f", "concat", "-safe", "0"])
-                cmd.extend(["-i", input_path])
+                if dvd_concat_input:
+                    cmd.extend(["-f", "mpeg"])
+                cmd.extend(["-i", probe_path])
                 cmd.extend(["-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1"])
                 result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
                 if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != 'N/A':
@@ -67,9 +84,7 @@ class FFmpegBackend(MediaBackend):
 
         try:
             cmd = [ffmpeg_path]
-            if is_dvd_concat:
-                cmd.extend(["-f", "concat", "-safe", "0"])
-            cmd.extend(["-i", input_path])
+            cmd.extend(["-i", probe_path])
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
             match = re.search(r"Duration:\s*(\d{2}:\d{2}:\d{2})", result.stderr)
             if match:
@@ -1041,14 +1056,13 @@ class FFmpegBackend(MediaBackend):
         dvd = self.app_state.dvd
 
         encoder = encoding.encoder
+        is_dvd_source = dvd.is_dvd_source and input_path.endswith('.txt')
         if encoding.use_gpu and "nvenc" in encoder:
             cmd.extend(["-hwaccel", "cuda"])
 
         # ── Extra: Standalone generated video ──
         if self.app_state.extra.generate_video:
             return self.build_generate_video_command(output_path)
-
-        is_dvd_source = dvd.is_dvd_source and input_path.endswith('.txt')
 
         if self.app_state.split.extract_clip_enabled:
             start_min = self.app_state.split.extract_start_min
@@ -1063,12 +1077,11 @@ class FFmpegBackend(MediaBackend):
             if burning_dvd_subs:
                 pass
 
-            if is_dvd_source:
-                cmd.extend(["-f", "concat", "-safe", "0"])
+            dvd_concat_input = self._get_dvd_concat_input() if is_dvd_source else None
 
             if burn_subs and sub_path:
                 cmd.extend(["-ss", start_time])
-                cmd.extend(["-i", input_path])
+                cmd.extend(["-i", dvd_concat_input if dvd_concat_input else input_path])
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
                 if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
@@ -1089,7 +1102,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-af", "asetpts=PTS-STARTPTS"])
             else:
                 cmd.extend(["-ss", start_time])
-                cmd.extend(["-i", input_path])
+                cmd.extend(["-i", dvd_concat_input if dvd_concat_input else input_path])
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
                 if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
@@ -1205,16 +1218,23 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-y", output_path])
             return cmd
 
-        if is_dvd_source:
-            cmd.extend(["-f", "concat", "-safe", "0"])
-            cmd.extend(["-fflags", "+genpts"])
+        # DVD VOB: use concat: protocol (byte-level) instead of concat demuxer
+        # to avoid PTS discontinuity at VOB boundaries
+        dvd_concat_input = self._get_dvd_concat_input() if is_dvd_source else None
+        if dvd_concat_input:
+            if start_time and float(start_time) > 0:
+                cmd.extend(["-ss", start_time])
+            cmd.extend(["-i", dvd_concat_input])
+        else:
+            if is_dvd_source:
+                cmd.extend(["-f", "concat", "-safe", "0"])
+                cmd.extend(["-fflags", "+genpts"])
 
-        # Fast seek to keyframe for non-zero start times
-        # PTS is shifted to 0 by accurate seek; subtitle PTS is restored via setpts in the filter chain
-        if start_time and float(start_time) > 0:
-            cmd.extend(["-ss", start_time])
+            # Fast seek to keyframe for non-zero start times
+            if start_time and float(start_time) > 0:
+                cmd.extend(["-ss", start_time])
 
-        cmd.extend(["-i", input_path])
+            cmd.extend(["-i", input_path])
 
         ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
         ext_audio_path = getattr(tracks, 'external_audio_path', '')
@@ -1468,10 +1488,12 @@ class FFmpegBackend(MediaBackend):
     def fast_cut(self, input_path: str, output_path: str,
                  start_time: Optional[str] = None,
                  duration: Optional[str] = None) -> subprocess.Popen:
+        is_dvd_source = input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
+        dvd_concat_input = self._get_dvd_concat_input() if is_dvd_source else None
         cmd = [self.app_state.ffmpeg_path]
         if start_time:
             cmd.extend(["-ss", start_time])
-        cmd.extend(["-i", input_path])
+        cmd.extend(["-i", dvd_concat_input if dvd_concat_input else input_path])
         if duration:
             cmd.extend(["-t", duration])
         cmd.extend(["-c:v", "copy"])

@@ -139,7 +139,7 @@ class VideoController:
                 self.app_state.log(f"Invalid custom resolution: '{custom_res}'. Expected format: WxH (e.g. 1920x1080)", "ERROR")
                 return False
 
-        self.app_state.log(f"Starting encode: {os.path.basename(input_path)}", "INFO")
+        self.app_state.log(f"Starting encode: {os.path.basename(input_path)} output={os.path.basename(output_path)}", "INFO")
 
         try:
             self.is_encoding = True
@@ -150,9 +150,11 @@ class VideoController:
 
             # Parse output for progress
             vid_duration = self.get_video_duration(input_path)
+            line_count = 0
 
             for line in self.current_process.stdout:
                 line = line.strip()
+                line_count += 1
 
                 if line.startswith('frame=') or 'fps=' in line or 'time=' in line:
                     self.app_state.log(f"Progress: {line}", "DEBUG")
@@ -165,6 +167,8 @@ class VideoController:
                         progress = min(100, int((current_time / vid_duration) * 100))
                         progress_callback(progress)
 
+            if line_count > 0:
+                self.app_state.log(f"Read {line_count} output lines for {os.path.basename(output_path)}", "DEBUG")
             self.current_process.wait()
 
             if self.current_process.returncode == 0:
@@ -398,7 +402,7 @@ class VideoController:
     def fast_cut_file(self, input_path: str, output_path: str,
                      start_time: Optional[str] = None,
                      duration: Optional[str] = None) -> bool:
-        self.app_state.log(f"Fast cutting: {os.path.basename(input_path)}", "INFO")
+        self.app_state.log(f"Fast cutting: {os.path.basename(input_path)} output={os.path.basename(output_path)}", "INFO")
 
         try:
             self.is_encoding = True
@@ -406,11 +410,15 @@ class VideoController:
                 input_path, output_path, start_time=start_time, duration=duration
             )
 
+            line_count = 0
             for line in self.current_process.stdout:
                 line = line.strip()
+                line_count += 1
                 if line:
                     self.app_state.log(f"Fast cut: {line}", "DEBUG")
 
+            if line_count > 0:
+                self.app_state.log(f"Read {line_count} output lines for {os.path.basename(output_path)}", "DEBUG")
             self.current_process.wait()
 
             if self.current_process.returncode == 0:

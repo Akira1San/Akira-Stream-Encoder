@@ -548,12 +548,20 @@ class VideoWorkspace(QWidget):
             not getattr(self.app_state.filters, 'audio_compressor', False) and
             not has_external_audio  # External audio requires re-encoding
         )
-        
         # Generate output paths
         import os
         from pathlib import Path
-        base_name = Path(input_file).stem
-        output_folder = self.app_state.output_folder or os.path.dirname(input_file)
+        is_dvd_concat = input_file.endswith('.txt') and self.app_state.dvd.is_dvd_source
+        if is_dvd_concat:
+            base_name = f"dvd_title_{self.app_state.dvd.selected_title_number}"
+        else:
+            base_name = Path(input_file).stem
+        output_folder = self.app_state.output_folder
+        if not output_folder:
+            if is_dvd_concat and self.app_state.dvd.dvd_folder_path:
+                output_folder = os.path.dirname(self.app_state.dvd.dvd_folder_path)
+            else:
+                output_folder = os.path.dirname(input_file)
         container = self.app_state.encoding.container
         
         # Single output path for joined output
