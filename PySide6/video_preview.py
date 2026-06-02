@@ -1395,10 +1395,10 @@ class VideoPreview(QWidget):
             # Sync playback time (keep actual slider position, not capped seek)
             self._playback_time = timestamp
             
-            # Update processed preview only when paused (during playback the
-            # overlay is intentionally frozen to prevent FFmpeg blocking the UI)
+            # Update processed preview (uses actual slider timestamp, not
+            # QMediaPlayer's capped position, so DVD VOB boundaries work)
             if not self.is_playing:
-                self._update_filter_overlay()
+                self.seek_preview(timestamp)
             
     def get_current_timestamp(self):
         """Get the current timeline position in seconds"""
