@@ -664,6 +664,7 @@ class VideoPreview(QWidget):
         
         self.current_video_path: Optional[str] = None
         self.duration: float = 0.0
+        self._playable_duration: float = 0.0  # QMediaPlayer's actual seekable range (first VOB for DVD)
         self.current_frame: Optional[QImage] = None
         self.is_playing: bool = False
         self.playback_speed: float = 1.0  # 1.0 = normal speed
@@ -1030,7 +1031,7 @@ class VideoPreview(QWidget):
             if self._is_position_in_deleted_segment(position_sec):
                 # Jump past the deleted segment
                 next_pos = self._get_next_valid_position(position_sec)
-                self._video_player.seek(next_pos)
+                self._video_player.seek(self._cap_seek(next_pos))
                 self._playback_time = next_pos
                 position_sec = next_pos
         
@@ -1051,8 +1052,17 @@ class VideoPreview(QWidget):
     
     def _video_duration_changed(self, duration_sec: float):
         """Handle video player duration change"""
+        # For DVD sources, QMediaPlayer only sees the first VOB file (~10 min),
+        # so we store its actual seekable range separately but keep the full
+        # title duration (from load_video_metadata) for the timeline display.
+        if self.app_state.dvd.is_dvd_source:
+            if duration_sec > 0:
+                self._playable_duration = duration_sec
+                self.app_state.log(f"Video player duration (first VOB): {duration_sec:.2f}s", "INFO")
+            return
         if duration_sec > 0 and duration_sec != self.duration:
             self.duration = duration_sec
+            self._playable_duration = duration_sec
             self.timeline_slider.set_duration(self.duration)
             self.app_state.log(f"Video duration (QMediaPlayer): {self.duration:.2f}s", "INFO")
             
@@ -1258,6 +1268,8 @@ class VideoPreview(QWidget):
             duration = self.app_state.backend.get_duration(video_path)
             if duration and duration > 0:
                 self.duration = duration
+                if not is_dvd_source:
+                    self._playable_duration = duration
                 self.app_state.log(f"Video duration: {self.duration:.2f}s", "INFO")
                 self.timeline_slider.set_duration(self.duration)
                 return
@@ -1272,6 +1284,7 @@ class VideoPreview(QWidget):
                     return
         self.app_state.log("Could not determine video duration", "WARN")
         self.duration = 0.0
+        self._playable_duration = 0.0
             
     def on_timeline_changed(self, value):
         """Handle timeline slider change while dragging"""
@@ -1299,9 +1312,13 @@ class VideoPreview(QWidget):
             self.time_input.setText(time_str)
             
             # Seek original video during drag (QMediaPlayer is fast)
+            # For DVD sources, cap to the first VOB's actual duration
             # Processed preview updates on slider release only
             if self._is_user_seeking:
-                self._video_player.seek(timestamp)
+                seek_pos = timestamp
+                if self._playable_duration > 0 and timestamp >= self._playable_duration:
+                    seek_pos = max(0.0, self._playable_duration - 1.0)
+                self._video_player.seek(seek_pos)
                 self._playback_time = timestamp
     
     def on_time_input_entered(self):
@@ -1353,6 +1370,12 @@ class VideoPreview(QWidget):
         # Pause overlay updates during seeking to prevent flicker
         self._overlay_timer.stop()
     
+    def _cap_seek(self, timestamp: float) -> float:
+        """Cap seek position to the playable range (first VOB for DVD sources)."""
+        if self._playable_duration > 0 and timestamp >= self._playable_duration:
+            return max(0.0, self._playable_duration - 1.0)
+        return timestamp
+
     def on_timeline_released(self):
         """Handle timeline slider release - finalize seek and resume playback"""
         # Clear the seeking flag
@@ -1363,11 +1386,12 @@ class VideoPreview(QWidget):
             timestamp = self.timeline_slider.value_to_time(value)
             
             # Use QMediaPlayer for smooth seeking
-            self._video_player.seek(timestamp)
+            # For DVD sources, cap to the first VOB's actual duration
+            self._video_player.seek(self._cap_seek(timestamp))
             # Update filter overlay immediately after seeking (for dual-view)
             self._update_filter_overlay()
             
-            # Sync playback time
+            # Sync playback time (keep actual slider position, not capped seek)
             self._playback_time = timestamp
             
             # Resume overlay timer if playing
@@ -1796,7 +1820,7 @@ class VideoPreview(QWidget):
         # Seek to current position first
         value = self.timeline_slider.value()
         position = self.timeline_slider.value_to_time(value)
-        self._video_player.seek(position)
+        self._video_player.seek(self._cap_seek(position))
         
         # Start playback
         self._video_player.play()

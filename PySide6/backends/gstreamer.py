@@ -892,7 +892,7 @@ class GStreamerBackend(MediaBackend):
                             max_size: tuple = None) -> Optional[bytes]:
         _ensure_gst_init()
 
-        ts = min(timestamp, 600.0)
+        ts = timestamp
         scale = ""
         if max_size:
             scale = f" ! videoscale ! video/x-raw,width={max_size[0]},height={max_size[1]}"
@@ -977,17 +977,51 @@ class GStreamerBackend(MediaBackend):
             return result
         return _run_decodebin()
 
+    def _find_dvd_vob_for_timestamp(self, timestamp: float):
+        """
+        Find the correct VOB file and relative timestamp for a DVD seek.
+        Uses file-size proportions to estimate per-VOB durations.
+        Returns (vob_path, adjusted_timestamp) or (None, timestamp) on failure.
+        """
+        if not self.app_state.dvd.available_titles:
+            return None, timestamp
+        for title in self.app_state.dvd.available_titles:
+            if title.title_number == self.app_state.dvd.selected_title_number:
+                vobs = title.vob_files
+                if not vobs or title.duration <= 0:
+                    return (vobs[0], timestamp) if vobs else (None, timestamp)
+                vob_sizes = []
+                total_size = 0
+                for v in vobs:
+                    try:
+                        sz = os.path.getsize(v)
+                    except OSError:
+                        sz = 0
+                    vob_sizes.append(sz)
+                    total_size += sz
+                if total_size <= 0:
+                    return vobs[0], timestamp
+                cum_time = 0.0
+                for i, (v, sz) in enumerate(zip(vobs, vob_sizes)):
+                    vob_dur = title.duration * (sz / total_size)
+                    if timestamp < cum_time + vob_dur or i == len(vobs) - 1:
+                        return v, max(0.0, timestamp - cum_time)
+                    cum_time += vob_dur
+                break
+        return None, timestamp
+
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
                       first_vob_path: str = None,
                       max_size: tuple = None,
                       extra_video_filter: str = "",
                       extra_image_paths: list = None) -> Optional[bytes]:
-        target = first_vob_path if is_dvd_source and first_vob_path else video_path
+        vob_path, adj_ts = self._find_dvd_vob_for_timestamp(timestamp) if is_dvd_source else (None, timestamp)
+        target = vob_path if (is_dvd_source and vob_path and os.path.exists(vob_path)) else video_path
         if not os.path.exists(target):
             return None
 
-        result = self._capture_frame_gst(target, timestamp, max_size)
+        result = self._capture_frame_gst(target, adj_ts if is_dvd_source else timestamp, max_size)
         if result:
             return result
 
@@ -995,9 +1029,8 @@ class GStreamerBackend(MediaBackend):
         if not ffmpeg or ffmpeg == "ffmpeg" or not os.path.exists(ffmpeg):
             self._log_unsupported("frame capture (no FFmpeg path)")
             return None
-        if is_dvd_source and first_vob_path:
-            ts = min(timestamp, 600.0)
-            cmd = [ffmpeg, "-ss", str(ts), "-i", first_vob_path]
+        if is_dvd_source and vob_path and os.path.exists(vob_path):
+            cmd = [ffmpeg, "-ss", str(adj_ts), "-i", vob_path]
         elif is_dvd_source:
             cmd = [ffmpeg, "-ss", str(timestamp),
                    "-f", "concat", "-safe", "0", "-i", video_path]

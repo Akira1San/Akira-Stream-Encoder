@@ -151,6 +151,39 @@ class FFmpegBackend(MediaBackend):
             for item in extra.image_overlays
         )
 
+    def _find_dvd_vob_for_timestamp(self, timestamp: float):
+        """
+        Find the correct VOB file and relative timestamp for a DVD seek.
+        Uses file-size proportions to estimate per-VOB durations.
+        Returns (vob_path, adjusted_timestamp) or (None, timestamp) on failure.
+        """
+        if not self.app_state.dvd.available_titles:
+            return None, timestamp
+        for title in self.app_state.dvd.available_titles:
+            if title.title_number == self.app_state.dvd.selected_title_number:
+                vobs = title.vob_files
+                if not vobs or title.duration <= 0:
+                    return (vobs[0], timestamp) if vobs else (None, timestamp)
+                vob_sizes = []
+                total_size = 0
+                for v in vobs:
+                    try:
+                        sz = os.path.getsize(v)
+                    except OSError:
+                        sz = 0
+                    vob_sizes.append(sz)
+                    total_size += sz
+                if total_size <= 0:
+                    return vobs[0], timestamp
+                cum_time = 0.0
+                for i, (v, sz) in enumerate(zip(vobs, vob_sizes)):
+                    vob_dur = title.duration * (sz / total_size)
+                    if timestamp < cum_time + vob_dur or i == len(vobs) - 1:
+                        return v, max(0.0, timestamp - cum_time)
+                    cum_time += vob_dur
+                break
+        return None, timestamp
+
     def capture_frame(self, video_path: str, timestamp: float,
                       subtitle_filter: str = "", is_dvd_source: bool = False,
                       first_vob_path: str = None,
@@ -164,14 +197,14 @@ class FFmpegBackend(MediaBackend):
             res = extra.gen_resolution
             color = extra.gen_color
             cmd = [ffmpeg_path, "-f", "lavfi", "-i", f"color=c={color}:s={res}:r=1"]
-        elif is_dvd_source and first_vob_path and os.path.exists(first_vob_path):
-            preview_timestamp = min(timestamp, 600.0)
-            cmd = [ffmpeg_path, "-ss", str(preview_timestamp)]
-            cmd.extend(["-i", first_vob_path])
         elif is_dvd_source:
-            cmd = [ffmpeg_path, "-ss", str(timestamp)]
-            cmd.extend(["-f", "concat", "-safe", "0"])
-            cmd.extend(["-i", video_path])
+            vob_path, adj_ts = self._find_dvd_vob_for_timestamp(timestamp)
+            if vob_path and os.path.exists(vob_path):
+                cmd = [ffmpeg_path, "-ss", str(adj_ts)]
+                cmd.extend(["-i", vob_path])
+            else:
+                cmd = [ffmpeg_path, "-ss", str(timestamp)]
+                cmd.extend(["-i", video_path])
         else:
             cmd = [ffmpeg_path, "-ss", str(timestamp)]
             cmd.extend(["-i", video_path])
@@ -1129,6 +1162,7 @@ class FFmpegBackend(MediaBackend):
 
         if is_dvd_source:
             cmd.extend(["-f", "concat", "-safe", "0"])
+            cmd.extend(["-fflags", "+genpts"])
 
         # Fast seek to keyframe for non-zero start times
         # PTS is shifted to 0 by accurate seek; subtitle PTS is restored via setpts in the filter chain
