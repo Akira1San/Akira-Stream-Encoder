@@ -670,6 +670,10 @@ class VideoPreview(QWidget):
         self.playback_speed: float = 1.0  # 1.0 = normal speed
         self._playback_time: float = 0.0  # Current playback position in seconds
         
+        # DVD VOB auto-advance during playback
+        self._dvd_vob_list: List[str] = []
+        self._current_vob_index: int = 0
+        
         # Deleted segments (will be removed in final output)
         self._deleted_segments: list = []
         
@@ -933,12 +937,15 @@ class VideoPreview(QWidget):
         self.filter_overlay.update()
         
         # Load video into QMediaPlayer for smooth playback
-        # For DVD sources, use the first VOB file (QMediaPlayer can't parse concat .txt)
+        # For DVD sources, use individual VOB files (QMediaPlayer can't parse concat .txt)
         playback_path = video_path
+        self._dvd_vob_list = []
+        self._current_vob_index = 0
         if self.app_state.dvd.is_dvd_source and video_path.endswith('.txt'):
             for title in self.app_state.dvd.available_titles:
                 if title.title_number == self.app_state.dvd.selected_title_number:
                     if title.vob_files:
+                        self._dvd_vob_list = title.vob_files
                         first_vob = title.vob_files[0]
                         if os.path.exists(first_vob):
                             playback_path = first_vob
@@ -975,6 +982,8 @@ class VideoPreview(QWidget):
         self.current_frame = None
         self._playback_time = 0.0
         self._deleted_segments = []
+        self._dvd_vob_list = []
+        self._current_vob_index = 0
         
         # Reset timeline
         self.timeline_slider.set_duration(0)
@@ -1077,6 +1086,15 @@ class VideoPreview(QWidget):
     def _video_state_changed(self, state: str):
         """Handle video player state change"""
         if state == "stopped" and self.is_playing:
+            # DVD: auto-advance to next VOB when current one finishes
+            if self._dvd_vob_list and self._current_vob_index < len(self._dvd_vob_list) - 1:
+                self._current_vob_index += 1
+                next_vob = self._dvd_vob_list[self._current_vob_index]
+                self.app_state.log(f"DVD: advancing to VOB {self._current_vob_index}", "INFO")
+                self._video_player.load_file(next_vob)
+                self._video_player.seek(0)
+                self._video_player.play()
+                return
             # Video finished playing
             self.on_pause_clicked()
             self.app_state.log("Playback finished", "INFO")
@@ -1315,13 +1333,14 @@ class VideoPreview(QWidget):
             self.time_input.setText(time_str)
             
             # Seek original video during drag (QMediaPlayer is fast)
-            # For DVD sources, cap to the first VOB's actual duration
             # Processed preview updates on slider release only
             if self._is_user_seeking:
-                seek_pos = timestamp
-                if self._playable_duration > 0 and timestamp >= self._playable_duration:
-                    seek_pos = max(0.0, self._playable_duration - 1.0)
-                self._video_player.seek(seek_pos)
+                if self._dvd_vob_list:
+                    self._load_dvd_vob_for_position(timestamp)
+                elif self._playable_duration > 0 and timestamp >= self._playable_duration:
+                    self._video_player.seek(max(0.0, self._playable_duration - 1.0))
+                else:
+                    self._video_player.seek(timestamp)
                 self._playback_time = timestamp
     
     def on_time_input_entered(self):
@@ -1360,12 +1379,40 @@ class VideoPreview(QWidget):
             slider_value = self.timeline_slider.time_to_value(seconds)
             self.timeline_slider.setValue(slider_value)
             
-            # Seek to that position
+            # Seek QMediaPlayer to that position (switch VOBs for DVD)
+            if self._dvd_vob_list:
+                self._load_dvd_vob_for_position(seconds)
+            else:
+                self._video_player.seek(seconds)
+            self._playback_time = seconds
+            
+            # Seek processed preview to that position
             self.seek_preview(seconds)
             
         except ValueError:
             self.app_state.log(f"Invalid time format: {text}. Use MM:SS or seconds", "WARN")
             
+    def _load_dvd_vob_for_position(self, timestamp: float):
+        """Load the correct DVD VOB file for a given timeline position."""
+        if not self._dvd_vob_list:
+            return
+        # If still within current VOB's range, just seek
+        if timestamp < self._playable_duration - 0.5:
+            self._video_player.seek(timestamp)
+            return
+        # Find which VOB contains the target timestamp via backend probe
+        vob_path, adj_ts = self.app_state.backend._find_dvd_vob_for_timestamp(timestamp)
+        if vob_path and os.path.exists(vob_path):
+            idx = self._dvd_vob_list.index(vob_path) if vob_path in self._dvd_vob_list else -1
+            if idx >= 0 and idx != self._current_vob_index:
+                self._current_vob_index = idx
+                self.app_state.log(f"DVD: switched to VOB {idx} for pos {timestamp:.0f}s", "INFO")
+                self._video_player.load_file(vob_path)
+                # _playable_duration will update via _video_duration_changed signal
+            self._video_player.seek(adj_ts)
+        else:
+            self._video_player.seek(self._cap_seek(timestamp))
+
     def on_timeline_pressed(self):
         """Handle timeline slider press - start real-time seeking"""
         self._is_user_seeking = True
@@ -1388,9 +1435,11 @@ class VideoPreview(QWidget):
             value = self.timeline_slider.value()
             timestamp = self.timeline_slider.value_to_time(value)
             
-            # Use QMediaPlayer for smooth seeking
-            # For DVD sources, cap to the first VOB's actual duration
-            self._video_player.seek(self._cap_seek(timestamp))
+            # DVD: switch to the correct VOB file for the target timestamp
+            if self._dvd_vob_list:
+                self._load_dvd_vob_for_position(timestamp)
+            else:
+                self._video_player.seek(timestamp)
             
             # Sync playback time (keep actual slider position, not capped seek)
             self._playback_time = timestamp
@@ -1819,10 +1868,13 @@ class VideoPreview(QWidget):
         self.original_container.layout().setCurrentIndex(1)
         self.processed_container.layout().setCurrentIndex(1)
         
-        # Seek to current position first
+        # Seek to current position first (switch VOBs for DVD)
         value = self.timeline_slider.value()
         position = self.timeline_slider.value_to_time(value)
-        self._video_player.seek(self._cap_seek(position))
+        if self._dvd_vob_list:
+            self._load_dvd_vob_for_position(position)
+        else:
+            self._video_player.seek(self._cap_seek(position))
         
         # Start playback
         self._video_player.play()
