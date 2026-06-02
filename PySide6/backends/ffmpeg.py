@@ -155,6 +155,7 @@ class FFmpegBackend(MediaBackend):
     def _get_vob_duration(self, vob_path: str) -> float:
         if vob_path in self._vob_duration_cache:
             return self._vob_duration_cache[vob_path]
+        self.app_state.log(f"[DVD] Probing VOB: {os.path.basename(vob_path)}", "DEBUG")
         ffprobe = self._get_ffprobe_path()
         for probe_path in [ffprobe, self.app_state.ffmpeg_path]:
             try:
@@ -167,10 +168,13 @@ class FFmpegBackend(MediaBackend):
                     duration = float(result.stdout.strip())
                     if duration > 0:
                         self._vob_duration_cache[vob_path] = duration
+                        self.app_state.log(f"[DVD] VOB duration: {duration:.1f}s", "DEBUG")
                         return duration
-            except Exception:
+            except Exception as e:
+                self.app_state.log(f"[DVD] Probe failed for {os.path.basename(vob_path)}: {e}", "DEBUG")
                 continue
         self._vob_duration_cache[vob_path] = 0.0
+        self.app_state.log(f"[DVD] VOB duration probe returned 0 for {os.path.basename(vob_path)}", "WARN")
         return 0.0
 
     def _find_dvd_vob_for_timestamp(self, timestamp: float):
@@ -181,18 +185,20 @@ class FFmpegBackend(MediaBackend):
         Returns (vob_path, adjusted_timestamp) or (None, timestamp) on failure.
         """
         if not self.app_state.dvd.available_titles:
+            self.app_state.log(f"[DVD] No available titles", "WARN")
             return None, timestamp
         for title in self.app_state.dvd.available_titles:
             if title.title_number == self.app_state.dvd.selected_title_number:
                 vobs = title.vob_files
+                self.app_state.log(f"[DVD] Title {title.title_number}: {len(vobs)} VOBs, total duration={title.duration:.1f}s", "INFO")
                 if not vobs:
+                    self.app_state.log(f"[DVD] No VOB files for title {title.title_number}", "ERROR")
                     return None, timestamp
                 # Try probing actual durations first
                 vob_durs = [self._get_vob_duration(v) for v in vobs]
                 all_zero = all(d <= 0 for d in vob_durs)
                 if all_zero:
-                    # ffprobe/ffmpeg probe failed for all VOBs — use file-size
-                    # proportion as rough estimate per-VOB duration
+                    self.app_state.log(f"[DVD] All VOB probes failed, using file-size proportion fallback", "WARN")
                     sizes = []
                     total_size = 0
                     for v in vobs:
@@ -211,10 +217,14 @@ class FFmpegBackend(MediaBackend):
                 cum_time = 0.0
                 for i, v in enumerate(vobs):
                     vob_dur = vob_durs[i]
+                    self.app_state.log(f"[DVD] VOB[{i}]={os.path.basename(v)} dur={vob_dur:.1f}s cum={cum_time:.1f}s", "INFO")
                     if timestamp < cum_time + vob_dur or i == len(vobs) - 1:
-                        return v, max(0.0, min(timestamp - cum_time, vob_dur - 1.0))
+                        adj_ts = max(0.0, min(timestamp - cum_time, vob_dur - 1.0))
+                        self.app_state.log(f"[DVD] Seek ts={timestamp:.1f}s -> VOB[{i}] adjusted={adj_ts:.1f}s", "INFO")
+                        return v, adj_ts
                     cum_time += vob_dur
                 break
+        self.app_state.log(f"[DVD] Could not find VOB for timestamp {timestamp:.1f}s", "ERROR")
         return None, timestamp
 
     def capture_frame(self, video_path: str, timestamp: float,
@@ -272,9 +282,11 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-vf", ",".join(vf_parts)])
 
         cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
+        self.app_state.log(f"[DVD] FFmpeg cmd: {' '.join(cmd[:6])} ... -vframes 1", "DEBUG")
         try:
             timeout = 30 if is_dvd_source else 10
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+            self.app_state.log(f"[DVD] FFmpeg exit={result.returncode} stdout={len(result.stdout)}B stderr={result.stderr[:200]}", "DEBUG")
             if result.returncode == 0 and result.stdout:
                 return result.stdout
             if result.returncode != 0 and subtitle_filter:
