@@ -101,13 +101,18 @@ class FFmpegBackend(MediaBackend):
     def get_audio_tracks(self, input_path: str) -> List[dict]:
         audio_tracks = []
         ffprobe_path = self._get_ffprobe_path()
+        is_dvd_concat = input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
+        dvd_concat_input = self._get_dvd_concat_input() if is_dvd_concat else None
 
         try:
-            cmd = [
-                ffprobe_path, "-v", "error",
-                "-show_entries", "stream=index,codec_type,codec_name,channels,sample_rate:stream_tags=language,title",
-                "-of", "json", input_path
-            ]
+            cmd = [ffprobe_path, "-v", "error"]
+            if dvd_concat_input:
+                cmd.extend(["-f", "mpeg"])
+                cmd.extend(["-i", dvd_concat_input])
+            else:
+                cmd.extend(["-i", input_path])
+            cmd.extend(["-show_entries", "stream=index,codec_type,codec_name,channels,sample_rate:stream_tags=language,title"])
+            cmd.extend(["-of", "json"])
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
 
             if result.returncode == 0:
@@ -1666,11 +1671,18 @@ class FFmpegBackend(MediaBackend):
 
     def get_streams(self, video_path: str) -> dict:
         ffprobe_path = self._get_ffprobe_path()
-        cmd = [
-            ffprobe_path, "-v", "error",
+        is_dvd_concat = video_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
+        dvd_concat_input = self._get_dvd_concat_input() if is_dvd_concat else None
+        cmd = [ffprobe_path, "-v", "error"]
+        if dvd_concat_input:
+            cmd.extend(["-f", "mpeg"])
+            cmd.extend(["-i", dvd_concat_input])
+        else:
+            cmd.extend(["-i", video_path])
+        cmd.extend([
             "-show_entries", "stream=index,codec_type,codec_name,width,height,channels,sample_rate,display_aspect_ratio:stream_tags=language,title",
-            "-of", "json", video_path
-        ]
+            "-of", "json"
+        ])
         try:
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
             if result.returncode == 0:
