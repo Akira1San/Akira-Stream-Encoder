@@ -56,6 +56,16 @@ class EncodingPanel(QWidget):
         self.gpu_check.setToolTip("Enable NVIDIA GPU acceleration for faster encoding.\nRequires NVIDIA graphics card with NVENC support.")
         layout.addWidget(self.gpu_check)
         
+        # Video Track Selection
+        video_track_layout = QHBoxLayout()
+        video_track_layout.addWidget(QLabel("Video Track:"))
+        self.video_track_combo = QComboBox()
+        self.video_track_combo.setMinimumWidth(200)
+        self.video_track_combo.setToolTip("Select which video track to use from the source video.\nShows track number, codec, and resolution.")
+        video_track_layout.addWidget(self.video_track_combo)
+        video_track_layout.addStretch()
+        layout.addLayout(video_track_layout)
+        
         # Encoder Row
         encoder_layout = QHBoxLayout()
         encoder_layout.addWidget(QLabel("Encoder:"))
@@ -909,6 +919,7 @@ class EncodingPanel(QWidget):
         self.app_state.media_engine_changed.connect(self.on_engine_changed)
         self.engine_combo.currentIndexChanged.connect(self.on_engine_combo_changed)
         self.gpu_check.toggled.connect(self.on_gpu_changed)
+        self.video_track_combo.currentIndexChanged.connect(self.on_video_track_changed)
         self.encoder_combo.currentTextChanged.connect(self.on_encoder_changed)
         self.video_mode_combo.currentTextChanged.connect(self.on_video_mode_changed)
         self.resolution_combo.currentTextChanged.connect(self.on_resolution_changed)
@@ -999,7 +1010,52 @@ class EncodingPanel(QWidget):
         default_index = 0
         self.audio_track_combo.setCurrentIndex(default_index)
         self.app_state.tracks.audio_stream_index = default_index
-        
+
+    def on_video_track_changed(self, index):
+        """Handle video track selection change"""
+        if hasattr(self.app_state.tracks, 'available_video_tracks'):
+            tracks = self.app_state.tracks.available_video_tracks
+            if index >= 0 and index < len(tracks):
+                self.app_state.tracks.video_stream_index = index
+                self.settings_changed.emit()
+
+    def populate_video_tracks(self, tracks: list):
+        """Populate video track combo with available tracks"""
+        self.video_track_combo.clear()
+
+        if not tracks:
+            self.video_track_combo.addItem("No video tracks detected")
+            self.video_track_combo.setEnabled(False)
+            return
+
+        for i, track in enumerate(tracks):
+            display_text = f"Track {i+1}"
+            if track.title:
+                display_text += f" - {track.title}"
+            if track.language:
+                display_text += f" [{track.language}]"
+            display_text += f" ({track.codec}"
+            if track.width and track.height:
+                display_text += f", {track.width}x{track.height}"
+            if track.fps:
+                try:
+                    parts = track.fps.split('/')
+                    if len(parts) == 2:
+                        num, den = float(parts[0]), float(parts[1])
+                        if den > 0:
+                            display_text += f", {num/den:.2f}fps"
+                except (ValueError, ZeroDivisionError):
+                    pass
+            display_text += ")"
+            self.video_track_combo.addItem(display_text)
+
+        self.video_track_combo.setEnabled(True)
+
+        # Default to track 1 (index 0)
+        default_index = 0
+        self.video_track_combo.setCurrentIndex(default_index)
+        self.app_state.tracks.video_stream_index = default_index
+
     def on_external_audio_toggled(self, checked):
         """Handle external audio checkbox toggle"""
         self.app_state.tracks.external_audio_enabled = checked

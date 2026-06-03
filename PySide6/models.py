@@ -192,6 +192,18 @@ class SplitSettings:
 
 
 @dataclass
+class VideoTrackInfo:
+    """Information about a single video track"""
+    index: int = 0    # Stream index (0, 1, 2, etc.)
+    codec: str = ""
+    width: int = 0
+    height: int = 0
+    fps: str = ""
+    language: str = ""
+    title: str = ""
+
+
+@dataclass
 class AudioTrackInfo:
     """Information about a single audio track"""
     index: int = 0  # Stream index (0, 1, 2, etc.)
@@ -206,6 +218,7 @@ class AudioTrackInfo:
 class TrackSettings:
     """Track selection settings"""
     video_selected: bool = True
+    video_stream_index: int = 0  # Which video stream to use (0 = first, 1 = second, etc.)
     audio_selected: bool = True
     audio_copy_mode: bool = False  # True = copy original audio, False = re-encode to AAC
     audio_stream_index: int = 0  # Which audio stream to use (0 = first, 1 = second, etc.)
@@ -217,6 +230,7 @@ class TrackSettings:
     video_dar: str = ""  # Display aspect ratio (e.g., "16:9")
     audio_info: str = ""  # Summary info of selected track
     subtitle_info: str = ""
+    available_video_tracks: List[VideoTrackInfo] = field(default_factory=list)
     available_audio_tracks: List[AudioTrackInfo] = field(default_factory=list)
     # External audio support
     external_audio_enabled: bool = False

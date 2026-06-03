@@ -134,6 +134,43 @@ class FFmpegBackend(MediaBackend):
 
         return audio_tracks
 
+    def get_video_tracks(self, input_path: str) -> List[dict]:
+        video_tracks = []
+        ffprobe_path = self._get_ffprobe_path()
+        is_dvd_concat = input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
+        dvd_concat_input = self._get_dvd_concat_input() if is_dvd_concat else None
+
+        try:
+            cmd = [ffprobe_path, "-v", "error"]
+            if dvd_concat_input:
+                cmd.extend(["-f", "mpeg"])
+                cmd.extend(["-i", dvd_concat_input])
+            else:
+                cmd.extend(["-i", input_path])
+            cmd.extend(["-show_entries", "stream=index,codec_type,codec_name,width,height,r_frame_rate:stream_tags=language,title"])
+            cmd.extend(["-of", "json"])
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                for stream in data.get('streams', []):
+                    if stream.get('codec_type') == 'video':
+                        tags = stream.get('tags', {})
+                        track_info = {
+                            'index': stream.get('index', 0),
+                            'codec': stream.get('codec_name', 'unknown'),
+                            'width': stream.get('width', 0),
+                            'height': stream.get('height', 0),
+                            'fps': stream.get('r_frame_rate', ''),
+                            'language': tags.get('language', ''),
+                            'title': tags.get('title', '')
+                        }
+                        video_tracks.append(track_info)
+        except Exception as e:
+            self.app_state.log(f"Video track detection failed: {e}", "WARN")
+
+        return video_tracks
+
     def get_video_bitrate(self, input_path: str) -> Optional[int]:
         ffprobe_path = self._get_ffprobe_path()
         ffmpeg_path = self.app_state.ffmpeg_path
@@ -1188,7 +1225,10 @@ class FFmpegBackend(MediaBackend):
                             cmd.extend(["-bufsize", f"{target_br_int * 2}k"])
 
             if tracks.video_selected:
-                cmd.extend(["-map", "0:v:0"])
+                video_stream_idx = tracks.video_stream_index
+                if video_stream_idx is None or video_stream_idx < 0:
+                    video_stream_idx = 0
+                cmd.extend(["-map", f"0:v:{video_stream_idx}"])
 
             if tracks.audio_selected:
                 audio_stream_idx = tracks.audio_stream_index
@@ -1338,7 +1378,10 @@ class FFmpegBackend(MediaBackend):
                         cmd.extend(["-bufsize", f"{target_br_int * 2}k"])
 
         if tracks.video_selected:
-            cmd.extend(["-map", "0:v:0"])
+            video_stream_idx = tracks.video_stream_index
+            if video_stream_idx is None or video_stream_idx < 0:
+                video_stream_idx = 0
+            cmd.extend(["-map", f"0:v:{video_stream_idx}"])
 
         audio_mode = getattr(encoding, 'audio_mode', 'encode')
         audio_copy = (audio_mode == "copy") or tracks.audio_copy_mode
@@ -1511,7 +1554,10 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-i", ext_audio_path])
 
         if tracks.video_selected:
-            cmd.extend(["-map", "0:v:0"])
+            video_stream_idx = tracks.video_stream_index
+            if video_stream_idx is None or video_stream_idx < 0:
+                video_stream_idx = 0
+            cmd.extend(["-map", f"0:v:{video_stream_idx}"])
 
         if tracks.audio_selected:
             if has_ext_audio:

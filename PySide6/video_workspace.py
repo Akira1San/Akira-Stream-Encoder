@@ -291,13 +291,36 @@ class VideoWorkspace(QWidget):
                     self.enc_panel.clear_audio_btn.setEnabled(False)
                     self.enc_panel.browse_audio_btn.setEnabled(False)
             
-            # Detect audio tracks and populate encoding panel
+            # Detect video and audio tracks and populate encoding panel
             from controller import VideoController
             controller = VideoController(self.app_state)
+
+            # Video tracks
+            video_tracks = controller.get_video_tracks(video_path)
+            if video_tracks:
+                from models import VideoTrackInfo
+                video_track_infos = []
+                for track in video_tracks:
+                    vtrack_info = VideoTrackInfo(
+                        index=track['index'],
+                        codec=track['codec'],
+                        width=track['width'],
+                        height=track['height'],
+                        fps=track['fps'],
+                        language=track['language'],
+                        title=track['title']
+                    )
+                    video_track_infos.append(vtrack_info)
+                self.app_state.tracks.available_video_tracks = video_track_infos
+                self.enc_panel.populate_video_tracks(video_track_infos)
+                self.app_state.log(f"Detected {len(video_track_infos)} video track(s)", "INFO")
+            else:
+                self.app_state.tracks.available_video_tracks = []
+                self.enc_panel.populate_video_tracks([])
+
+            # Audio tracks
             audio_tracks = controller.get_audio_tracks(video_path)
-            
             if audio_tracks:
-                # Convert to AudioTrackInfo objects
                 from models import AudioTrackInfo
                 track_infos = []
                 for track in audio_tracks:

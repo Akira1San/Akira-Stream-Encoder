@@ -284,6 +284,26 @@ class GStreamerBackend(MediaBackend):
             self.app_state.log(f"GStreamer audio track detection failed: {e}", "WARN")
         return tracks
 
+    def get_video_tracks(self, input_path: str) -> List[dict]:
+        tracks = []
+        try:
+            text = self._run_discoverer(input_path)
+            info = self._parse_discoverer_output(text)
+            for s in info['streams']:
+                if s['type'] == 'video':
+                    tracks.append({
+                        'index': s['id'],
+                        'codec': s['codec'],
+                        'width': s.get('width', 0),
+                        'height': s.get('height', 0),
+                        'fps': s.get('fps', ''),
+                        'language': s.get('language', ''),
+                        'title': ''
+                    })
+        except Exception as e:
+            self.app_state.log(f"GStreamer video track detection failed: {e}", "WARN")
+        return tracks
+
     def get_video_bitrate(self, input_path: str) -> Optional[int]:
         try:
             text = self._run_discoverer(input_path)

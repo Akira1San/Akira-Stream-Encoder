@@ -34,6 +34,9 @@ class VideoController:
     def get_audio_tracks(self, input_path: str) -> List[dict]:
         return self.backend.get_audio_tracks(input_path)
 
+    def get_video_tracks(self, input_path: str) -> List[dict]:
+        return self.backend.get_video_tracks(input_path)
+
     def get_video_bitrate(self, input_path: str) -> Optional[int]:
         br = self.backend.get_video_bitrate(input_path)
         if br:
