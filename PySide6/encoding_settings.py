@@ -160,6 +160,10 @@ class EncodingPanel(QWidget):
         self.video_mode_combo.setMinimumWidth(100)
         self.video_mode_combo.setToolTip("Video processing mode:\nEncode: Re-encode video with selected codec\nCopy: Copy video stream without re-encoding (faster)")
         video_mode_layout.addWidget(self.video_mode_combo)
+        self.sync_audio_btn = QPushButton("Auto")
+        self.sync_audio_btn.setToolTip("Set audio mode (Advanced section) to match current video mode")
+        self.sync_audio_btn.setFixedWidth(50)
+        video_mode_layout.addWidget(self.sync_audio_btn)
         video_mode_layout.addStretch()
         layout.addLayout(video_mode_layout)
         
@@ -922,6 +926,7 @@ class EncodingPanel(QWidget):
         self.video_track_combo.currentIndexChanged.connect(self.on_video_track_changed)
         self.encoder_combo.currentTextChanged.connect(self.on_encoder_changed)
         self.video_mode_combo.currentTextChanged.connect(self.on_video_mode_changed)
+        self.sync_audio_btn.clicked.connect(self.on_sync_audio)
         self.resolution_combo.currentTextChanged.connect(self.on_resolution_changed)
         self.custom_res_edit.textChanged.connect(self.on_custom_res_changed)
         self.framerate_combo.currentTextChanged.connect(self.on_framerate_changed)
@@ -1289,6 +1294,10 @@ class EncodingPanel(QWidget):
         """Handle video mode change (Encode/Copy)"""
         self.app_state.encoding.video_mode = text.lower()
         self.settings_changed.emit()
+        
+    def on_sync_audio(self):
+        """One-shot: set audio mode to match current video mode"""
+        self.audio_mode_combo.setCurrentText(self.video_mode_combo.currentText())
         
     def on_audio_mode_changed(self, text):
         """Handle audio mode change (Encode/Copy)"""
