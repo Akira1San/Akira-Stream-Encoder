@@ -1,13 +1,15 @@
 """
 Track Selection Panel (PySide6)
 """
+import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QGroupBox, QComboBox, QFrame, QListWidget, QAbstractItemView
+    QGroupBox, QComboBox, QFrame, QListWidget, QAbstractItemView,
+    QPushButton, QFileDialog
 )
 from PySide6.QtCore import Signal
 
-from models import AppState, AudioTrackInfo, AudioTrackAssignment
+from models import AppState, AudioTrackInfo, AudioTrackAssignment, ExternalAudioTrack
 
 
 class TrackSelectionPanel(QGroupBox):
@@ -95,6 +97,16 @@ class TrackSelectionPanel(QGroupBox):
         self.audio_track_list.setVisible(False)
         audio_section_layout.addWidget(self.audio_track_list)
 
+        # Load external audio button (multi-track mode)
+        load_ext_layout = QHBoxLayout()
+        load_ext_layout.addSpacing(25)
+        self.load_audio_btn = QPushButton("Load External Audio...")
+        self.load_audio_btn.setToolTip("Load an external audio file as an additional track")
+        self.load_audio_btn.setVisible(False)
+        load_ext_layout.addWidget(self.load_audio_btn)
+        load_ext_layout.addStretch()
+        audio_section_layout.addLayout(load_ext_layout)
+
         # Audio copy mode checkbox
         audio_copy_layout = QHBoxLayout()
         audio_copy_layout.addSpacing(25)  # Indent
@@ -139,6 +151,7 @@ class TrackSelectionPanel(QGroupBox):
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.audio_track_list.itemSelectionChanged.connect(self.on_audio_track_list_changed)
         self.audio_copy_check.toggled.connect(self.on_audio_copy_changed)
+        self.load_audio_btn.clicked.connect(self.on_load_external_audio)
         self.subtitle_check.toggled.connect(self.on_subtitle_changed)
 
     def on_video_changed(self, checked):
@@ -160,6 +173,7 @@ class TrackSelectionPanel(QGroupBox):
         self.app_state.tracks.multi_track_audio_enabled = checked
         self.audio_track_combo.setVisible(not checked)
         self.audio_track_list.setVisible(checked)
+        self.load_audio_btn.setVisible(checked)
         has_tracks = self.audio_track_combo.count() > 0
         self.audio_track_combo.setEnabled(not checked and self.audio_check.isChecked() and has_tracks)
         self.audio_track_list.setEnabled(checked and self.audio_check.isChecked())
@@ -189,23 +203,65 @@ class TrackSelectionPanel(QGroupBox):
         selected_indices = []
         assignments = []
         for item in selected_items:
-            rel_idx = item.data(256)
-            if rel_idx is not None:
-                selected_indices.append(rel_idx)
-                track = self.app_state.tracks.available_audio_tracks[rel_idx]
+            data = item.data(256)
+            if data is None:
+                continue
+            track_type, track_idx = data
+            selected_indices.append(len(assignments))
+            if track_type == 0:  # Embedded
                 assignments.append(AudioTrackAssignment(
-                    stream_index=rel_idx,
-                    mode="copy" if self.app_state.tracks.audio_copy_mode else "encode"
+                    stream_index=track_idx,
+                    mode="copy" if self.app_state.tracks.audio_copy_mode else "encode",
+                    is_external=False
+                ))
+            else:  # External
+                assignments.append(AudioTrackAssignment(
+                    stream_index=track_idx,
+                    mode="copy" if self.app_state.tracks.audio_copy_mode else "encode",
+                    is_external=True
                 ))
 
         self.app_state.tracks.selected_audio_indices = selected_indices
         self.app_state.tracks.audio_track_assignments = assignments
 
-        if selected_indices:
-            names = ", ".join([f"Track {i+1}" for i in selected_indices])
+        if selected_items:
+            names = ", ".join([item.text().split(" (")[0] for item in selected_items])
             self.audio_info_label.setText(names)
         else:
             self.audio_info_label.setText("")
+        self.tracks_changed.emit()
+
+    def on_load_external_audio(self):
+        """Handle Load External Audio button click"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select External Audio File",
+            "",
+            "Audio Files (*.mp3 *.aac *.wav *.flac *.ogg *.m4a *.ac3 *.wma);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        try:
+            info = self.app_state.backend.get_external_audio_info(file_path)
+            ext_track = ExternalAudioTrack(
+                file_path=file_path,
+                codec=info.get('codec', 'unknown') if info else 'unknown',
+                channels=info.get('channels', 2) if info else 2,
+                sample_rate=info.get('sample_rate', '') if info else '',
+                title=os.path.basename(file_path)
+            )
+        except Exception:
+            ext_track = ExternalAudioTrack(
+                file_path=file_path,
+                title=os.path.basename(file_path)
+            )
+
+        self.app_state.tracks.external_audio_tracks.append(ext_track)
+        self._rebuild_audio_track_list()
+        # Auto-select the new track
+        total_count = len(self.app_state.tracks.available_audio_tracks) + len(self.app_state.tracks.external_audio_tracks)
+        self.audio_track_list.item(total_count - 1).setSelected(True)
         self.tracks_changed.emit()
 
     def on_audio_copy_changed(self, checked):
@@ -221,12 +277,51 @@ class TrackSelectionPanel(QGroupBox):
         self.app_state.tracks.subtitle_selected = checked
         self.tracks_changed.emit()
 
+    def _rebuild_audio_track_list(self):
+        """Rebuild the multi-select list with embedded + external tracks"""
+        self.audio_track_list.clear()
+        embedded_tracks = self.app_state.tracks.available_audio_tracks
+        external_tracks = self.app_state.tracks.external_audio_tracks
+
+        for i, track in enumerate(embedded_tracks):
+            display_text = f"[Embedded] Track {i+1}"
+            if track.language:
+                display_text += f" [{track.language}]"
+            if track.title:
+                display_text += f" - {track.title}"
+            display_text += f" ({track.codec}, {track.channels}ch)"
+            if track.sample_rate:
+                display_text += f", {track.sample_rate}Hz"
+            from PySide6.QtWidgets import QListWidgetItem
+            item = QListWidgetItem(display_text)
+            item.setData(256, (0, i))  # (type=embedded, index)
+            self.audio_track_list.addItem(item)
+
+        for i, track in enumerate(external_tracks):
+            display_text = f"[External] {track.title}"
+            if track.codec:
+                display_text += f" ({track.codec}, {track.channels}ch)"
+                if track.sample_rate:
+                    display_text += f", {track.sample_rate}Hz"
+            from PySide6.QtWidgets import QListWidgetItem
+            item = QListWidgetItem(display_text)
+            item.setData(256, (1, i))  # (type=external, index)
+            self.audio_track_list.addItem(item)
+
     def _sync_list_from_indices(self):
-        """Sync QListWidget selection from selected_audio_indices"""
-        selected = set(self.app_state.tracks.selected_audio_indices)
+        """Sync QListWidget selection from audio_track_assignments"""
+        assignments = self.app_state.tracks.audio_track_assignments
+        selected_embedded = {a.stream_index for a in assignments if not a.is_external}
+        selected_external = {a.stream_index for a in assignments if a.is_external}
         for i in range(self.audio_track_list.count()):
             item = self.audio_track_list.item(i)
-            item.setSelected(i in selected)
+            data = item.data(256)
+            if data is not None:
+                track_type, track_idx = data
+                if track_type == 0:
+                    item.setSelected(track_idx in selected_embedded)
+                else:
+                    item.setSelected(track_idx in selected_external)
 
     def detect_tracks(self, video_path: str):
         """Detect available tracks in video file via backend"""
@@ -305,21 +400,8 @@ class TrackSelectionPanel(QGroupBox):
                 display_text += ")"
                 self.audio_track_combo.addItem(display_text)
 
-            # Populate multi-select list
-            self.audio_track_list.clear()
-            for i, track in enumerate(audio_tracks):
-                display_text = f"Track {i+1}"
-                if track.language:
-                    display_text += f" [{track.language}]"
-                if track.title:
-                    display_text += f" - {track.title}"
-                display_text += f" ({track.codec}, {track.channels}ch)"
-                if track.sample_rate:
-                    display_text += f", {track.sample_rate}Hz"
-                from PySide6.QtWidgets import QListWidgetItem
-                item = QListWidgetItem(display_text)
-                item.setData(256, i)
-                self.audio_track_list.addItem(item)
+            # Populate multi-select list (embedded + external)
+            self._rebuild_audio_track_list()
 
             self.video_info_label.setText(video_info)
 

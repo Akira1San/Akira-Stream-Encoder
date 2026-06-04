@@ -220,6 +220,17 @@ class AudioTrackAssignment:
     """Per-track audio assignment for multi-track output"""
     stream_index: int = 0  # Relative stream index within available_audio_tracks
     mode: str = "encode"  # "copy" or "encode"
+    is_external: bool = False  # True if this is an external audio file
+
+
+@dataclass
+class ExternalAudioTrack:
+    """An externally loaded audio file treated as a track"""
+    file_path: str = ""
+    codec: str = ""
+    channels: int = 2
+    sample_rate: str = ""
+    title: str = ""
 
 
 @dataclass
@@ -244,6 +255,7 @@ class TrackSettings:
     multi_track_audio_enabled: bool = False  # Toggle between single and multi-track mode
     selected_audio_indices: List[int] = field(default_factory=list)  # Which tracks to include (relative indices)
     audio_track_assignments: List[AudioTrackAssignment] = field(default_factory=list)  # Per-track control
+    external_audio_tracks: List[ExternalAudioTrack] = field(default_factory=list)  # Externally loaded audio files
 
     subtitle_available: bool = False
     subtitle_selected: bool = False

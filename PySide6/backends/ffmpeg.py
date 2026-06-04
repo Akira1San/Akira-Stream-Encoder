@@ -1150,9 +1150,14 @@ class FFmpegBackend(MediaBackend):
 
             dvd_concat_input = self._get_dvd_concat_input() if is_dvd_source else None
 
+            self._multi_track_ext_audio_paths = []
             if burn_subs and sub_path:
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", dvd_concat_input if dvd_concat_input else input_path])
+                for ext_track in tracks.external_audio_tracks:
+                    if ext_track.file_path and os.path.exists(ext_track.file_path):
+                        cmd.extend(["-i", ext_track.file_path])
+                        self._multi_track_ext_audio_paths.append(ext_track.file_path)
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
                 if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
@@ -1174,6 +1179,10 @@ class FFmpegBackend(MediaBackend):
             else:
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", dvd_concat_input if dvd_concat_input else input_path])
+                for ext_track in tracks.external_audio_tracks:
+                    if ext_track.file_path and os.path.exists(ext_track.file_path):
+                        cmd.extend(["-i", ext_track.file_path])
+                        self._multi_track_ext_audio_paths.append(ext_track.file_path)
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
                 if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
@@ -1260,18 +1269,16 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-map", f"0:v:{video_stream_idx}"])
 
             multi_track_audio = (tracks.multi_track_audio_enabled
-                                 and len(tracks.selected_audio_indices) > 0)
+                                 and len(tracks.audio_track_assignments) > 0)
             if tracks.audio_selected and multi_track_audio:
                 audio_output_idx = 0
-                for rel_idx in tracks.selected_audio_indices:
-                    if rel_idx is None or rel_idx < 0:
-                        continue
-                    cmd.extend(["-map", f"0:a:{rel_idx}"])
-                    track_copy = tracks.audio_copy_mode
-                    for assignment in tracks.audio_track_assignments:
-                        if assignment.stream_index == rel_idx:
-                            track_copy = (assignment.mode == "copy")
-                            break
+                for assignment in tracks.audio_track_assignments:
+                    if assignment.is_external:
+                        ext_input_idx = 1 + assignment.stream_index
+                        cmd.extend(["-map", f"{ext_input_idx}:a:0"])
+                    else:
+                        cmd.extend(["-map", f"0:a:{assignment.stream_index}"])
+                    track_copy = (assignment.mode == "copy")
                     if track_copy:
                         cmd.extend([f"-c:a:{audio_output_idx}", "copy"])
                     else:
@@ -1337,6 +1344,13 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-ss", start_time])
 
             cmd.extend(["-i", input_path])
+
+        # Multi-track external audio files (loaded in UI)
+        self._multi_track_ext_audio_paths = []
+        for ext_track in tracks.external_audio_tracks:
+            if ext_track.file_path and os.path.exists(ext_track.file_path):
+                cmd.extend(["-i", ext_track.file_path])
+                self._multi_track_ext_audio_paths.append(ext_track.file_path)
 
         ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
         ext_audio_path = getattr(tracks, 'external_audio_path', '')
@@ -1447,7 +1461,8 @@ class FFmpegBackend(MediaBackend):
         self._extra_audio_mix = False
 
         # extra audio is added as the last extra input (after images)
-        extra_audio_ix = 1 + (1 if use_external else 0) + self._extra_img_count
+        multi_track_ext_count = len(getattr(self, '_multi_track_ext_audio_paths', []))
+        extra_audio_ix = 1 + multi_track_ext_count + (1 if use_external else 0) + self._extra_img_count
 
         if use_extra_audio:
             mix_mode = extra.audio_mix_mode
@@ -1491,19 +1506,16 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             cmd.extend(["-shortest"])
         elif tracks.audio_selected:
-            multi_track = tracks.multi_track_audio_enabled and len(tracks.selected_audio_indices) > 0
+            multi_track = tracks.multi_track_audio_enabled and len(tracks.audio_track_assignments) > 0
             if multi_track:
                 audio_output_idx = 0
-                for rel_idx in tracks.selected_audio_indices:
-                    if rel_idx is None or rel_idx < 0:
-                        continue
-                    cmd.extend(["-map", f"0:a:{rel_idx}"])
-                    # Check per-track assignment mode
-                    track_copy = audio_copy
-                    for assignment in tracks.audio_track_assignments:
-                        if assignment.stream_index == rel_idx:
-                            track_copy = (assignment.mode == "copy")
-                            break
+                for assignment in tracks.audio_track_assignments:
+                    if assignment.is_external:
+                        ext_input_idx = 1 + assignment.stream_index  # input order: video=0, then ext files
+                        cmd.extend(["-map", f"{ext_input_idx}:a:0"])
+                    else:
+                        cmd.extend(["-map", f"0:a:{assignment.stream_index}"])
+                    track_copy = (assignment.mode == "copy")
                     if track_copy:
                         cmd.extend([f"-c:a:{audio_output_idx}", "copy"])
                     else:
@@ -1638,6 +1650,13 @@ class FFmpegBackend(MediaBackend):
         if has_ext_audio:
             cmd.extend(["-i", ext_audio_path])
 
+        # Multi-track external audio inputs
+        self._multi_track_ext_audio_paths = []
+        for ext_track in tracks.external_audio_tracks:
+            if ext_track.file_path and os.path.exists(ext_track.file_path):
+                cmd.extend(["-i", ext_track.file_path])
+                self._multi_track_ext_audio_paths.append(ext_track.file_path)
+
         if tracks.video_selected:
             video_stream_idx = tracks.video_stream_index
             if video_stream_idx is None or video_stream_idx < 0:
@@ -1657,18 +1676,16 @@ class FFmpegBackend(MediaBackend):
                 else:
                     cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             else:
-                multi_track = tracks.multi_track_audio_enabled and len(tracks.selected_audio_indices) > 0
+                multi_track = tracks.multi_track_audio_enabled and len(tracks.audio_track_assignments) > 0
                 if multi_track:
                     audio_output_idx = 0
-                    for rel_idx in tracks.selected_audio_indices:
-                        if rel_idx is None or rel_idx < 0:
-                            continue
-                        cmd.extend(["-map", f"0:a:{rel_idx}"])
-                        track_copy = tracks.audio_copy_mode
-                        for assignment in tracks.audio_track_assignments:
-                            if assignment.stream_index == rel_idx:
-                                track_copy = (assignment.mode == "copy")
-                                break
+                    for assignment in tracks.audio_track_assignments:
+                        if assignment.is_external:
+                            ext_input_idx = 1 + assignment.stream_index
+                            cmd.extend(["-map", f"{ext_input_idx}:a:0"])
+                        else:
+                            cmd.extend(["-map", f"0:a:{assignment.stream_index}"])
+                        track_copy = (assignment.mode == "copy")
                         if track_copy:
                             cmd.extend([f"-c:a:{audio_output_idx}", "copy"])
                         else:

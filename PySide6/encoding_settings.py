@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 
-from models import AppState, AudioTrackAssignment
+from models import AppState, AudioTrackAssignment, ExternalAudioTrack
 
 
 class EncodingPanel(QWidget):
@@ -824,6 +824,12 @@ class EncodingPanel(QWidget):
         self.audio_track_list.setToolTip("Select audio tracks to include. Ctrl+click to select multiple.")
         self.audio_track_list.setVisible(False)
         advanced_layout.addWidget(self.audio_track_list)
+
+        # Load external audio button (multi-track mode)
+        self.load_audio_btn = QPushButton("Load External Audio...")
+        self.load_audio_btn.setToolTip("Load an external audio file as an additional track")
+        self.load_audio_btn.setVisible(False)
+        advanced_layout.addWidget(self.load_audio_btn)
         
         # Audio Codec Selection
         audio_codec_layout = QHBoxLayout()
@@ -992,6 +998,7 @@ class EncodingPanel(QWidget):
         self.multi_track_check.toggled.connect(self.on_multi_track_audio_toggled)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.audio_track_list.itemSelectionChanged.connect(self.on_audio_track_list_changed)
+        self.load_audio_btn.clicked.connect(self.on_load_external_audio)
         self.audio_codec_combo.currentTextChanged.connect(self.on_audio_codec_changed)
         self.audio_channels_combo.currentTextChanged.connect(self.on_audio_channels_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
@@ -1034,6 +1041,7 @@ class EncodingPanel(QWidget):
         is_multi = checked
         self.audio_track_combo.setVisible(not is_multi)
         self.audio_track_list.setVisible(is_multi)
+        self.load_audio_btn.setVisible(is_multi)
         has_tracks = self.audio_track_combo.count() > 0
         self.audio_track_combo.setEnabled(not is_multi and has_tracks)
         self.audio_track_list.setEnabled(is_multi and has_tracks)
@@ -1044,6 +1052,70 @@ class EncodingPanel(QWidget):
                 item = self.audio_track_list.item(i)
                 item.setSelected(i in selected)
         self.settings_changed.emit()
+
+    def on_load_external_audio(self):
+        """Handle Load External Audio button click"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select External Audio File",
+            "",
+            "Audio Files (*.mp3 *.aac *.wav *.flac *.ogg *.m4a *.ac3 *.wma);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        try:
+            from controller import VideoController
+            controller = VideoController(self.app_state)
+            info = controller.backend.get_external_audio_info(file_path)
+            ext_track = ExternalAudioTrack(
+                file_path=file_path,
+                codec=info.get('codec', 'unknown') if info else 'unknown',
+                channels=info.get('channels', 2) if info else 2,
+                sample_rate=info.get('sample_rate', '') if info else '',
+                title=os.path.basename(file_path)
+            )
+        except Exception:
+            ext_track = ExternalAudioTrack(
+                file_path=file_path,
+                title=os.path.basename(file_path)
+            )
+
+        self.app_state.tracks.external_audio_tracks.append(ext_track)
+        self._rebuild_audio_track_list()
+        total_count = (len(self.app_state.tracks.available_audio_tracks)
+                       + len(self.app_state.tracks.external_audio_tracks))
+        self.audio_track_list.item(total_count - 1).setSelected(True)
+        self.settings_changed.emit()
+
+    def _rebuild_audio_track_list(self):
+        """Rebuild the multi-select list with embedded + external tracks"""
+        self.audio_track_list.clear()
+        embedded = self.app_state.tracks.available_audio_tracks
+        external = self.app_state.tracks.external_audio_tracks
+
+        for i, track in enumerate(embedded):
+            display_text = f"[Embedded] Track {i+1}"
+            if track.language:
+                display_text += f" [{track.language}]"
+            if track.title:
+                display_text += f" - {track.title}"
+            display_text += f" ({track.codec}, {track.channels}ch)"
+            if track.sample_rate:
+                display_text += f", {track.sample_rate}Hz"
+            item = QListWidgetItem(display_text)
+            item.setData(256, (0, i))
+            self.audio_track_list.addItem(item)
+
+        for i, track in enumerate(external):
+            display_text = f"[External] {track.title}"
+            if track.codec:
+                display_text += f" ({track.codec}, {track.channels}ch)"
+                if track.sample_rate:
+                    display_text += f", {track.sample_rate}Hz"
+            item = QListWidgetItem(display_text)
+            item.setData(256, (1, i))
+            self.audio_track_list.addItem(item)
 
     def on_audio_track_changed(self, index):
         """Handle audio track selection change (single mode)"""
@@ -1060,12 +1132,22 @@ class EncodingPanel(QWidget):
         selected_indices = []
         assignments = []
         for item in selected_items:
-            rel_idx = item.data(256)
-            if rel_idx is not None:
-                selected_indices.append(rel_idx)
+            data = item.data(256)
+            if data is None:
+                continue
+            track_type, track_idx = data
+            selected_indices.append(len(assignments))
+            if track_type == 0:  # Embedded
                 assignments.append(AudioTrackAssignment(
-                    stream_index=rel_idx,
-                    mode="copy" if self.app_state.tracks.audio_copy_mode else "encode"
+                    stream_index=track_idx,
+                    mode="copy" if self.app_state.tracks.audio_copy_mode else "encode",
+                    is_external=False
+                ))
+            else:  # External
+                assignments.append(AudioTrackAssignment(
+                    stream_index=track_idx,
+                    mode="copy" if self.app_state.tracks.audio_copy_mode else "encode",
+                    is_external=True
                 ))
         self.app_state.tracks.selected_audio_indices = selected_indices
         self.app_state.tracks.audio_track_assignments = assignments
@@ -1074,12 +1156,12 @@ class EncodingPanel(QWidget):
     def populate_audio_tracks(self, tracks: list):
         """Populate audio track combo and multi-select list with available tracks"""
         self.audio_track_combo.clear()
-        self.audio_track_list.clear()
 
         is_multi = self.app_state.tracks.multi_track_audio_enabled
         self.multi_track_check.setChecked(is_multi)
         self.audio_track_combo.setVisible(not is_multi)
         self.audio_track_list.setVisible(is_multi)
+        self.load_audio_btn.setVisible(is_multi)
 
         if not tracks:
             self.audio_track_combo.addItem("No audio tracks detected")
@@ -1098,13 +1180,12 @@ class EncodingPanel(QWidget):
                 display_text += f", {track.sample_rate}Hz"
             self.audio_track_combo.addItem(display_text)
 
-            item = QListWidgetItem(display_text)
-            item.setData(256, i)
-            self.audio_track_list.addItem(item)
+        self._rebuild_audio_track_list()
 
         is_multi = self.app_state.tracks.multi_track_audio_enabled
         self.audio_track_combo.setVisible(not is_multi)
         self.audio_track_list.setVisible(is_multi)
+        self.load_audio_btn.setVisible(is_multi)
         self.audio_track_combo.setEnabled(not is_multi)
         self.audio_track_list.setEnabled(is_multi)
 
@@ -1122,10 +1203,18 @@ class EncodingPanel(QWidget):
 
     def _sync_audio_track_list(self):
         """Sync the multi-select list selection from model state"""
-        selected = set(self.app_state.tracks.selected_audio_indices)
+        assignments = self.app_state.tracks.audio_track_assignments
+        selected_embedded = {a.stream_index for a in assignments if not a.is_external}
+        selected_external = {a.stream_index for a in assignments if a.is_external}
         for i in range(self.audio_track_list.count()):
             item = self.audio_track_list.item(i)
-            item.setSelected(i in selected)
+            data = item.data(256)
+            if data is not None:
+                track_type, track_idx = data
+                if track_type == 0:
+                    item.setSelected(track_idx in selected_embedded)
+                else:
+                    item.setSelected(track_idx in selected_external)
 
     def on_video_track_changed(self, index):
         """Handle video track selection change"""
