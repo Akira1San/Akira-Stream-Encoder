@@ -72,11 +72,12 @@ class EncodingPanel(QWidget):
         encoder_layout.addWidget(QLabel("Encoder:"))
         self.encoder_combo = QComboBox()
         self.encoder_combo.addItems([
-            "h264_nvenc", "hevc_nvenc", "libx264", "libx265", "mpeg2video"
+            "h264_nvenc", "hevc_nvenc", "libx264", "libx265", "mpeg2video",
+            "libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx", "av1_nvenc"
         ])
         self.encoder_combo.setCurrentText(self.app_state.encoding.encoder)
-        self.encoder_combo.setMinimumWidth(140)
-        self.encoder_combo.setToolTip("Video codec to use:\nh264_nvenc: H.264 with GPU acceleration\nhevc_nvenc: H.265/HEVC with GPU (smaller files)\nlibx264: H.264 CPU encoding (compatible)\nlibx265: H.265/HEVC CPU (best compression)\nmpeg2video: MPEG-2 for DVD/legacy compatibility")
+        self.encoder_combo.setMinimumWidth(150)
+        self.encoder_combo.setToolTip("Video codec to use:\nh264_nvenc: H.264 with GPU acceleration\nhevc_nvenc: H.265/HEVC with GPU (smaller files)\nlibx264: H.264 CPU encoding (compatible)\nlibx265: H.265/HEVC CPU (best compression)\nmpeg2video: MPEG-2 for DVD/legacy compatibility\nlibaom-av1: Reference AV1 encoder (slow, best quality)\nlibsvtav1: SVT-AV1 encoder (fast, recommended for AV1)\nlibvpx-vp9: VP9 encoder (good for web)\nlibvpx: VP8 encoder (fallback)\nav1_nvenc: NVIDIA GPU AV1 encoder")
         encoder_layout.addWidget(self.encoder_combo)
         encoder_layout.addStretch()
         layout.addLayout(encoder_layout)
@@ -148,6 +149,27 @@ class EncodingPanel(QWidget):
             "zerolatency: Live streaming"
         )
         preset_layout.addWidget(self.cpu_tune_combo)
+        
+        # CPU Used (for AV1/VP9 encoders)
+        self.cpu_used_label = QLabel("CPU Used:")
+        self.cpu_used_label.setVisible(False)
+        preset_layout.addWidget(self.cpu_used_label)
+        
+        self.cpu_used_spin = QSpinBox()
+        self.cpu_used_spin.setRange(0, 13)
+        self.cpu_used_spin.setValue(int(self.app_state.encoding.cpu_used))
+        self.cpu_used_spin.setSingleStep(1)
+        self.cpu_used_spin.setMinimumWidth(60)
+        self.cpu_used_spin.setToolTip(
+            "CPU Used (AV1/VP9):\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "0: Slowest (best quality)\n"
+            "2: Good quality (default)\n"
+            "6-8: Balanced\n"
+            "13: Fastest (lowest quality)"
+        )
+        self.cpu_used_spin.setVisible(False)
+        preset_layout.addWidget(self.cpu_used_spin)
         
         preset_layout.addStretch()
         layout.addLayout(preset_layout)
@@ -340,11 +362,11 @@ class EncodingPanel(QWidget):
         # === Container Format ===
         container_layout = QHBoxLayout()
         container_label = QLabel("Container:")
-        container_label.setToolTip("Output file format/container.\nmp4: Best compatibility (recommended)\nmkv: Supports more codecs and features\navi: Older format, limited codec support\nmpg: MPEG Program Stream (DVD/VOB compatible)\nvob: DVD VOB container")
+        container_label.setToolTip("Output file format/container.\nmp4: Best compatibility (recommended)\nmkv: Supports more codecs and features\navi: Older format, limited codec support\nmpg: MPEG Program Stream (DVD/VOB compatible)\nvob: DVD VOB container\nwebm: WebM container (Opus audio, VP9/AV1 video)")
         container_layout.addWidget(container_label)
         
         self.container_combo = QComboBox()
-        self.container_combo.addItems(["mp4", "mkv", "avi", "mpg", "vob"])
+        self.container_combo.addItems(["mp4", "mkv", "avi", "mpg", "vob", "webm"])
         self.container_combo.setCurrentText(self.app_state.encoding.container)
         self.container_combo.setToolTip("Select output container format")
         container_layout.addWidget(self.container_combo)
@@ -842,10 +864,10 @@ class EncodingPanel(QWidget):
         audio_codec_layout = QHBoxLayout()
         audio_codec_layout.addWidget(QLabel("Audio Codec:"))
         self.audio_codec_combo = QComboBox()
-        self.audio_codec_combo.addItems(["aac", "mp2", "ac3", "mp3"])
+        self.audio_codec_combo.addItems(["aac", "mp2", "ac3", "mp3", "libopus", "libvorbis"])
         self.audio_codec_combo.setCurrentText(self.app_state.encoding.audio_codec)
         self.audio_codec_combo.setMinimumWidth(100)
-        self.audio_codec_combo.setToolTip("Audio codec to use when Audio Mode is set to Encode.\naac: Best compatibility (default)\nmp2: MPEG-1 Audio Layer II (DVD compatible)\nac3: Dolby Digital (DVD compatible)\nmp3: MPEG-1 Audio Layer III")
+        self.audio_codec_combo.setToolTip("Audio codec to use when Audio Mode is set to Encode.\naac: Best compatibility (default)\nmp2: MPEG-1 Audio Layer II (DVD compatible)\nac3: Dolby Digital (DVD compatible)\nmp3: MPEG-1 Audio Layer III\nlibopus: Opus codec (WebM compatible, best quality)\nlibvorbis: Vorbis codec (WebM compatible, fallback)")
         audio_codec_layout.addWidget(self.audio_codec_combo)
         audio_codec_layout.addStretch()
         advanced_layout.addLayout(audio_codec_layout)
@@ -1012,6 +1034,7 @@ class EncodingPanel(QWidget):
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
         self.cpu_preset_combo.currentTextChanged.connect(self.on_cpu_preset_changed)
         self.cpu_tune_combo.currentTextChanged.connect(self.on_cpu_tune_changed)
+        self.cpu_used_spin.valueChanged.connect(self.on_cpu_used_changed)
         self.pix_fmt_combo.currentTextChanged.connect(self.on_pix_fmt_changed)
         self.profile_combo.currentTextChanged.connect(self.on_profile_changed)
         self.level_combo.currentTextChanged.connect(self.on_level_changed)
@@ -1430,9 +1453,9 @@ class EncodingPanel(QWidget):
         current = self.encoder_combo.currentText()
         self.encoder_combo.clear()
         if checked:
-            self.encoder_combo.addItems(["h264_nvenc", "hevc_nvenc", "libx264", "libx265", "mpeg2video"])
+            self.encoder_combo.addItems(["h264_nvenc", "hevc_nvenc", "libx264", "libx265", "mpeg2video", "libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx", "av1_nvenc"])
         else:
-            self.encoder_combo.addItems(["libx264", "libx265", "mpeg2video"])
+            self.encoder_combo.addItems(["libx264", "libx265", "mpeg2video", "libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx"])
         # Try to restore selection
         index = self.encoder_combo.findText(current)
         if index >= 0:
@@ -1451,6 +1474,39 @@ class EncodingPanel(QWidget):
             self.app_state.encoding.bframes = "2"
             self.gop_combo.setCurrentText("12")
             self.app_state.encoding.gop_size = "12"
+        elif text in ("libaom-av1", "libsvtav1"):
+            if self.app_state.encoding.container in ("mpg", "vob"):
+                self.container_combo.setCurrentText("mkv")
+                self.app_state.encoding.container = "mkv"
+            if self.app_state.encoding.audio_codec not in ("libopus", "libvorbis"):
+                self.audio_codec_combo.setCurrentText("libopus")
+                self.app_state.encoding.audio_codec = "libopus"
+            self.bframes_combo.setCurrentText("0")
+            self.app_state.encoding.bframes = "0"
+            self.gop_combo.setCurrentText("144")
+            self.app_state.encoding.gop_size = "144"
+        elif text in ("libvpx-vp9", "libvpx"):
+            if self.app_state.encoding.container not in ("webm", "mkv"):
+                self.container_combo.setCurrentText("webm")
+                self.app_state.encoding.container = "webm"
+            if self.app_state.encoding.audio_codec not in ("libopus", "libvorbis"):
+                self.audio_codec_combo.setCurrentText("libopus")
+                self.app_state.encoding.audio_codec = "libopus"
+            self.bframes_combo.setCurrentText("0")
+            self.app_state.encoding.bframes = "0"
+            self.gop_combo.setCurrentText("144")
+            self.app_state.encoding.gop_size = "144"
+        elif text == "av1_nvenc":
+            if self.app_state.encoding.container in ("mpg", "vob", "webm"):
+                self.container_combo.setCurrentText("mp4")
+                self.app_state.encoding.container = "mp4"
+            if self.app_state.encoding.audio_codec in ("mp2",):
+                self.audio_codec_combo.setCurrentText("aac")
+                self.app_state.encoding.audio_codec = "aac"
+            self.bframes_combo.setCurrentText("0")
+            self.app_state.encoding.bframes = "0"
+            self.gop_combo.setCurrentText("144")
+            self.app_state.encoding.gop_size = "144"
         elif self.app_state.encoding.container in ("mpg", "vob"):
             self.container_combo.setCurrentText("mp4")
             self.app_state.encoding.container = "mp4"
@@ -1463,20 +1519,29 @@ class EncodingPanel(QWidget):
             self.level_combo.setCurrentText("4.0")
             self.app_state.encoding.level = "4.0"
         self.update_preset_visibility()
+        current_pix_fmt = self.pix_fmt_combo.currentText().split()[0]
+        self._warn_incompatible_pix_fmt(current_pix_fmt)
         self.settings_changed.emit()
     
     def update_preset_visibility(self):
         """Show correct preset combo based on encoder type"""
         encoder = self.encoder_combo.currentText()
         is_nvenc = "nvenc" in encoder.lower()
+        is_av1_vp9 = encoder in ("libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx")
+        is_cpu = encoder in ("libx264", "libx265")
         
-        # Show GPU preset for NVENC, CPU preset for others
-        self.gpu_preset_combo.setVisible(is_nvenc)
-        self.cpu_preset_combo.setVisible(not is_nvenc)
-        self.tune_label.setVisible(not is_nvenc)
-        self.cpu_tune_combo.setVisible(not is_nvenc)
+        # Show GPU preset for NVENC (including av1_nvenc)
+        self.gpu_preset_combo.setVisible(is_nvenc and not is_av1_vp9)
+        # Show CPU preset for x264/x265 only
+        self.preset_label.setVisible(is_cpu)
+        self.cpu_preset_combo.setVisible(is_cpu)
+        self.tune_label.setVisible(is_cpu)
+        self.cpu_tune_combo.setVisible(is_cpu)
+        # Show CPU Used for AV1/VP9 encoders
+        self.cpu_used_label.setVisible(is_av1_vp9)
+        self.cpu_used_spin.setVisible(is_av1_vp9)
         
-        # Update tune options based on encoder (x264 vs x265 have different valid tunes)
+        # Update tune options based on encoder
         self.update_tune_options()
     
     def update_tune_options(self):
@@ -1514,6 +1579,11 @@ class EncodingPanel(QWidget):
     def on_cpu_tune_changed(self, text):
         """Handle CPU tune change"""
         self.app_state.encoding.cpu_tune = text
+        self.settings_changed.emit()
+        
+    def on_cpu_used_changed(self, value):
+        """Handle CPU used spin change for AV1/VP9 encoders"""
+        self.app_state.encoding.cpu_used = str(value)
         self.settings_changed.emit()
         
     def on_video_mode_changed(self, text):
@@ -1728,7 +1798,20 @@ class EncodingPanel(QWidget):
         """Handle pixel format change"""
         pix_fmt = text.split()[0]  # Extract just the format name (before the space and bit depth)
         self.app_state.encoding.pixel_format = pix_fmt
+        self._warn_incompatible_pix_fmt(pix_fmt)
         self.settings_changed.emit()
+    
+    def _warn_incompatible_pix_fmt(self, pix_fmt: str):
+        """Log a warning if the pixel format is incompatible with the selected encoder."""
+        encoder = self.encoder_combo.currentText()
+        av1_vp9_encoders = {"libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx"}
+        incompatible_8bit = {"yuv444p"}
+        incompatible_10bit = {"yuv444p10le"}
+        if encoder in av1_vp9_encoders and pix_fmt in (incompatible_8bit | incompatible_10bit):
+            self.app_state.log(
+                f"Warning: {pix_fmt} may not be supported by {encoder}. "
+                f"Use yuv420p or yuv420p10le for best compatibility.", "WARN"
+            )
 
     def on_profile_changed(self, text):
         """Handle profile change"""

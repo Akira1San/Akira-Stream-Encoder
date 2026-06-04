@@ -31,6 +31,8 @@ class FFmpegBackend(MediaBackend):
         if codec:
             return codec
         container = getattr(self.app_state.encoding, 'container', 'mp4')
+        if container == "webm":
+            return "libopus"
         return "mp2" if container in ("mpg", "vob") else "aac"
 
     def _get_dvd_concat_input(self) -> Optional[str]:
@@ -975,10 +977,24 @@ class FFmpegBackend(MediaBackend):
 
         # Video encoder settings
         encoder = encoding.encoder
+        av1_vp9_encoders = ("libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx")
         cmd.extend(["-c:v", encoder])
         if encoding.use_gpu and "nvenc" in encoder:
             cmd.extend(["-preset", encoding.gpu_preset])
             cmd.extend(["-cq", str(encoding.cq)])
+        elif encoder in av1_vp9_encoders:
+            cmd.extend(["-crf", str(encoding.cq)])
+            cpu_used = encoding.cpu_used if hasattr(encoding, 'cpu_used') else "2"
+            if encoder == "libaom-av1":
+                cmd.extend(["-cpu-used", cpu_used])
+                cmd.extend(["-row-mt", "1"])
+                cmd.extend(["-strict", "experimental"])
+            elif encoder == "libsvtav1":
+                cmd.extend(["-preset", cpu_used])
+            elif encoder in ("libvpx-vp9", "libvpx"):
+                cmd.extend(["-cpu-used", cpu_used])
+                cmd.extend(["-row-mt", "1"])
+                cmd.extend(["-deadline", "good"])
         elif encoder == "mpeg2video":
             cmd.extend(["-b:v", "6000k"])
         else:
@@ -993,6 +1009,8 @@ class FFmpegBackend(MediaBackend):
 
         if encoder == "libx265":
             cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+        elif encoder in av1_vp9_encoders:
+            cmd.extend(["-g", encoding.gop_size])
         elif encoder == "mpeg2video":
             cmd.extend(["-g", encoding.gop_size])
             cmd.extend(["-bf", encoding.bframes])
@@ -1217,10 +1235,25 @@ class FFmpegBackend(MediaBackend):
                 bitrate_is_set = encoding.use_original_bitrate or (
                     encoding.target_bitrate and encoding.target_bitrate.isdigit() and int(encoding.target_bitrate) > 0
                 )
+                av1_vp9_encoders = ("libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx")
                 if encoding.use_gpu and "nvenc" in encoder:
                     cmd.extend(["-preset", encoding.gpu_preset])
                     if not bitrate_is_set:
                         cmd.extend(["-cq", str(encoding.cq)])
+                elif encoder in av1_vp9_encoders:
+                    if not bitrate_is_set:
+                        cmd.extend(["-crf", str(encoding.cq)])
+                    cpu_used = encoding.cpu_used if hasattr(encoding, 'cpu_used') else "2"
+                    if encoder == "libaom-av1":
+                        cmd.extend(["-cpu-used", cpu_used])
+                        cmd.extend(["-row-mt", "1"])
+                        cmd.extend(["-strict", "experimental"])
+                    elif encoder == "libsvtav1":
+                        cmd.extend(["-preset", cpu_used])
+                    elif encoder in ("libvpx-vp9", "libvpx"):
+                        cmd.extend(["-cpu-used", cpu_used])
+                        cmd.extend(["-row-mt", "1"])
+                        cmd.extend(["-deadline", "good"])
                 else:
                     if encoder == "mpeg2video":
                         if not bitrate_is_set:
@@ -1239,6 +1272,8 @@ class FFmpegBackend(MediaBackend):
                     cmd.extend(["-pix_fmt", pix_fmt])
                 if encoder == "libx265":
                     cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+                elif encoder in av1_vp9_encoders:
+                    cmd.extend(["-g", encoding.gop_size])
                 elif encoder == "mpeg2video":
                     cmd.extend(["-g", encoding.gop_size])
                     cmd.extend(["-bf", encoding.bframes])
@@ -1407,10 +1442,25 @@ class FFmpegBackend(MediaBackend):
             bitrate_is_set = encoding.use_original_bitrate or (
                 encoding.target_bitrate and encoding.target_bitrate.isdigit() and int(encoding.target_bitrate) > 0
             )
+            av1_vp9_encoders = ("libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx")
             if encoding.use_gpu and "nvenc" in encoder:
                 cmd.extend(["-preset", encoding.gpu_preset])
                 if not bitrate_is_set:
                     cmd.extend(["-cq", str(encoding.cq)])
+            elif encoder in av1_vp9_encoders:
+                if not bitrate_is_set:
+                    cmd.extend(["-crf", str(encoding.cq)])
+                cpu_used = encoding.cpu_used if hasattr(encoding, 'cpu_used') else "2"
+                if encoder == "libaom-av1":
+                    cmd.extend(["-cpu-used", cpu_used])
+                    cmd.extend(["-row-mt", "1"])
+                    cmd.extend(["-strict", "experimental"])
+                elif encoder == "libsvtav1":
+                    cmd.extend(["-preset", cpu_used])
+                elif encoder in ("libvpx-vp9", "libvpx"):
+                    cmd.extend(["-cpu-used", cpu_used])
+                    cmd.extend(["-row-mt", "1"])
+                    cmd.extend(["-deadline", "good"])
             else:
                 if encoder == "mpeg2video":
                     if not bitrate_is_set:
@@ -1429,6 +1479,8 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-r", encoding.framerate])
             if encoder == "libx265":
                 cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+            elif encoder in av1_vp9_encoders:
+                cmd.extend(["-g", encoding.gop_size])
             elif encoder == "mpeg2video":
                 cmd.extend(["-g", encoding.gop_size])
                 cmd.extend(["-bf", encoding.bframes])
@@ -1440,6 +1492,8 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-pix_fmt", pix_fmt])
             if encoder == "libx265":
                 cmd.extend(["-profile:v", "main"])
+            elif encoder in av1_vp9_encoders:
+                pass
             elif encoder == "mpeg2video":
                 cmd.extend(["-profile:v", encoding.profile])
             else:

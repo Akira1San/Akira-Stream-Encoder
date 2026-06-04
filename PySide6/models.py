@@ -26,6 +26,8 @@ class EncodingSettings:
     cpu_preset: str = "medium"  # ultrafast/superfast/veryfast/faster/fast/medium/slow/slower/veryslow
     cpu_tune: str = "none"  # none/film/animation/grain/fastdecode/zerolatency
     gpu_preset: str = "p5"  # p1-p7 for NVENC
+    # CPU-used for AV1/VP9 encoders (0-6 for libaom, 0-5 for VP9, 0-13 for SVT-AV1)
+    cpu_used: str = "2"
     # Scale filter settings
     scale_mode: str = "off"  # off / on
     scale_algorithm: str = "bilinear"  # bilinear / bicubic / lanczos / spline / area
