@@ -78,6 +78,7 @@ class EncodingPanel(QWidget):
         self.encoder_combo.setCurrentText(self.app_state.encoding.encoder)
         self.encoder_combo.setMinimumWidth(150)
         self.encoder_combo.setToolTip("Video codec to use:\nh264_nvenc: H.264 with GPU acceleration\nhevc_nvenc: H.265/HEVC with GPU (smaller files)\nlibx264: H.264 CPU encoding (compatible)\nlibx265: H.265/HEVC CPU (best compression)\nmpeg2video: MPEG-2 for DVD/legacy compatibility\nlibaom-av1: Reference AV1 encoder (slow, best quality)\nlibsvtav1: SVT-AV1 encoder (fast, recommended for AV1)\nlibvpx-vp9: VP9 encoder (good for web)\nlibvpx: VP8 encoder (fallback)\nav1_nvenc: NVIDIA GPU AV1 encoder")
+        self.encoder_combo.setStyleSheet("QToolTip { font-size: 11pt; }")
         encoder_layout.addWidget(self.encoder_combo)
         encoder_layout.addStretch()
         layout.addLayout(encoder_layout)
@@ -168,6 +169,7 @@ class EncodingPanel(QWidget):
             "6-8: Balanced\n"
             "13: Fastest (lowest quality)"
         )
+        self.cpu_used_spin.setStyleSheet("QToolTip { font-size: 11pt; }")
         self.cpu_used_spin.setVisible(False)
         preset_layout.addWidget(self.cpu_used_spin)
         
