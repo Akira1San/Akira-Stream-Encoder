@@ -108,6 +108,7 @@ class VideoWorkspace(QWidget):
         self.multi_track_panel = MultiTrackPanel(self.app_state)
         self.multi_track_panel.settings_changed.connect(self.on_settings_changed)
         mt_collapsible.content_layout().addWidget(self.multi_track_panel)
+        mt_collapsible.collapse()
         scroll_layout.addWidget(mt_collapsible)
         
         # Subtitles (Collapsible)
@@ -374,12 +375,10 @@ class VideoWorkspace(QWidget):
                 )
                 sub_track_infos.append(sub_track_info)
             self.app_state.tracks.available_subtitle_tracks = sub_track_infos
-            self.subs_panel.update_embedded_subtitles(sub_track_infos)
             self.multi_track_panel.populate_subtitle_tracks(sub_track_infos)
             self.app_state.log(f"Detected {len(sub_track_infos)} embedded subtitle track(s)", "INFO")
         else:
             self.app_state.tracks.available_subtitle_tracks = []
-            self.subs_panel.update_embedded_subtitles([])
             self.multi_track_panel.populate_subtitle_tracks([])
             
     def on_cut_point_set(self, position: float):
@@ -985,9 +984,7 @@ class VideoWorkspace(QWidget):
                 )
                 sub_track_infos.append(sub_track_info)
             self.app_state.tracks.available_subtitle_tracks = sub_track_infos
-            self.subs_panel.update_embedded_subtitles(sub_track_infos)
             self.multi_track_panel.populate_subtitle_tracks(sub_track_infos)
         else:
             self.app_state.tracks.available_subtitle_tracks = []
-            self.subs_panel.update_embedded_subtitles([])
             self.multi_track_panel.populate_subtitle_tracks([])

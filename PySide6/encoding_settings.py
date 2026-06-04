@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 
-from models import AppState, AudioTrackAssignment, ExternalAudioTrack, SubtitleTrackAssignment, ExternalSubtitleTrack
+from models import AppState, AudioTrackAssignment, ExternalAudioTrack
 
 
 class EncodingPanel(QWidget):
@@ -973,45 +973,6 @@ class EncodingPanel(QWidget):
         
         layout.addWidget(advanced_collapsible)
 
-        # ── Subtitle Section ──
-        sub_group = QGroupBox("Subtitles")
-        sub_layout = QVBoxLayout(sub_group)
-
-        # Multi-track subtitle toggle
-        sub_toggle_layout = QHBoxLayout()
-        self.multi_sub_check = QCheckBox("Enable Multi-Track Subtitles")
-        self.multi_sub_check.setChecked(self.app_state.tracks.multi_track_subtitle_enabled)
-        self.multi_sub_check.setToolTip(
-            "When enabled, you can select multiple subtitle tracks to passthrough.\n"
-            "Both embedded and external subtitle files can be included."
-        )
-        sub_toggle_layout.addWidget(self.multi_sub_check)
-        sub_toggle_layout.addStretch()
-        sub_layout.addLayout(sub_toggle_layout)
-
-        # Subtitle multi-select list
-        self.subtitle_track_list = QListWidget()
-        self.subtitle_track_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.subtitle_track_list.setMaximumHeight(100)
-        self.subtitle_track_list.setToolTip("Select subtitle tracks to passthrough. Ctrl+click to select multiple.")
-        self.subtitle_track_list.setVisible(self.app_state.tracks.multi_track_subtitle_enabled)
-        sub_layout.addWidget(self.subtitle_track_list)
-
-        # Load / remove external subtitle buttons
-        load_sub_layout = QHBoxLayout()
-        self.load_sub_btn = QPushButton("Load External Subtitle...")
-        self.load_sub_btn.setToolTip("Load an external subtitle file as an additional track")
-        self.load_sub_btn.setVisible(self.app_state.tracks.multi_track_subtitle_enabled)
-        load_sub_layout.addWidget(self.load_sub_btn)
-        self.remove_sub_btn = QPushButton("Remove Selected")
-        self.remove_sub_btn.setToolTip("Remove selected external subtitle tracks from the list")
-        self.remove_sub_btn.setVisible(self.app_state.tracks.multi_track_subtitle_enabled)
-        load_sub_layout.addWidget(self.remove_sub_btn)
-        load_sub_layout.addStretch()
-        sub_layout.addLayout(load_sub_layout)
-
-        layout.addWidget(sub_group)
-
         layout.addStretch()
 
     def connect_signals(self):
@@ -1046,10 +1007,6 @@ class EncodingPanel(QWidget):
         self.audio_track_list.itemSelectionChanged.connect(self.on_audio_track_list_changed)
         self.load_audio_btn.clicked.connect(self.on_load_external_audio)
         self.remove_audio_btn.clicked.connect(self.on_remove_external_audio)
-        self.multi_sub_check.toggled.connect(self.on_multi_sub_toggled)
-        self.subtitle_track_list.itemSelectionChanged.connect(self.on_subtitle_track_list_changed)
-        self.load_sub_btn.clicked.connect(self.on_load_external_subtitle)
-        self.remove_sub_btn.clicked.connect(self.on_remove_external_subtitle)
         self.audio_codec_combo.currentTextChanged.connect(self.on_audio_codec_changed)
         self.audio_channels_combo.currentTextChanged.connect(self.on_audio_channels_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
@@ -1183,99 +1140,6 @@ class EncodingPanel(QWidget):
             item = QListWidgetItem(display_text)
             item.setData(256, (1, i))
             self.audio_track_list.addItem(item)
-
-    def on_multi_sub_toggled(self, checked):
-        """Handle multi-track subtitle toggle"""
-        self.app_state.tracks.multi_track_subtitle_enabled = checked
-        self.subtitle_track_list.setVisible(checked)
-        self.load_sub_btn.setVisible(checked)
-        self.remove_sub_btn.setVisible(checked)
-        self.subtitle_track_list.setEnabled(checked)
-        if checked:
-            self._rebuild_subtitle_track_list()
-        self.settings_changed.emit()
-
-    def on_subtitle_track_list_changed(self):
-        """Handle multi-track subtitle list selection change"""
-        selected_items = self.subtitle_track_list.selectedItems()
-        selected_indices = []
-        assignments = []
-        for item in selected_items:
-            data = item.data(256)
-            if data is None:
-                continue
-            track_type, track_idx = data
-            selected_indices.append(len(assignments))
-            assignments.append(SubtitleTrackAssignment(
-                stream_index=track_idx,
-                is_external=(track_type == 1),
-                mode="copy"
-            ))
-        self.app_state.tracks.selected_subtitle_indices = selected_indices
-        self.app_state.tracks.subtitle_track_assignments = assignments
-        self.settings_changed.emit()
-
-    def on_load_external_subtitle(self):
-        """Handle Load External Subtitle button click"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select External Subtitle File",
-            "",
-            "Subtitle Files (*.srt *.ass *.ssa *.sub);;All Files (*)"
-        )
-        if not file_path:
-            return
-
-        ext_track = ExternalSubtitleTrack(
-            file_path=file_path,
-            codec="subrip" if file_path.endswith('.srt') else "ass" if file_path.endswith(('.ass', '.ssa')) else "subrip",
-            title=os.path.basename(file_path)
-        )
-        self.app_state.tracks.external_subtitle_tracks.append(ext_track)
-        self._rebuild_subtitle_track_list()
-        total_count = (len(self.app_state.tracks.available_subtitle_tracks)
-                       + len(self.app_state.tracks.external_subtitle_tracks))
-        self.subtitle_track_list.item(total_count - 1).setSelected(True)
-        self.settings_changed.emit()
-
-    def on_remove_external_subtitle(self):
-        """Remove selected external subtitle tracks"""
-        indices_to_remove = []
-        for item in self.subtitle_track_list.selectedItems():
-            data = item.data(256)
-            if data is not None and data[0] == 1:  # external
-                indices_to_remove.append(data[1])
-        for idx in sorted(indices_to_remove, reverse=True):
-            if 0 <= idx < len(self.app_state.tracks.external_subtitle_tracks):
-                del self.app_state.tracks.external_subtitle_tracks[idx]
-        self.app_state.tracks.selected_subtitle_indices = []
-        self.app_state.tracks.subtitle_track_assignments = []
-        self._rebuild_subtitle_track_list()
-        self.settings_changed.emit()
-
-    def _rebuild_subtitle_track_list(self):
-        """Rebuild the subtitle multi-select list with embedded + external tracks"""
-        self.subtitle_track_list.clear()
-        embedded_tracks = self.app_state.tracks.available_subtitle_tracks
-        external_tracks = self.app_state.tracks.external_subtitle_tracks
-
-        for i, track in enumerate(embedded_tracks):
-            display_text = f"[Embedded] Track {i+1}"
-            if track.language:
-                display_text += f" [{track.language}]"
-            if track.title:
-                display_text += f" - {track.title}"
-            display_text += f" ({track.codec})"
-            item = QListWidgetItem(display_text)
-            item.setData(256, (0, i))
-            self.subtitle_track_list.addItem(item)
-
-        for i, track in enumerate(external_tracks):
-            display_text = f"[External] {track.title}"
-            display_text += f" ({track.codec})"
-            item = QListWidgetItem(display_text)
-            item.setData(256, (1, i))
-            self.subtitle_track_list.addItem(item)
 
     def on_audio_track_changed(self, index):
         """Handle audio track selection change (single mode)"""

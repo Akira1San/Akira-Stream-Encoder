@@ -6,13 +6,12 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
     QComboBox, QSlider, QPushButton, QColorDialog, QSpinBox,
-    QFileDialog, QGroupBox, QListWidget, QAbstractItemView,
-    QListWidgetItem, QRadioButton
+    QFileDialog
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 
-from models import AppState, SubtitleTrackAssignment, ExternalSubtitleTrack
+from models import AppState
 
 
 class SubtitlesPanel(QWidget):
@@ -76,48 +75,6 @@ class SubtitlesPanel(QWidget):
 
         # Initially hide DVD subtitle selector
         self.dvd_subtitle_group.hide()
-
-        # ── Embedded Subtitle Tracks (detected from source) ──
-        self.embedded_sub_group = QGroupBox("Embedded Subtitle Tracks")
-        embedded_layout = QVBoxLayout(self.embedded_sub_group)
-
-        # Passthrough subtitle tracks (multi-select)
-        self.passthrough_check = QCheckBox("Passthrough subtitle tracks (no burn-in)")
-        self.passthrough_check.setToolTip("Copy selected subtitle streams into output without burning them into the video.")
-        embedded_layout.addWidget(self.passthrough_check)
-
-        self.embedded_sub_list = QListWidget()
-        self.embedded_sub_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self.embedded_sub_list.setMaximumHeight(100)
-        self.embedded_sub_list.setToolTip("Select subtitle tracks to passthrough. Ctrl+click to select multiple.")
-        embedded_layout.addWidget(self.embedded_sub_list)
-
-        # Burn-in selection (which embedded track to burn)
-        burn_from_layout = QHBoxLayout()
-        self.burn_embedded_radio = QRadioButton("Burn embedded track:")
-        self.burn_embedded_radio.setToolTip("Select which embedded subtitle track to burn into the video.")
-        burn_from_layout.addWidget(self.burn_embedded_radio)
-
-        self.burn_embedded_combo = QComboBox()
-        self.burn_embedded_combo.setMinimumWidth(150)
-        self.burn_embedded_combo.setToolTip("Choose which embedded subtitle track to burn into video.")
-        burn_from_layout.addWidget(self.burn_embedded_combo)
-        burn_from_layout.addStretch()
-        embedded_layout.addLayout(burn_from_layout)
-
-        self.embedded_sub_group.setVisible(False)
-        layout.addWidget(self.embedded_sub_group)
-
-        # ── External Subtitle Tracks ──
-        ext_sub_layout = QHBoxLayout()
-        self.load_sub_btn = QPushButton("Load External Subtitle...")
-        self.load_sub_btn.setToolTip("Load an external subtitle file as an additional track")
-        ext_sub_layout.addWidget(self.load_sub_btn)
-        self.remove_sub_btn = QPushButton("Remove Selected")
-        self.remove_sub_btn.setToolTip("Remove selected external subtitle tracks from the list")
-        ext_sub_layout.addWidget(self.remove_sub_btn)
-        ext_sub_layout.addStretch()
-        layout.addLayout(ext_sub_layout)
 
         # Info label
         preview_info = QLabel("Preview supports .srt only | Encoding supports all formats")
@@ -318,10 +275,6 @@ class SubtitlesPanel(QWidget):
     def connect_signals(self):
         """Connect UI signals to handlers"""
         self.burn_check.toggled.connect(self.on_burn_changed)
-        self.passthrough_check.toggled.connect(self.on_passthrough_changed)
-        self.embedded_sub_list.itemSelectionChanged.connect(self.on_embedded_sub_list_changed)
-        self.burn_embedded_combo.currentIndexChanged.connect(self.on_burn_embedded_changed)
-        self.burn_embedded_radio.toggled.connect(self.on_burn_embedded_radio_toggled)
         self.subtitle_combo.currentTextChanged.connect(self.on_subtitle_changed)
         self.dvd_subtitle_combo.currentIndexChanged.connect(self.on_dvd_subtitle_changed)
         self.font_combo.currentTextChanged.connect(self.on_font_changed)
@@ -337,10 +290,6 @@ class SubtitlesPanel(QWidget):
         self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
         self.on_handbrake_available_changed(self.app_state.handbrake_available)
 
-        # External subtitles
-        self.load_sub_btn.clicked.connect(self.on_load_external_subtitle)
-        self.remove_sub_btn.clicked.connect(self.on_remove_external_subtitle)
-
         # Shadow controls
         self.shadow_check.toggled.connect(self.on_shadow_changed)
         self.shadow_color_btn.clicked.connect(self.on_shadow_color_clicked)
@@ -352,53 +301,6 @@ class SubtitlesPanel(QWidget):
         """Handle burn checkbox change"""
         self.app_state.subtitles.burn_subs = checked
         self.settings_changed.emit()
-
-    def on_passthrough_changed(self, checked):
-        """Handle subtitle passthrough toggle"""
-        self.app_state.tracks.subtitle_passthrough = checked
-        self.embedded_sub_list.setEnabled(checked)
-        if not checked:
-            self.app_state.tracks.selected_subtitle_indices = []
-        self.settings_changed.emit()
-
-    def on_embedded_sub_list_changed(self):
-        """Handle embedded subtitle track selection change"""
-        selected_items = self.embedded_sub_list.selectedItems()
-        selected_indices = []
-        assignments = []
-        for item in selected_items:
-            data = item.data(256)
-            if data is None:
-                continue
-            track_type, track_idx = data
-            selected_indices.append(len(assignments))
-            assignments.append(SubtitleTrackAssignment(
-                stream_index=track_idx,
-                is_external=(track_type == 1),
-                mode="copy"
-            ))
-        self.app_state.tracks.selected_subtitle_indices = selected_indices
-        self.app_state.tracks.subtitle_track_assignments = assignments
-        self.settings_changed.emit()
-
-    def on_burn_embedded_changed(self, index):
-        """Handle embedded track burn selection"""
-        if index >= 0:
-            data = self.burn_embedded_combo.itemData(index)
-            if data is not None:
-                self.app_state.tracks.subtitle_burn_index = data
-                if data >= 0:
-                    self.burn_check.setChecked(True)
-                self.settings_changed.emit()
-
-    def on_burn_embedded_radio_toggled(self, checked):
-        """Handle burn embedded radio toggle"""
-        if checked:
-            idx = self.burn_embedded_combo.currentData()
-            if idx is not None and idx >= 0:
-                self.app_state.tracks.subtitle_burn_index = idx
-                self.burn_check.setChecked(True)
-                self.settings_changed.emit()
 
     def on_dvd_subtitle_changed(self, index):
         """Handle DVD subtitle track selection change"""
@@ -454,124 +356,6 @@ class SubtitlesPanel(QWidget):
         else:
             # Hide DVD subtitle selector for non-DVD sources
             self.dvd_subtitle_group.hide()
-
-    def update_embedded_subtitles(self, subtitle_tracks: list):
-        """Update the embedded subtitle track UI with detected tracks"""
-        self.embedded_sub_list.blockSignals(True)
-        self.burn_embedded_combo.blockSignals(True)
-        self.burn_embedded_combo.clear()
-
-        has_any = bool(subtitle_tracks) or bool(self.app_state.tracks.external_subtitle_tracks)
-
-        if not has_any:
-            self.embedded_sub_group.setVisible(False)
-            self.embedded_sub_list.blockSignals(False)
-            self.burn_embedded_combo.blockSignals(False)
-            return
-
-        self.embedded_sub_group.setVisible(True)
-
-        # Populate combined embedded + external list
-        self._rebuild_embedded_sub_list()
-
-        # Populate burn combo (embedded tracks only)
-        self.burn_embedded_combo.addItem("None (use external file)", -1)
-        for i, track in enumerate(subtitle_tracks):
-            display_text = f"Track {i+1}"
-            if track.language:
-                display_text += f" [{track.language}]"
-            display_text += f" ({track.codec})"
-            self.burn_embedded_combo.addItem(display_text, i)
-
-        # Restore burn selection
-        burn_idx = self.app_state.tracks.subtitle_burn_index
-        for i in range(self.burn_embedded_combo.count()):
-            if self.burn_embedded_combo.itemData(i) == burn_idx:
-                self.burn_embedded_combo.setCurrentIndex(i)
-                break
-
-        self.embedded_sub_list.blockSignals(False)
-        self.burn_embedded_combo.blockSignals(False)
-
-    def on_load_external_subtitle(self):
-        """Handle load external subtitle button click"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select External Subtitle File",
-            "",
-            "Subtitle Files (*.srt *.ass *.ssa *.sub);;All Files (*)"
-        )
-        if not file_path:
-            return
-
-        ext_track = ExternalSubtitleTrack(
-            file_path=file_path,
-            codec="subrip" if file_path.endswith('.srt') else "ass" if file_path.endswith(('.ass', '.ssa')) else "subrip",
-            title=os.path.basename(file_path)
-        )
-        self.app_state.tracks.external_subtitle_tracks.append(ext_track)
-        self._rebuild_embedded_sub_list()
-        self.settings_changed.emit()
-
-    def on_remove_external_subtitle(self):
-        """Remove selected external subtitle tracks"""
-        indices_to_remove = []
-        for item in self.embedded_sub_list.selectedItems():
-            data = item.data(256)
-            if data is not None and data[0] == 1:  # external
-                indices_to_remove.append(data[1])
-        for idx in sorted(indices_to_remove, reverse=True):
-            if 0 <= idx < len(self.app_state.tracks.external_subtitle_tracks):
-                del self.app_state.tracks.external_subtitle_tracks[idx]
-        self.app_state.tracks.selected_subtitle_indices = []
-        self.app_state.tracks.subtitle_track_assignments = []
-        self._rebuild_embedded_sub_list()
-        self.settings_changed.emit()
-
-    def _rebuild_embedded_sub_list(self):
-        """Rebuild the embedded subtitle multi-select list with embedded + external tracks"""
-        self.embedded_sub_list.blockSignals(True)
-        self.embedded_sub_list.clear()
-
-        embedded_tracks = self.app_state.tracks.available_subtitle_tracks
-        external_tracks = self.app_state.tracks.external_subtitle_tracks
-
-        for i, track in enumerate(embedded_tracks):
-            display_text = f"[Embedded] Track {i+1}"
-            if track.language:
-                display_text += f" [{track.language}]"
-            if track.title:
-                display_text += f" - {track.title}"
-            display_text += f" ({track.codec})"
-            item = QListWidgetItem(display_text)
-            item.setData(256, (0, i))
-            self.embedded_sub_list.addItem(item)
-
-        for i, track in enumerate(external_tracks):
-            display_text = f"[External] {track.title}"
-            display_text += f" ({track.codec})"
-            item = QListWidgetItem(display_text)
-            item.setData(256, (1, i))
-            self.embedded_sub_list.addItem(item)
-
-        # Restore selection from subtitle_track_assignments
-        self._sync_sub_list_from_assignments()
-        self.embedded_sub_list.blockSignals(False)
-
-    def _sync_sub_list_from_assignments(self):
-        """Sync QListWidget selection from subtitle_track_assignments"""
-        assignments = self.app_state.tracks.subtitle_track_assignments
-        selected_embedded = {a.stream_index for a in assignments if not a.is_external}
-        selected_external = {a.stream_index for a in assignments if a.is_external}
-        for i in range(self.embedded_sub_list.count()):
-            item = self.embedded_sub_list.item(i)
-            data = item.data(256)
-            if data is not None:
-                track_type, track_idx = data
-                if track_type == 0:
-                    item.setSelected(track_idx in selected_embedded)
-                else:
-                    item.setSelected(track_idx in selected_external)
 
     def on_subtitle_changed(self, text):
         """Handle subtitle file selection change"""
