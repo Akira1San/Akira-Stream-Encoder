@@ -20,6 +20,11 @@ class FFmpegBackend(MediaBackend):
         self.cancel_upscale = False
         self._vob_duration_cache: Dict[str, float] = {}
 
+    def _audio_channels_args(self) -> List[str]:
+        ch = getattr(self.app_state.encoding, 'audio_channels', '2')
+        layout = {"1": "mono", "2": "stereo", "6": "5.1", "8": "7.1"}.get(ch, "stereo")
+        return ["-ac", ch, "-channel_layout", layout]
+
     def _audio_codec(self) -> str:
         """Return audio codec from user selection, with container-safe fallback."""
         codec = self.app_state.encoding.audio_codec
@@ -975,7 +980,7 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-level:v", encoding.level])
 
         if extra.gen_include_audio:
-            cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2"])
+            cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
 
         if not image_paths:
             cmd.extend(["-map", "0:v"])
@@ -1250,14 +1255,14 @@ class FFmpegBackend(MediaBackend):
                     if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
                         cmd.extend(["-c:a", "copy"])
                     else:
-                        cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ac", "2"])
+                        cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", *self._audio_channels_args()])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", *self._audio_channels_args()])
                 cmd.extend(["-shortest"])
             elif tracks.audio_copy_mode:
                 cmd.extend(["-c:a", "copy"])
             else:
-                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ac", "2", "-channel_layout", "stereo"])
+                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", *self._audio_channels_args()])
                 if audio_filters_str:
                     cmd.extend(["-af", audio_filters_str])
             cmd.extend(["-y", output_path])
@@ -1400,7 +1405,7 @@ class FFmpegBackend(MediaBackend):
                 if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             elif mix_mode == "mix":
                 audio_stream_idx = tracks.audio_stream_index
                 if audio_stream_idx is None or audio_stream_idx < 0:
@@ -1408,7 +1413,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
                 cmd.extend(["-map", f"{extra_audio_ix}:a"])
                 self._extra_audio_mix = True
-                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "256k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
+                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "256k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             else:  # add_track
                 if tracks.audio_selected:
                     audio_stream_idx = tracks.audio_stream_index
@@ -1420,7 +1425,7 @@ class FFmpegBackend(MediaBackend):
                 if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
         elif use_external:
             cmd.extend(["-map", "1:a"])
             if audio_copy:
@@ -1429,9 +1434,9 @@ class FFmpegBackend(MediaBackend):
                 if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             else:
-                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
+                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             cmd.extend(["-shortest"])
         elif tracks.audio_selected:
             audio_stream_idx = tracks.audio_stream_index
@@ -1441,7 +1446,7 @@ class FFmpegBackend(MediaBackend):
             if audio_copy:
                 cmd.extend(["-c:a", "copy"])
             else:
-                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
+                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
         else:
             cmd.extend(["-an"])
             audio_copy = True
@@ -1570,7 +1575,7 @@ class FFmpegBackend(MediaBackend):
                 elif ext == '.flac':
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             else:
                 audio_stream_idx = tracks.audio_stream_index
                 cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
@@ -1579,7 +1584,7 @@ class FFmpegBackend(MediaBackend):
                 if audio_copy:
                     cmd.extend(["-c:a", "copy"])
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, "-ac", "2", "-channel_layout", "stereo"])
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
         else:
             cmd.extend(["-an"])
 

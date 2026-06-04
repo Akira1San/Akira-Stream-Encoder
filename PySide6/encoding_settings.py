@@ -815,6 +815,28 @@ class EncodingPanel(QWidget):
         audio_codec_layout.addStretch()
         advanced_layout.addLayout(audio_codec_layout)
         
+        # Audio Channels
+        audio_channels_layout = QHBoxLayout()
+        audio_channels_layout.addWidget(QLabel("Audio Channels:"))
+        self.audio_channels_combo = QComboBox()
+        self.audio_channels_combo.addItems([
+            "1 (Mono)", "2 (Stereo)", "6 (5.1)", "8 (7.1)"
+        ])
+        ch = self.app_state.encoding.audio_channels
+        display = {"1": "1 (Mono)", "2": "2 (Stereo)", "6": "6 (5.1)", "8": "8 (7.1)"}
+        self.audio_channels_combo.setCurrentText(display.get(ch, "2 (Stereo)"))
+        self.audio_channels_combo.setMinimumWidth(100)
+        self.audio_channels_combo.setToolTip(
+            "Number of audio channels for encoding:\n"
+            "1 (Mono): Single channel\n"
+            "2 (Stereo): Two channels (default)\n"
+            "6 (5.1): Surround sound\n"
+            "8 (7.1): Extended surround"
+        )
+        audio_channels_layout.addWidget(self.audio_channels_combo)
+        audio_channels_layout.addStretch()
+        advanced_layout.addLayout(audio_channels_layout)
+        
         # External Audio File Selection
         ext_audio_group = QGroupBox("External Audio")
         ext_audio_group.setStyleSheet("""
@@ -947,6 +969,7 @@ class EncodingPanel(QWidget):
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.audio_codec_combo.currentTextChanged.connect(self.on_audio_codec_changed)
+        self.audio_channels_combo.currentTextChanged.connect(self.on_audio_channels_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
         self.cpu_preset_combo.currentTextChanged.connect(self.on_cpu_preset_changed)
         self.cpu_tune_combo.currentTextChanged.connect(self.on_cpu_tune_changed)
@@ -1307,6 +1330,12 @@ class EncodingPanel(QWidget):
     def on_audio_codec_changed(self, text):
         """Handle audio codec selection change"""
         self.app_state.encoding.audio_codec = text
+        self.settings_changed.emit()
+        
+    def on_audio_channels_changed(self, text):
+        """Handle audio channels change"""
+        ch = text.split()[0]
+        self.app_state.encoding.audio_channels = ch
         self.settings_changed.emit()
         
     def on_resolution_changed(self, text):

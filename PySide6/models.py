@@ -37,6 +37,7 @@ class EncodingSettings:
     custom_resolution: str = ""
     # Audio codec selection
     audio_codec: str = "aac"  # aac, mp2, ac3, mp3
+    audio_channels: str = "2"  # 1, 2, 6, 8
     # Advanced settings
     profile: str = "main"  # baseline, main, high
     level: str = "4.0"  # 3.0, 3.1, 4.0, 4.1, 4.2, 5.0, 5.1
