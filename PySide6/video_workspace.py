@@ -13,6 +13,7 @@ from PySide6.QtGui import QFont
 from models import AppState
 from ui_components import CollapsibleFrame
 from encoding_settings import EncodingPanel
+from multi_track_panel import MultiTrackPanel
 from geometry import GeometryPanel
 from color_correction import ColorCorrectionPanel
 from subtitles import SubtitlesPanel
@@ -101,6 +102,13 @@ class VideoWorkspace(QWidget):
         self.enc_panel.settings_changed.connect(self.on_settings_changed)
         enc_collapsible.content_layout().addWidget(self.enc_panel)
         scroll_layout.addWidget(enc_collapsible)
+
+        # Multi Track (Collapsible - collapsed by default)
+        mt_collapsible = CollapsibleFrame("Multi Track")
+        self.multi_track_panel = MultiTrackPanel(self.app_state)
+        self.multi_track_panel.settings_changed.connect(self.on_settings_changed)
+        mt_collapsible.content_layout().addWidget(self.multi_track_panel)
+        scroll_layout.addWidget(mt_collapsible)
         
         # Subtitles (Collapsible)
         subs_collapsible = CollapsibleFrame("Subtitles")
@@ -277,6 +285,8 @@ class VideoWorkspace(QWidget):
             self.app_state.tracks.available_audio_tracks = []
             self.enc_panel.populate_video_tracks([])
             self.enc_panel.populate_audio_tracks([])
+            self.multi_track_panel.populate_audio_tracks([])
+            self.multi_track_panel.populate_subtitle_tracks([])
             return
 
         self.preview.set_video(video_path)
@@ -343,10 +353,12 @@ class VideoWorkspace(QWidget):
 
             self.app_state.tracks.available_audio_tracks = track_infos
             self.enc_panel.populate_audio_tracks(track_infos)
+            self.multi_track_panel.populate_audio_tracks(track_infos)
             self.app_state.log(f"Detected {len(track_infos)} audio track(s)", "INFO")
         else:
             self.app_state.tracks.available_audio_tracks = []
             self.enc_panel.populate_audio_tracks([])
+            self.multi_track_panel.populate_audio_tracks([])
 
         # Subtitle tracks (embedded)
         subtitle_tracks = controller.get_subtitle_tracks(video_path)
@@ -363,10 +375,12 @@ class VideoWorkspace(QWidget):
                 sub_track_infos.append(sub_track_info)
             self.app_state.tracks.available_subtitle_tracks = sub_track_infos
             self.subs_panel.update_embedded_subtitles(sub_track_infos)
+            self.multi_track_panel.populate_subtitle_tracks(sub_track_infos)
             self.app_state.log(f"Detected {len(sub_track_infos)} embedded subtitle track(s)", "INFO")
         else:
             self.app_state.tracks.available_subtitle_tracks = []
             self.subs_panel.update_embedded_subtitles([])
+            self.multi_track_panel.populate_subtitle_tracks([])
             
     def on_cut_point_set(self, position: float):
         """Handle adding a new cut point"""
@@ -972,6 +986,8 @@ class VideoWorkspace(QWidget):
                 sub_track_infos.append(sub_track_info)
             self.app_state.tracks.available_subtitle_tracks = sub_track_infos
             self.subs_panel.update_embedded_subtitles(sub_track_infos)
+            self.multi_track_panel.populate_subtitle_tracks(sub_track_infos)
         else:
             self.app_state.tracks.available_subtitle_tracks = []
             self.subs_panel.update_embedded_subtitles([])
+            self.multi_track_panel.populate_subtitle_tracks([])
