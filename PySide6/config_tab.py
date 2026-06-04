@@ -331,29 +331,28 @@ class TrackSelectionDialog(QDialog):
         return self.selected_track
 
 
-class ConfigTab(QWidget):
-    """Configuration tab for system paths and file management"""
-    
-    file_selected = Signal(str)  # Emitted when a file is selected
-    dvd_imported = Signal()  # Emitted when a DVD is imported
-    
-    def __init__(self, app_state: AppState, parent=None):
+class SettingsDialog(QDialog):
+    """Dialog for all system paths and output settings"""
+
+    def __init__(self, app_state, parent=None):
         super().__init__(parent)
         self.app_state = app_state
-        
+        self.setWindowTitle("Settings")
+        self.setMinimumSize(700, 500)
         self.setup_ui()
         self.connect_signals()
-        
+
     def setup_ui(self):
-        """Setup the UI layout"""
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
-        
-        # === System Paths Group ===
-        paths_group = QGroupBox("System Paths")
-        paths_layout = QVBoxLayout(paths_group)
 
-        # Media Engine Selection
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(15)
+
         engine_group = QGroupBox("Media Engine")
         engine_layout = QVBoxLayout(engine_group)
 
@@ -369,7 +368,6 @@ class ConfigTab(QWidget):
         engine_selector.addStretch()
         engine_layout.addLayout(engine_selector)
 
-        # Engine-specific path
         engine_path_layout = QHBoxLayout()
         self.engine_path_label = QLabel("FFmpeg Path:")
         engine_path_layout.addWidget(self.engine_path_label)
@@ -390,9 +388,8 @@ class ConfigTab(QWidget):
         engine_path_layout.addWidget(self.engine_version_btn)
 
         engine_layout.addLayout(engine_path_layout)
-        paths_layout.addWidget(engine_group)
+        container_layout.addWidget(engine_group)
 
-        # FFmpeg Path
         ffmpeg_layout = QHBoxLayout()
         ffmpeg_layout.addWidget(QLabel("FFprobe Path:"))
         self.ffprobe_edit = QLineEdit(self.app_state.ffprobe_path)
@@ -400,9 +397,8 @@ class ConfigTab(QWidget):
         browse_ffprobe_btn = QPushButton("Browse...")
         browse_ffprobe_btn.clicked.connect(self.browse_ffprobe)
         ffmpeg_layout.addWidget(browse_ffprobe_btn)
-        paths_layout.addLayout(ffmpeg_layout)
+        container_layout.addLayout(ffmpeg_layout)
 
-        # HandBrake Path
         hb_layout = QHBoxLayout()
         hb_layout.addWidget(QLabel("HandBrake Path:"))
         self.handbrake_edit = QLineEdit(self.app_state.handbrake_path)
@@ -415,13 +411,11 @@ class ConfigTab(QWidget):
         hb_layout.addWidget(auto_hb_btn)
         self.hb_status_label = QLabel("")
         hb_layout.addWidget(self.hb_status_label)
-        paths_layout.addLayout(hb_layout)
+        container_layout.addLayout(hb_layout)
 
-        # AI Upscaling Paths
         ai_paths_group = QGroupBox("AI Upscaling")
         ai_paths_layout = QVBoxLayout(ai_paths_group)
 
-        # Real-ESRGAN path
         realesrgan_layout = QHBoxLayout()
         realesrgan_layout.addWidget(QLabel("Real-ESRGAN:"))
         self.realesrgan_edit = QLineEdit(self.app_state.realesrgan_path)
@@ -435,7 +429,6 @@ class ConfigTab(QWidget):
         realesrgan_layout.addWidget(auto_realesrgan_btn)
         ai_paths_layout.addLayout(realesrgan_layout)
 
-        # Anime4K path
         anime4k_layout = QHBoxLayout()
         anime4k_layout.addWidget(QLabel("Anime4K:"))
         self.anime4k_edit = QLineEdit(self.app_state.anime4k_path)
@@ -449,49 +442,264 @@ class ConfigTab(QWidget):
         anime4k_layout.addWidget(auto_anime4k_btn)
         ai_paths_layout.addLayout(anime4k_layout)
 
-        paths_layout.addWidget(ai_paths_group)
+        container_layout.addWidget(ai_paths_group)
 
-        layout.addWidget(paths_group)
-        
-        # === Output Settings Group ===
         output_group = QGroupBox("Output Settings")
         output_layout = QVBoxLayout(output_group)
-        
-        # Output Folder
+
         folder_layout = QHBoxLayout()
         folder_layout.addWidget(QLabel("Output Folder:"))
-        
         self.output_edit = QLineEdit(self.app_state.output_folder)
         self.output_edit.setPlaceholderText("Same folder as source video (default)")
         folder_layout.addWidget(self.output_edit)
-        
         browse_output_btn = QPushButton("Browse...")
         browse_output_btn.clicked.connect(self.browse_output_folder)
         folder_layout.addWidget(browse_output_btn)
-        
         clear_output_btn = QPushButton("✕ Clear")
         clear_output_btn.setMaximumWidth(80)
-        clear_output_btn.setToolTip("Reset to default: save in the same folder as the source video")
         clear_output_btn.clicked.connect(self.clear_output_folder)
         folder_layout.addWidget(clear_output_btn)
-        
         output_layout.addLayout(folder_layout)
-        
-        # Custom Filename
+
         custom_layout = QHBoxLayout()
-        
         self.custom_name_check = QCheckBox("Use Custom Filename:")
         self.custom_name_check.setChecked(self.app_state.use_custom_filename)
         custom_layout.addWidget(self.custom_name_check)
-        
         self.custom_name_edit = QLineEdit(self.app_state.custom_filename)
         self.custom_name_edit.setEnabled(self.app_state.use_custom_filename)
         custom_layout.addWidget(self.custom_name_edit)
-        
         output_layout.addLayout(custom_layout)
+
+        container_layout.addWidget(output_group)
+        container_layout.addStretch()
+
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def connect_signals(self):
+        self.engine_combo.currentTextChanged.connect(self.on_engine_changed)
+        self.engine_path_edit.textChanged.connect(self.on_engine_path_changed)
+        self.ffprobe_edit.textChanged.connect(self.on_ffprobe_changed)
+        self.output_edit.textChanged.connect(self.on_output_changed)
+        self.custom_name_check.toggled.connect(self.on_custom_name_toggled)
+        self.custom_name_edit.textChanged.connect(self.on_custom_name_changed)
+        self.handbrake_edit.textChanged.connect(self.on_handbrake_changed)
+        self.realesrgan_edit.textChanged.connect(self.on_realesrgan_changed)
+        self.anime4k_edit.textChanged.connect(self.on_anime4k_changed)
+
+    def on_engine_changed(self, text):
+        engine = "gstreamer" if text == "GStreamer" else "ffmpeg"
+        self.app_state.media_engine = engine
+        is_gst = engine == "gstreamer"
+        self.engine_path_label.setText("GStreamer Path:" if is_gst else "FFmpeg Path:")
+        self.engine_path_edit.setText(
+            self.app_state.gstreamer_path if is_gst else self.app_state.ffmpeg_path
+        )
+
+    def on_engine_path_changed(self, text):
+        if self.engine_combo.currentText() == "GStreamer":
+            self.app_state.gstreamer_path = text
+        else:
+            self.app_state.ffmpeg_path = text
+
+    def _browse_engine_path(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.engine_path_edit.setText(file_path)
+
+    def _auto_detect_engine(self):
+        import shutil
+        if self.engine_combo.currentText() == "GStreamer":
+            path = shutil.which("gst-launch-1.0")
+            if path:
+                self.engine_path_edit.setText(path)
+                self.app_state.log(f"Auto-detected GStreamer: {path}", "INFO")
+            else:
+                QMessageBox.warning(self, "Not Found", "gst-launch-1.0 not found on PATH.")
+        else:
+            path = shutil.which("ffmpeg")
+            if path:
+                self.engine_path_edit.setText(path)
+            else:
+                QMessageBox.warning(self, "Not Found", "ffmpeg not found on PATH.")
+
+    def _check_engine_version(self):
+        path = self.engine_path_edit.text()
+        if not path:
+            QMessageBox.warning(self, "No Path", "Please set the executable path first.")
+            return
+        try:
+            result = subprocess.run([path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            output = result.stdout.strip() or result.stderr.strip()
+            self.app_state.log(f"Version: {output[:200]}", "INFO")
+            QMessageBox.information(self, "Version Info", output[:500])
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to check version: {e}")
+
+    def on_ffprobe_changed(self, text):
+        self.app_state.ffprobe_path = text
+
+    def on_output_changed(self, text):
+        self.app_state.output_folder = text
+
+    def on_custom_name_toggled(self, checked):
+        self.app_state.use_custom_filename = checked
+        self.custom_name_edit.setEnabled(checked)
+
+    def on_custom_name_changed(self, text):
+        self.app_state.custom_filename = text
+
+    def browse_ffprobe(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select FFprobe Executable", "",
+            "Executables (*.exe);;All Files (*)"
+        )
+        if file_path:
+            self.ffprobe_edit.setText(file_path)
+
+    def browse_handbrake(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select HandBrakeCLI Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.handbrake_edit.setText(file_path)
+
+    def auto_detect_handbrake(self):
+        import shutil
+        path = shutil.which("HandBrakeCLI")
+        if path:
+            self.handbrake_edit.setText(path)
+        else:
+            QMessageBox.warning(self, "Not Found", "HandBrakeCLI not found on PATH.")
+
+    def on_handbrake_changed(self, text):
+        self.app_state.handbrake_path = text
+
+    def browse_realesrgan(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Real-ESRGAN-ncnn-vulkan Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.realesrgan_edit.setText(file_path)
+
+    def auto_detect_realesrgan(self):
+        from config import REALESRGAN_NCNN
+        if os.path.isfile(REALESRGAN_NCNN):
+            self.realesrgan_edit.setText(REALESRGAN_NCNN)
+            self.app_state.log(f"Auto-detected Real-ESRGAN: {REALESRGAN_NCNN}", "INFO")
+        else:
+            QMessageBox.warning(self, "Not Found",
+                "Default Real-ESRGAN binary not found at:\n"
+                f"{REALESRGAN_NCNN}\n\n"
+                "Please browse to the executable manually.")
+
+    def browse_anime4k(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Anime4K-ncnn-vulkan Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.anime4k_edit.setText(file_path)
+
+    def auto_detect_anime4k(self):
+        from config import ANIME4K_NCNN
+        if os.path.isfile(ANIME4K_NCNN):
+            self.anime4k_edit.setText(ANIME4K_NCNN)
+            self.app_state.log(f"Auto-detected Anime4K: {ANIME4K_NCNN}", "INFO")
+        else:
+            QMessageBox.warning(self, "Not Found",
+                "Default Anime4K binary not found at:\n"
+                f"{ANIME4K_NCNN}\n\n"
+                "Please browse to the executable manually.")
+
+    def on_realesrgan_changed(self, text):
+        self.app_state.realesrgan_path = text
+
+    def on_anime4k_changed(self, text):
+        self.app_state.anime4k_path = text
+
+    def browse_output_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Output Folder", self.app_state.output_folder or ""
+        )
+        if folder:
+            self.output_edit.setText(folder)
+
+    def clear_output_folder(self):
+        self.output_edit.clear()
+        self.app_state.output_folder = ""
+
+
+class ConfigTab(QWidget):
+    """Configuration tab for system paths and file management"""
+    
+    file_selected = Signal(str)  # Emitted when a file is selected
+    dvd_imported = Signal()  # Emitted when a DVD is imported
+    
+    def __init__(self, app_state: AppState, parent=None):
+        super().__init__(parent)
+        self.app_state = app_state
         
+        self.setup_ui()
+        self.connect_signals()
+        
+    def setup_ui(self):
+        """Setup the UI layout"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        
+        settings_btn = QPushButton("Settings")
+        settings_btn.clicked.connect(self._open_settings_dialog)
+        layout.addWidget(settings_btn)
+
+        layout.addSpacing(10)
+
+        output_group = QGroupBox("Output Settings")
+        output_layout = QVBoxLayout(output_group)
+
+        folder_layout = QHBoxLayout()
+        folder_layout.addWidget(QLabel("Output Folder:"))
+        self.output_edit = QLineEdit(self.app_state.output_folder)
+        self.output_edit.setPlaceholderText("Same folder as source video (default)")
+        folder_layout.addWidget(self.output_edit)
+        browse_output_btn = QPushButton("Browse...")
+        browse_output_btn.clicked.connect(self.browse_output_folder)
+        folder_layout.addWidget(browse_output_btn)
+        clear_output_btn = QPushButton("✕ Clear")
+        clear_output_btn.setMaximumWidth(80)
+        clear_output_btn.clicked.connect(self.clear_output_folder)
+        folder_layout.addWidget(clear_output_btn)
+        output_layout.addLayout(folder_layout)
+
+        custom_layout = QHBoxLayout()
+        self.custom_name_check = QCheckBox("Use Custom Filename:")
+        self.custom_name_check.setChecked(self.app_state.use_custom_filename)
+        custom_layout.addWidget(self.custom_name_check)
+        self.custom_name_edit = QLineEdit(self.app_state.custom_filename)
+        self.custom_name_edit.setEnabled(self.app_state.use_custom_filename)
+        custom_layout.addWidget(self.custom_name_edit)
+        output_layout.addLayout(custom_layout)
+
         layout.addWidget(output_group)
-        
+
+        layout.addSpacing(10)
+
+        settings_btn = QPushButton("Settings")
+        settings_btn.clicked.connect(self._open_settings_dialog)
+        layout.addWidget(settings_btn)
+
+        layout.addSpacing(10)
+
         # === Input Files Group ===
         files_group = QGroupBox("Input Files Queue")
         files_layout = QVBoxLayout(files_group)
@@ -567,86 +775,13 @@ class ConfigTab(QWidget):
         
     def connect_signals(self):
         """Connect UI signals to handlers"""
-        self.engine_combo.currentTextChanged.connect(self.on_engine_changed)
-        self.engine_path_edit.textChanged.connect(self.on_engine_path_changed)
-        self.ffprobe_edit.textChanged.connect(self.on_ffprobe_changed)
         self.output_edit.textChanged.connect(self.on_output_changed)
         self.custom_name_check.toggled.connect(self.on_custom_name_toggled)
         self.custom_name_edit.textChanged.connect(self.on_custom_name_changed)
-        self.handbrake_edit.textChanged.connect(self.on_handbrake_changed)
-        self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
-        self.app_state.media_engine_changed.connect(self._on_media_engine_changed)
-        self.realesrgan_edit.textChanged.connect(self.on_realesrgan_changed)
-        self.anime4k_edit.textChanged.connect(self.on_anime4k_changed)
-        
-    def on_engine_changed(self, text):
-        engine = "gstreamer" if text == "GStreamer" else "ffmpeg"
-        self.app_state.media_engine = engine
-        is_gst = engine == "gstreamer"
-        self.engine_path_label.setText("GStreamer Path:" if is_gst else "FFmpeg Path:")
-        self.engine_path_edit.setText(
-            self.app_state.gstreamer_path if is_gst else self.app_state.ffmpeg_path
-        )
 
-    def _on_media_engine_changed(self, engine):
-        text = "GStreamer" if engine == "gstreamer" else "FFmpeg"
-        self.engine_combo.setCurrentText(text)
-        is_gst = engine == "gstreamer"
-        self.engine_path_label.setText("GStreamer Path:" if is_gst else "FFmpeg Path:")
-        self.engine_path_edit.setText(
-            self.app_state.gstreamer_path if is_gst else self.app_state.ffmpeg_path
-        )
-
-    def on_engine_path_changed(self, text):
-        if self.engine_combo.currentText() == "GStreamer":
-            self.app_state.gstreamer_path = text
-        else:
-            self.app_state.ffmpeg_path = text
-
-    def _browse_engine_path(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Executable", "",
-            "Executables (*);;All Files (*)"
-        )
-        if file_path:
-            self.engine_path_edit.setText(file_path)
-
-    def _auto_detect_engine(self):
-        import shutil
-        if self.engine_combo.currentText() == "GStreamer":
-            path = shutil.which("gst-launch-1.0")
-            if path:
-                self.engine_path_edit.setText(path)
-                self.app_state.log(f"Auto-detected GStreamer: {path}", "INFO")
-            else:
-                QMessageBox.warning(self, "Not Found", "gst-launch-1.0 not found on PATH.")
-        else:
-            path = shutil.which("ffmpeg")
-            if path:
-                self.engine_path_edit.setText(path)
-            else:
-                QMessageBox.warning(self, "Not Found", "ffmpeg not found on PATH.")
-
-    def _check_engine_version(self):
-        path = self.engine_path_edit.text()
-        if not path:
-            QMessageBox.warning(self, "No Path", "Please set the executable path first.")
-            return
-        try:
-            result = subprocess.run([path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
-            output = result.stdout.strip() or result.stderr.strip()
-            self.app_state.log(f"Version: {output[:200]}", "INFO")
-            QMessageBox.information(self, "Version Info", output[:500])
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Failed to check version: {e}")
-
-    def on_ffmpeg_changed(self, text):
-        """Handle FFmpeg path change"""
-        self.app_state.ffmpeg_path = text
-        
-    def on_ffprobe_changed(self, text):
-        """Handle FFprobe path change"""
-        self.app_state.ffprobe_path = text
+    def _open_settings_dialog(self):
+        dlg = SettingsDialog(self.app_state, self)
+        dlg.exec()
         
     def on_output_changed(self, text):
         """Handle output folder change"""
@@ -661,133 +796,6 @@ class ConfigTab(QWidget):
         """Handle custom filename change"""
         self.app_state.custom_filename = text
         
-    def browse_ffmpeg(self):
-        """Browse for FFmpeg executable"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select FFmpeg Executable", "",
-            "Executables (*.exe);;All Files (*)"
-        )
-        if file_path:
-            self.ffmpeg_edit.setText(file_path)
-            
-    def browse_ffprobe(self):
-        """Browse for FFprobe executable"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select FFprobe Executable", "",
-            "Executables (*.exe);;All Files (*)"
-        )
-        if file_path:
-            self.ffprobe_edit.setText(file_path)
-            
-    def auto_detect_ffmpeg(self):
-        """Auto-detect FFmpeg in common locations"""
-        import shutil
-        
-        # Check PATH first
-        ffmpeg_path = shutil.which("ffmpeg")
-        ffprobe_path = shutil.which("ffprobe")
-        
-        if ffmpeg_path:
-            self.ffmpeg_edit.setText(ffmpeg_path)
-        if ffprobe_path:
-            self.ffprobe_edit.setText(ffprobe_path)
-            
-        # Check common Windows locations
-        if os.name == 'nt':
-            common_paths = [
-                r"C:\ffmpeg\bin\ffmpeg.exe",
-                r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
-                r"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe",
-            ]
-            for path in common_paths:
-                if os.path.exists(path):
-                    self.ffmpeg_edit.setText(path)
-                    # Try to find ffprobe in same directory
-                    ffprobe = os.path.join(os.path.dirname(path), "ffprobe.exe")
-                    if os.path.exists(ffprobe):
-                        self.ffprobe_edit.setText(ffprobe)
-                    break
-                    
-        if not ffmpeg_path and not self.ffmpeg_edit.text():
-            QMessageBox.warning(self, "Not Found", "Could not auto-detect FFmpeg. Please browse manually.")
-            
-    def browse_handbrake(self):
-        """Browse for HandBrakeCLI executable"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select HandBrakeCLI Executable", "",
-            "Executables (*);;All Files (*)"
-        )
-        if file_path:
-            self.handbrake_edit.setText(file_path)
-            
-    def auto_detect_handbrake(self):
-        """Auto-detect HandBrakeCLI in common locations"""
-        import shutil
-        path = shutil.which("HandBrakeCLI")
-        if path:
-            self.handbrake_edit.setText(path)
-        else:
-            QMessageBox.warning(self, "Not Found", "HandBrakeCLI not found on PATH.")
-            
-    def on_handbrake_changed(self, text):
-        """Handle HandBrake path change"""
-        self.app_state.handbrake_path = text
-        
-    def on_handbrake_available_changed(self, available):
-        """Update HandBrake status label"""
-        if available:
-            self.hb_status_label.setText("✓ Available")
-            self.hb_status_label.setStyleSheet("color: green; font-size: 10px;")
-        else:
-            self.hb_status_label.setText("✗ Not Found")
-            self.hb_status_label.setStyleSheet("color: red; font-size: 10px;")
-
-    # ── AI Upscaling path handlers ─────────────────────────────────
-
-    def browse_realesrgan(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Real-ESRGAN-ncnn-vulkan Executable", "",
-            "Executables (*);;All Files (*)"
-        )
-        if file_path:
-            self.realesrgan_edit.setText(file_path)
-
-    def auto_detect_realesrgan(self):
-        from config import REALESRGAN_NCNN
-        if os.path.isfile(REALESRGAN_NCNN):
-            self.realesrgan_edit.setText(REALESRGAN_NCNN)
-            self.app_state.log(f"Auto-detected Real-ESRGAN: {REALESRGAN_NCNN}", "INFO")
-        else:
-            QMessageBox.warning(self, "Not Found",
-                "Default Real-ESRGAN binary not found at:\n"
-                f"{REALESRGAN_NCNN}\n\n"
-                "Please browse to the executable manually.")
-
-    def browse_anime4k(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Anime4K-ncnn-vulkan Executable", "",
-            "Executables (*);;All Files (*)"
-        )
-        if file_path:
-            self.anime4k_edit.setText(file_path)
-
-    def auto_detect_anime4k(self):
-        from config import ANIME4K_NCNN
-        if os.path.isfile(ANIME4K_NCNN):
-            self.anime4k_edit.setText(ANIME4K_NCNN)
-            self.app_state.log(f"Auto-detected Anime4K: {ANIME4K_NCNN}", "INFO")
-        else:
-            QMessageBox.warning(self, "Not Found",
-                "Default Anime4K binary not found at:\n"
-                f"{ANIME4K_NCNN}\n\n"
-                "Please browse to the executable manually.")
-
-    def on_realesrgan_changed(self, text):
-        self.app_state.realesrgan_path = text
-
-    def on_anime4k_changed(self, text):
-        self.app_state.anime4k_path = text
-            
     def browse_output_folder(self):
         """Browse for output folder"""
         folder = QFileDialog.getExistingDirectory(
@@ -961,6 +969,7 @@ class ConfigTab(QWidget):
         self.files_list.clear()
         self.update_count_label()
         self.video_info_panel.clear_info()
+        self.app_state.current_video_path = None
         
     def update_count_label(self):
         """Update the file count label"""

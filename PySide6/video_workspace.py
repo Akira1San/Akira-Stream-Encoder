@@ -271,75 +271,82 @@ class VideoWorkspace(QWidget):
         
     def on_video_changed(self, video_path: str):
         """Handle video selection change"""
-        if video_path:
-            self.preview.set_video(video_path)
-            self.trim_panel.detect_tracks(video_path)
-            
-            # Clear external audio when new video is loaded (audio is specific to each video)
-            if hasattr(self.app_state.tracks, 'external_audio_enabled'):
-                self.app_state.tracks.external_audio_enabled = False
-                self.app_state.tracks.external_audio_path = ""
-                self.app_state.tracks.external_audio_info = ""
-                # Reset the UI if enc_panel exists
-                if hasattr(self, 'enc_panel') and hasattr(self.enc_panel, 'on_clear_external_audio'):
-                    self.enc_panel.external_audio_path.clear()
-                    self.enc_panel.external_audio_path.setToolTip("")
-                    self.enc_panel.external_audio_info.setText("No audio file selected")
-                    self.enc_panel.external_audio_info.setStyleSheet("color: gray; font-size: 11px;")
-                    self.enc_panel.external_audio_check.setChecked(False)
-                    self.enc_panel.external_audio_path.setEnabled(False)
-                    self.enc_panel.clear_audio_btn.setEnabled(False)
-                    self.enc_panel.browse_audio_btn.setEnabled(False)
-            
-            # Detect video and audio tracks and populate encoding panel
-            from controller import VideoController
-            controller = VideoController(self.app_state)
+        if not video_path:
+            self.preview.clear_video()
+            self.app_state.tracks.available_video_tracks = []
+            self.app_state.tracks.available_audio_tracks = []
+            self.enc_panel.populate_video_tracks([])
+            self.enc_panel.populate_audio_tracks([])
+            return
 
-            # Video tracks
-            video_tracks = controller.get_video_tracks(video_path)
-            if video_tracks:
-                from models import VideoTrackInfo
-                video_track_infos = []
-                for track in video_tracks:
-                    vtrack_info = VideoTrackInfo(
-                        index=track['index'],
-                        codec=track['codec'],
-                        width=track['width'],
-                        height=track['height'],
-                        fps=track['fps'],
-                        language=track['language'],
-                        title=track['title']
-                    )
-                    video_track_infos.append(vtrack_info)
-                self.app_state.tracks.available_video_tracks = video_track_infos
-                self.enc_panel.populate_video_tracks(video_track_infos)
-                self.app_state.log(f"Detected {len(video_track_infos)} video track(s)", "INFO")
-            else:
-                self.app_state.tracks.available_video_tracks = []
-                self.enc_panel.populate_video_tracks([])
+        self.preview.set_video(video_path)
+        self.trim_panel.detect_tracks(video_path)
 
-            # Audio tracks
-            audio_tracks = controller.get_audio_tracks(video_path)
-            if audio_tracks:
-                from models import AudioTrackInfo
-                track_infos = []
-                for track in audio_tracks:
-                    track_info = AudioTrackInfo(
-                        index=track['index'],
-                        codec=track['codec'],
-                        channels=track['channels'],
-                        sample_rate=track['sample_rate'],
-                        language=track['language'],
-                        title=track['title']
-                    )
-                    track_infos.append(track_info)
-                
-                self.app_state.tracks.available_audio_tracks = track_infos
-                self.enc_panel.populate_audio_tracks(track_infos)
-                self.app_state.log(f"Detected {len(track_infos)} audio track(s)", "INFO")
-            else:
-                self.app_state.tracks.available_audio_tracks = []
-                self.enc_panel.populate_audio_tracks([])
+        # Clear external audio when new video is loaded (audio is specific to each video)
+        if hasattr(self.app_state.tracks, 'external_audio_enabled'):
+            self.app_state.tracks.external_audio_enabled = False
+            self.app_state.tracks.external_audio_path = ""
+            self.app_state.tracks.external_audio_info = ""
+            # Reset the UI if enc_panel exists
+            if hasattr(self, 'enc_panel') and hasattr(self.enc_panel, 'on_clear_external_audio'):
+                self.enc_panel.external_audio_path.clear()
+                self.enc_panel.external_audio_path.setToolTip("")
+                self.enc_panel.external_audio_info.setText("No audio file selected")
+                self.enc_panel.external_audio_info.setStyleSheet("color: gray; font-size: 11px;")
+                self.enc_panel.external_audio_check.setChecked(False)
+                self.enc_panel.external_audio_path.setEnabled(False)
+                self.enc_panel.clear_audio_btn.setEnabled(False)
+                self.enc_panel.browse_audio_btn.setEnabled(False)
+
+        # Detect video and audio tracks and populate encoding panel
+        from controller import VideoController
+        controller = VideoController(self.app_state)
+
+        # Video tracks
+        video_tracks = controller.get_video_tracks(video_path)
+        if video_tracks:
+            from models import VideoTrackInfo
+            video_track_infos = []
+            for track in video_tracks:
+                vtrack_info = VideoTrackInfo(
+                    index=track['index'],
+                    codec=track['codec'],
+                    width=track['width'],
+                    height=track['height'],
+                    fps=track['fps'],
+                    language=track['language'],
+                    title=track['title']
+                )
+                video_track_infos.append(vtrack_info)
+            self.app_state.tracks.available_video_tracks = video_track_infos
+            self.enc_panel.populate_video_tracks(video_track_infos)
+            self.app_state.log(f"Detected {len(video_track_infos)} video track(s)", "INFO")
+        else:
+            self.app_state.tracks.available_video_tracks = []
+            self.enc_panel.populate_video_tracks([])
+
+        # Audio tracks
+        audio_tracks = controller.get_audio_tracks(video_path)
+        if audio_tracks:
+            from models import AudioTrackInfo
+            track_infos = []
+            for track in audio_tracks:
+                track_info = AudioTrackInfo(
+                    index=track['index'],
+                    codec=track['codec'],
+                    channels=track['channels'],
+                    sample_rate=track['sample_rate'],
+                    language=track['language'],
+                    title=track['title']
+                )
+                track_infos.append(track_info)
+
+            self.app_state.tracks.available_audio_tracks = track_infos
+            self.enc_panel.populate_audio_tracks(track_infos)
+            self.app_state.log(f"Detected {len(track_infos)} audio track(s)", "INFO")
+        else:
+            self.app_state.tracks.available_audio_tracks = []
+            self.enc_panel.populate_audio_tracks([])
             
     def on_cut_point_set(self, position: float):
         """Handle adding a new cut point"""
