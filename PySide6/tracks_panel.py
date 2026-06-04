@@ -97,13 +97,17 @@ class TrackSelectionPanel(QGroupBox):
         self.audio_track_list.setVisible(False)
         audio_section_layout.addWidget(self.audio_track_list)
 
-        # Load external audio button (multi-track mode)
+        # Load / remove external audio buttons (multi-track mode)
         load_ext_layout = QHBoxLayout()
         load_ext_layout.addSpacing(25)
         self.load_audio_btn = QPushButton("Load External Audio...")
         self.load_audio_btn.setToolTip("Load an external audio file as an additional track")
         self.load_audio_btn.setVisible(False)
         load_ext_layout.addWidget(self.load_audio_btn)
+        self.remove_audio_btn = QPushButton("Remove Selected")
+        self.remove_audio_btn.setToolTip("Remove selected external audio tracks from the list")
+        self.remove_audio_btn.setVisible(False)
+        load_ext_layout.addWidget(self.remove_audio_btn)
         load_ext_layout.addStretch()
         audio_section_layout.addLayout(load_ext_layout)
 
@@ -162,13 +166,17 @@ class TrackSelectionPanel(QGroupBox):
         self.subtitle_track_list.setVisible(False)
         subtitle_section_layout.addWidget(self.subtitle_track_list)
 
-        # Load external subtitle button
+        # Load / remove external subtitle buttons
         load_ext_sub_layout = QHBoxLayout()
         load_ext_sub_layout.addSpacing(25)
         self.load_sub_btn = QPushButton("Load External Subtitle...")
         self.load_sub_btn.setToolTip("Load an external subtitle file as an additional track")
         self.load_sub_btn.setVisible(False)
         load_ext_sub_layout.addWidget(self.load_sub_btn)
+        self.remove_sub_btn = QPushButton("Remove Selected")
+        self.remove_sub_btn.setToolTip("Remove selected external subtitle tracks from the list")
+        self.remove_sub_btn.setVisible(False)
+        load_ext_sub_layout.addWidget(self.remove_sub_btn)
         load_ext_sub_layout.addStretch()
         subtitle_section_layout.addLayout(load_ext_sub_layout)
 
@@ -186,10 +194,12 @@ class TrackSelectionPanel(QGroupBox):
         self.audio_track_list.itemSelectionChanged.connect(self.on_audio_track_list_changed)
         self.audio_copy_check.toggled.connect(self.on_audio_copy_changed)
         self.load_audio_btn.clicked.connect(self.on_load_external_audio)
+        self.remove_audio_btn.clicked.connect(self.on_remove_external_audio)
         self.subtitle_check.toggled.connect(self.on_subtitle_changed)
         self.multi_sub_check.toggled.connect(self.on_multi_sub_toggled)
         self.subtitle_track_list.itemSelectionChanged.connect(self.on_subtitle_track_list_changed)
         self.load_sub_btn.clicked.connect(self.on_load_external_subtitle)
+        self.remove_sub_btn.clicked.connect(self.on_remove_external_subtitle)
 
     def on_video_changed(self, checked):
         """Handle video track checkbox change"""
@@ -211,6 +221,7 @@ class TrackSelectionPanel(QGroupBox):
         self.audio_track_combo.setVisible(not checked)
         self.audio_track_list.setVisible(checked)
         self.load_audio_btn.setVisible(checked)
+        self.remove_audio_btn.setVisible(checked)
         has_tracks = self.audio_track_combo.count() > 0
         self.audio_track_combo.setEnabled(not checked and self.audio_check.isChecked() and has_tracks)
         self.audio_track_list.setEnabled(checked and self.audio_check.isChecked())
@@ -301,6 +312,21 @@ class TrackSelectionPanel(QGroupBox):
         self.audio_track_list.item(total_count - 1).setSelected(True)
         self.tracks_changed.emit()
 
+    def on_remove_external_audio(self):
+        """Remove selected external audio tracks"""
+        indices_to_remove = []
+        for item in self.audio_track_list.selectedItems():
+            data = item.data(256)
+            if data is not None and data[0] == 1:  # external
+                indices_to_remove.append(data[1])
+        for idx in sorted(indices_to_remove, reverse=True):
+            if 0 <= idx < len(self.app_state.tracks.external_audio_tracks):
+                del self.app_state.tracks.external_audio_tracks[idx]
+        self.app_state.tracks.selected_audio_indices = []
+        self.app_state.tracks.audio_track_assignments = []
+        self._rebuild_audio_track_list()
+        self.tracks_changed.emit()
+
     def on_audio_copy_changed(self, checked):
         """Handle audio copy mode checkbox change"""
         self.app_state.tracks.audio_copy_mode = checked
@@ -314,6 +340,7 @@ class TrackSelectionPanel(QGroupBox):
         self.app_state.tracks.multi_track_subtitle_enabled = checked
         self.subtitle_track_list.setVisible(checked)
         self.load_sub_btn.setVisible(checked)
+        self.remove_sub_btn.setVisible(checked)
         self.subtitle_track_list.setEnabled(checked and self.subtitle_check.isChecked())
         if checked:
             self._rebuild_subtitle_track_list()
@@ -366,6 +393,21 @@ class TrackSelectionPanel(QGroupBox):
         self._rebuild_subtitle_track_list()
         total_count = len(self.app_state.tracks.available_subtitle_tracks) + len(self.app_state.tracks.external_subtitle_tracks)
         self.subtitle_track_list.item(total_count - 1).setSelected(True)
+        self.tracks_changed.emit()
+
+    def on_remove_external_subtitle(self):
+        """Remove selected external subtitle tracks"""
+        indices_to_remove = []
+        for item in self.subtitle_track_list.selectedItems():
+            data = item.data(256)
+            if data is not None and data[0] == 1:  # external
+                indices_to_remove.append(data[1])
+        for idx in sorted(indices_to_remove, reverse=True):
+            if 0 <= idx < len(self.app_state.tracks.external_subtitle_tracks):
+                del self.app_state.tracks.external_subtitle_tracks[idx]
+        self.app_state.tracks.selected_subtitle_indices = []
+        self.app_state.tracks.subtitle_track_assignments = []
+        self._rebuild_subtitle_track_list()
         self.tracks_changed.emit()
 
     def _rebuild_subtitle_track_list(self):
@@ -577,6 +619,7 @@ class TrackSelectionPanel(QGroupBox):
             is_multi_sub = self.app_state.tracks.multi_track_subtitle_enabled
             self.subtitle_track_list.setVisible(is_multi_sub)
             self.load_sub_btn.setVisible(is_multi_sub)
+            self.remove_sub_btn.setVisible(is_multi_sub)
             self.subtitle_track_list.setEnabled(is_multi_sub and self.subtitle_check.isChecked())
 
             self.video_check.setChecked(has_video)

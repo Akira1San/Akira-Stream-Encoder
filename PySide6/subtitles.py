@@ -113,6 +113,9 @@ class SubtitlesPanel(QWidget):
         self.load_sub_btn = QPushButton("Load External Subtitle...")
         self.load_sub_btn.setToolTip("Load an external subtitle file as an additional track")
         ext_sub_layout.addWidget(self.load_sub_btn)
+        self.remove_sub_btn = QPushButton("Remove Selected")
+        self.remove_sub_btn.setToolTip("Remove selected external subtitle tracks from the list")
+        ext_sub_layout.addWidget(self.remove_sub_btn)
         ext_sub_layout.addStretch()
         layout.addLayout(ext_sub_layout)
 
@@ -336,6 +339,7 @@ class SubtitlesPanel(QWidget):
 
         # External subtitles
         self.load_sub_btn.clicked.connect(self.on_load_external_subtitle)
+        self.remove_sub_btn.clicked.connect(self.on_remove_external_subtitle)
 
         # Shadow controls
         self.shadow_check.toggled.connect(self.on_shadow_changed)
@@ -506,6 +510,21 @@ class SubtitlesPanel(QWidget):
             title=os.path.basename(file_path)
         )
         self.app_state.tracks.external_subtitle_tracks.append(ext_track)
+        self._rebuild_embedded_sub_list()
+        self.settings_changed.emit()
+
+    def on_remove_external_subtitle(self):
+        """Remove selected external subtitle tracks"""
+        indices_to_remove = []
+        for item in self.embedded_sub_list.selectedItems():
+            data = item.data(256)
+            if data is not None and data[0] == 1:  # external
+                indices_to_remove.append(data[1])
+        for idx in sorted(indices_to_remove, reverse=True):
+            if 0 <= idx < len(self.app_state.tracks.external_subtitle_tracks):
+                del self.app_state.tracks.external_subtitle_tracks[idx]
+        self.app_state.tracks.selected_subtitle_indices = []
+        self.app_state.tracks.subtitle_track_assignments = []
         self._rebuild_embedded_sub_list()
         self.settings_changed.emit()
 

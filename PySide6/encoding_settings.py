@@ -825,11 +825,18 @@ class EncodingPanel(QWidget):
         self.audio_track_list.setVisible(False)
         advanced_layout.addWidget(self.audio_track_list)
 
-        # Load external audio button (multi-track mode)
+        # Load / remove external audio buttons (multi-track mode)
+        ext_audio_btn_layout = QHBoxLayout()
         self.load_audio_btn = QPushButton("Load External Audio...")
         self.load_audio_btn.setToolTip("Load an external audio file as an additional track")
         self.load_audio_btn.setVisible(False)
-        advanced_layout.addWidget(self.load_audio_btn)
+        ext_audio_btn_layout.addWidget(self.load_audio_btn)
+        self.remove_audio_btn = QPushButton("Remove Selected")
+        self.remove_audio_btn.setToolTip("Remove selected external audio tracks from the list")
+        self.remove_audio_btn.setVisible(False)
+        ext_audio_btn_layout.addWidget(self.remove_audio_btn)
+        ext_audio_btn_layout.addStretch()
+        advanced_layout.addLayout(ext_audio_btn_layout)
         
         # Audio Codec Selection
         audio_codec_layout = QHBoxLayout()
@@ -1034,9 +1041,11 @@ class EncodingPanel(QWidget):
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.audio_track_list.itemSelectionChanged.connect(self.on_audio_track_list_changed)
         self.load_audio_btn.clicked.connect(self.on_load_external_audio)
+        self.remove_audio_btn.clicked.connect(self.on_remove_external_audio)
         self.multi_sub_check.toggled.connect(self.on_multi_sub_toggled)
         self.subtitle_track_list.itemSelectionChanged.connect(self.on_subtitle_track_list_changed)
         self.load_sub_btn.clicked.connect(self.on_load_external_subtitle)
+        self.remove_sub_btn.clicked.connect(self.on_remove_external_subtitle)
         self.audio_codec_combo.currentTextChanged.connect(self.on_audio_codec_changed)
         self.audio_channels_combo.currentTextChanged.connect(self.on_audio_channels_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
@@ -1080,6 +1089,7 @@ class EncodingPanel(QWidget):
         self.audio_track_combo.setVisible(not is_multi)
         self.audio_track_list.setVisible(is_multi)
         self.load_audio_btn.setVisible(is_multi)
+        self.remove_audio_btn.setVisible(is_multi)
         has_tracks = self.audio_track_combo.count() > 0
         self.audio_track_combo.setEnabled(not is_multi and has_tracks)
         self.audio_track_list.setEnabled(is_multi and has_tracks)
@@ -1126,6 +1136,21 @@ class EncodingPanel(QWidget):
         self.audio_track_list.item(total_count - 1).setSelected(True)
         self.settings_changed.emit()
 
+    def on_remove_external_audio(self):
+        """Remove selected external audio tracks"""
+        indices_to_remove = []
+        for item in self.audio_track_list.selectedItems():
+            data = item.data(256)
+            if data is not None and data[0] == 1:  # external
+                indices_to_remove.append(data[1])
+        for idx in sorted(indices_to_remove, reverse=True):
+            if 0 <= idx < len(self.app_state.tracks.external_audio_tracks):
+                del self.app_state.tracks.external_audio_tracks[idx]
+        self.app_state.tracks.selected_audio_indices = []
+        self.app_state.tracks.audio_track_assignments = []
+        self._rebuild_audio_track_list()
+        self.settings_changed.emit()
+
     def _rebuild_audio_track_list(self):
         """Rebuild the multi-select list with embedded + external tracks"""
         self.audio_track_list.clear()
@@ -1160,6 +1185,7 @@ class EncodingPanel(QWidget):
         self.app_state.tracks.multi_track_subtitle_enabled = checked
         self.subtitle_track_list.setVisible(checked)
         self.load_sub_btn.setVisible(checked)
+        self.remove_sub_btn.setVisible(checked)
         self.subtitle_track_list.setEnabled(checked)
         if checked:
             self._rebuild_subtitle_track_list()
@@ -1206,6 +1232,21 @@ class EncodingPanel(QWidget):
         total_count = (len(self.app_state.tracks.available_subtitle_tracks)
                        + len(self.app_state.tracks.external_subtitle_tracks))
         self.subtitle_track_list.item(total_count - 1).setSelected(True)
+        self.settings_changed.emit()
+
+    def on_remove_external_subtitle(self):
+        """Remove selected external subtitle tracks"""
+        indices_to_remove = []
+        for item in self.subtitle_track_list.selectedItems():
+            data = item.data(256)
+            if data is not None and data[0] == 1:  # external
+                indices_to_remove.append(data[1])
+        for idx in sorted(indices_to_remove, reverse=True):
+            if 0 <= idx < len(self.app_state.tracks.external_subtitle_tracks):
+                del self.app_state.tracks.external_subtitle_tracks[idx]
+        self.app_state.tracks.selected_subtitle_indices = []
+        self.app_state.tracks.subtitle_track_assignments = []
+        self._rebuild_subtitle_track_list()
         self.settings_changed.emit()
 
     def _rebuild_subtitle_track_list(self):
@@ -1277,6 +1318,7 @@ class EncodingPanel(QWidget):
         self.audio_track_combo.setVisible(not is_multi)
         self.audio_track_list.setVisible(is_multi)
         self.load_audio_btn.setVisible(is_multi)
+        self.remove_audio_btn.setVisible(is_multi)
 
         if not tracks:
             self.audio_track_combo.addItem("No audio tracks detected")
@@ -1301,6 +1343,7 @@ class EncodingPanel(QWidget):
         self.audio_track_combo.setVisible(not is_multi)
         self.audio_track_list.setVisible(is_multi)
         self.load_audio_btn.setVisible(is_multi)
+        self.remove_audio_btn.setVisible(is_multi)
         self.audio_track_combo.setEnabled(not is_multi)
         self.audio_track_list.setEnabled(is_multi)
 
