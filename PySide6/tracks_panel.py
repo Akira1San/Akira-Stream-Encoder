@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal
 
-from models import AppState, AudioTrackInfo, AudioTrackAssignment, ExternalAudioTrack
+from models import AppState, AudioTrackInfo, AudioTrackAssignment, ExternalAudioTrack, SubtitleTrackAssignment, ExternalSubtitleTrack
 
 
 class TrackSelectionPanel(QGroupBox):
@@ -127,19 +127,53 @@ class TrackSelectionPanel(QGroupBox):
         layout.addWidget(line2)
 
         # Subtitle Track (hidden if not available)
-        self.subtitle_widget = QWidget()
-        subtitle_layout = QHBoxLayout(self.subtitle_widget)
-        subtitle_layout.setContentsMargins(0, 0, 0, 0)
+        subtitle_section_layout = QVBoxLayout()
 
+        subtitle_enable_layout = QHBoxLayout()
         self.subtitle_check = QCheckBox("Subtitle Track")
         self.subtitle_check.setChecked(self.app_state.tracks.subtitle_selected)
-        subtitle_layout.addWidget(self.subtitle_check)
+        subtitle_enable_layout.addWidget(self.subtitle_check)
 
         self.subtitle_info_label = QLabel(self.app_state.tracks.subtitle_info)
         self.subtitle_info_label.setStyleSheet("color: gray;")
-        subtitle_layout.addWidget(self.subtitle_info_label)
-        subtitle_layout.addStretch()
+        subtitle_enable_layout.addWidget(self.subtitle_info_label)
+        subtitle_enable_layout.addStretch()
+        subtitle_section_layout.addLayout(subtitle_enable_layout)
 
+        # Subtitle multi-track toggle
+        multi_sub_layout = QHBoxLayout()
+        multi_sub_layout.addSpacing(25)
+        self.multi_sub_check = QCheckBox("Enable Multi-Track Subtitles")
+        self.multi_sub_check.setChecked(self.app_state.tracks.multi_track_subtitle_enabled)
+        self.multi_sub_check.setToolTip(
+            "When enabled, you can select multiple subtitle tracks to passthrough.\n"
+            "Both embedded and external subtitle files can be included."
+        )
+        multi_sub_layout.addWidget(self.multi_sub_check)
+        multi_sub_layout.addStretch()
+        subtitle_section_layout.addLayout(multi_sub_layout)
+
+        # Subtitle multi-select list
+        self.subtitle_track_list = QListWidget()
+        self.subtitle_track_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.subtitle_track_list.setMaximumHeight(100)
+        self.subtitle_track_list.setMinimumWidth(300)
+        self.subtitle_track_list.setToolTip("Select subtitle tracks to passthrough. Ctrl+click to select multiple.")
+        self.subtitle_track_list.setVisible(False)
+        subtitle_section_layout.addWidget(self.subtitle_track_list)
+
+        # Load external subtitle button
+        load_ext_sub_layout = QHBoxLayout()
+        load_ext_sub_layout.addSpacing(25)
+        self.load_sub_btn = QPushButton("Load External Subtitle...")
+        self.load_sub_btn.setToolTip("Load an external subtitle file as an additional track")
+        self.load_sub_btn.setVisible(False)
+        load_ext_sub_layout.addWidget(self.load_sub_btn)
+        load_ext_sub_layout.addStretch()
+        subtitle_section_layout.addLayout(load_ext_sub_layout)
+
+        self.subtitle_widget = QWidget()
+        self.subtitle_widget.setLayout(subtitle_section_layout)
         layout.addWidget(self.subtitle_widget)
         self.subtitle_widget.setVisible(self.app_state.tracks.subtitle_available)
 
@@ -153,6 +187,9 @@ class TrackSelectionPanel(QGroupBox):
         self.audio_copy_check.toggled.connect(self.on_audio_copy_changed)
         self.load_audio_btn.clicked.connect(self.on_load_external_audio)
         self.subtitle_check.toggled.connect(self.on_subtitle_changed)
+        self.multi_sub_check.toggled.connect(self.on_multi_sub_toggled)
+        self.subtitle_track_list.itemSelectionChanged.connect(self.on_subtitle_track_list_changed)
+        self.load_sub_btn.clicked.connect(self.on_load_external_subtitle)
 
     def on_video_changed(self, checked):
         """Handle video track checkbox change"""
@@ -272,9 +309,108 @@ class TrackSelectionPanel(QGroupBox):
             assignment.mode = "copy" if checked else "encode"
         self.tracks_changed.emit()
 
+    def on_multi_sub_toggled(self, checked):
+        """Handle multi-track subtitle toggle"""
+        self.app_state.tracks.multi_track_subtitle_enabled = checked
+        self.subtitle_track_list.setVisible(checked)
+        self.load_sub_btn.setVisible(checked)
+        self.subtitle_track_list.setEnabled(checked and self.subtitle_check.isChecked())
+        if checked:
+            self._rebuild_subtitle_track_list()
+            self._sync_sub_list_from_assignments()
+        self.tracks_changed.emit()
+
+    def on_subtitle_track_list_changed(self):
+        """Handle multi-track subtitle list selection change"""
+        selected_items = self.subtitle_track_list.selectedItems()
+        selected_indices = []
+        assignments = []
+        for item in selected_items:
+            data = item.data(256)
+            if data is None:
+                continue
+            track_type, track_idx = data
+            selected_indices.append(len(assignments))
+            assignments.append(SubtitleTrackAssignment(
+                stream_index=track_idx,
+                is_external=(track_type == 1),
+                mode="copy"
+            ))
+        self.app_state.tracks.selected_subtitle_indices = selected_indices
+        self.app_state.tracks.subtitle_track_assignments = assignments
+
+        if selected_items:
+            names = ", ".join([item.text().split(" (")[0] for item in selected_items])
+            self.subtitle_info_label.setText(names)
+        else:
+            self.subtitle_info_label.setText("")
+        self.tracks_changed.emit()
+
+    def on_load_external_subtitle(self):
+        """Handle Load External Subtitle button click"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select External Subtitle File",
+            "",
+            "Subtitle Files (*.srt *.ass *.ssa *.sub);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        ext_track = ExternalSubtitleTrack(
+            file_path=file_path,
+            codec="subrip" if file_path.endswith('.srt') else "ass" if file_path.endswith(('.ass', '.ssa')) else "subrip",
+            title=os.path.basename(file_path)
+        )
+        self.app_state.tracks.external_subtitle_tracks.append(ext_track)
+        self._rebuild_subtitle_track_list()
+        total_count = len(self.app_state.tracks.available_subtitle_tracks) + len(self.app_state.tracks.external_subtitle_tracks)
+        self.subtitle_track_list.item(total_count - 1).setSelected(True)
+        self.tracks_changed.emit()
+
+    def _rebuild_subtitle_track_list(self):
+        """Rebuild the subtitle multi-select list with embedded + external tracks"""
+        self.subtitle_track_list.clear()
+        embedded_tracks = self.app_state.tracks.available_subtitle_tracks
+        external_tracks = self.app_state.tracks.external_subtitle_tracks
+
+        for i, track in enumerate(embedded_tracks):
+            display_text = f"[Embedded] Track {i+1}"
+            if track.language:
+                display_text += f" [{track.language}]"
+            if track.title:
+                display_text += f" - {track.title}"
+            display_text += f" ({track.codec})"
+            item = QListWidgetItem(display_text)
+            item.setData(256, (0, i))
+            self.subtitle_track_list.addItem(item)
+
+        for i, track in enumerate(external_tracks):
+            display_text = f"[External] {track.title}"
+            display_text += f" ({track.codec})"
+            item = QListWidgetItem(display_text)
+            item.setData(256, (1, i))
+            self.subtitle_track_list.addItem(item)
+
+    def _sync_sub_list_from_assignments(self):
+        """Sync QListWidget selection from subtitle_track_assignments"""
+        assignments = self.app_state.tracks.subtitle_track_assignments
+        selected_embedded = {a.stream_index for a in assignments if not a.is_external}
+        selected_external = {a.stream_index for a in assignments if a.is_external}
+        for i in range(self.subtitle_track_list.count()):
+            item = self.subtitle_track_list.item(i)
+            data = item.data(256)
+            if data is not None:
+                track_type, track_idx = data
+                if track_type == 0:
+                    item.setSelected(track_idx in selected_embedded)
+                else:
+                    item.setSelected(track_idx in selected_external)
+
     def on_subtitle_changed(self, checked):
         """Handle subtitle track checkbox change"""
         self.app_state.tracks.subtitle_selected = checked
+        self.subtitle_track_list.setEnabled(checked and self.app_state.tracks.multi_track_subtitle_enabled)
         self.tracks_changed.emit()
 
     def _rebuild_audio_track_list(self):
@@ -435,6 +571,13 @@ class TrackSelectionPanel(QGroupBox):
                 self.subtitle_widget.setVisible(True)
             else:
                 self.subtitle_widget.setVisible(False)
+
+            # Build subtitle multi-select list
+            self._rebuild_subtitle_track_list()
+            is_multi_sub = self.app_state.tracks.multi_track_subtitle_enabled
+            self.subtitle_track_list.setVisible(is_multi_sub)
+            self.load_sub_btn.setVisible(is_multi_sub)
+            self.subtitle_track_list.setEnabled(is_multi_sub and self.subtitle_check.isChecked())
 
             self.video_check.setChecked(has_video)
             self.audio_check.setChecked(has_audio)

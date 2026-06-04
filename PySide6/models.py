@@ -243,6 +243,23 @@ class SubtitleTrackInfo:
 
 
 @dataclass
+class ExternalSubtitleTrack:
+    """An externally loaded subtitle file treated as a track"""
+    file_path: str = ""
+    codec: str = "subrip"
+    language: str = ""
+    title: str = ""
+
+
+@dataclass
+class SubtitleTrackAssignment:
+    """Per-track subtitle assignment for multi-track output"""
+    stream_index: int = 0  # Relative index within available/external list
+    is_external: bool = False  # True if this is an external subtitle file
+    mode: str = "copy"  # "copy" or "burn"
+
+
+@dataclass
 class TrackSettings:
     """Track selection settings"""
     video_selected: bool = True
@@ -264,6 +281,8 @@ class TrackSettings:
     multi_track_subtitle_enabled: bool = False
     available_subtitle_tracks: List[SubtitleTrackInfo] = field(default_factory=list)
     selected_subtitle_indices: List[int] = field(default_factory=list)  # Tracks to passthrough
+    subtitle_track_assignments: List[SubtitleTrackAssignment] = field(default_factory=list)  # Per-track control
+    external_subtitle_tracks: List[ExternalSubtitleTrack] = field(default_factory=list)  # Externally loaded subtitle files
     subtitle_burn_index: int = -1  # Which embedded track to burn (-1 = use external file)
     subtitle_passthrough: bool = False  # Copy subtitle tracks instead of burning
 

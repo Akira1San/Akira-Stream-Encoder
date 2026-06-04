@@ -1151,6 +1151,7 @@ class FFmpegBackend(MediaBackend):
             dvd_concat_input = self._get_dvd_concat_input() if is_dvd_source else None
 
             self._multi_track_ext_audio_paths = []
+            self._multi_track_ext_subs_paths = []
             if burn_subs and sub_path:
                 cmd.extend(["-ss", start_time])
                 cmd.extend(["-i", dvd_concat_input if dvd_concat_input else input_path])
@@ -1158,6 +1159,10 @@ class FFmpegBackend(MediaBackend):
                     if ext_track.file_path and os.path.exists(ext_track.file_path):
                         cmd.extend(["-i", ext_track.file_path])
                         self._multi_track_ext_audio_paths.append(ext_track.file_path)
+                for ext_track in tracks.external_subtitle_tracks:
+                    if ext_track.file_path and os.path.exists(ext_track.file_path):
+                        cmd.extend(["-i", ext_track.file_path])
+                        self._multi_track_ext_subs_paths.append(ext_track.file_path)
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
                 if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
@@ -1183,6 +1188,10 @@ class FFmpegBackend(MediaBackend):
                     if ext_track.file_path and os.path.exists(ext_track.file_path):
                         cmd.extend(["-i", ext_track.file_path])
                         self._multi_track_ext_audio_paths.append(ext_track.file_path)
+                for ext_track in tracks.external_subtitle_tracks:
+                    if ext_track.file_path and os.path.exists(ext_track.file_path):
+                        cmd.extend(["-i", ext_track.file_path])
+                        self._multi_track_ext_subs_paths.append(ext_track.file_path)
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
                 if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
@@ -1291,12 +1300,16 @@ class FFmpegBackend(MediaBackend):
                     audio_stream_idx = 0
                 cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
 
-            # Subtitle passthrough
-            if tracks.multi_track_subtitle_enabled and tracks.selected_subtitle_indices:
-                for idx, rel_idx in enumerate(tracks.selected_subtitle_indices):
-                    if rel_idx >= 0:
-                        cmd.extend(["-map", f"0:s:{rel_idx}"])
-                        cmd.extend([f"-c:s:{idx}", "copy"])
+            # Subtitle passthrough (multi-track, embedded + external)
+            if tracks.multi_track_subtitle_enabled and tracks.subtitle_track_assignments:
+                for idx, assignment in enumerate(tracks.subtitle_track_assignments):
+                    if assignment.is_external:
+                        ext_audio_count = len(self._multi_track_ext_audio_paths)
+                        ext_input_idx = 1 + ext_audio_count + assignment.stream_index
+                        cmd.extend(["-map", f"{ext_input_idx}:s:0"])
+                    else:
+                        cmd.extend(["-map", f"0:s:{assignment.stream_index}"])
+                    cmd.extend([f"-c:s:{idx}", "copy"])
 
             # Exclude embedded subtitle streams when burning external subs
             if burn_subs and sub_path:
@@ -1351,6 +1364,13 @@ class FFmpegBackend(MediaBackend):
             if ext_track.file_path and os.path.exists(ext_track.file_path):
                 cmd.extend(["-i", ext_track.file_path])
                 self._multi_track_ext_audio_paths.append(ext_track.file_path)
+
+        # Multi-track external subtitle files (loaded in UI)
+        self._multi_track_ext_subs_paths = []
+        for ext_track in tracks.external_subtitle_tracks:
+            if ext_track.file_path and os.path.exists(ext_track.file_path):
+                cmd.extend(["-i", ext_track.file_path])
+                self._multi_track_ext_subs_paths.append(ext_track.file_path)
 
         ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
         ext_audio_path = getattr(tracks, 'external_audio_path', '')
@@ -1538,12 +1558,16 @@ class FFmpegBackend(MediaBackend):
 
         video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
 
-        # ── Subtitle passthrough (multi-track embedded subtitles) ──
-        if tracks.multi_track_subtitle_enabled and tracks.selected_subtitle_indices:
-            for idx, rel_idx in enumerate(tracks.selected_subtitle_indices):
-                if rel_idx >= 0:
-                    cmd.extend(["-map", f"0:s:{rel_idx}"])
-                    cmd.extend([f"-c:s:{idx}", "copy"])
+        # ── Subtitle passthrough (multi-track, embedded + external) ──
+        if tracks.multi_track_subtitle_enabled and tracks.subtitle_track_assignments:
+            for idx, assignment in enumerate(tracks.subtitle_track_assignments):
+                if assignment.is_external:
+                    ext_audio_count = len(getattr(self, '_multi_track_ext_audio_paths', []))
+                    ext_input_idx = 1 + ext_audio_count + assignment.stream_index
+                    cmd.extend(["-map", f"{ext_input_idx}:s:0"])
+                else:
+                    cmd.extend(["-map", f"0:s:{assignment.stream_index}"])
+                cmd.extend([f"-c:s:{idx}", "copy"])
 
         # Subtitle burning (text subtitles)
         skip_vf = (video_mode == "copy")

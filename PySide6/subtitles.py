@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 
-from models import AppState
+from models import AppState, SubtitleTrackAssignment, ExternalSubtitleTrack
 
 
 class SubtitlesPanel(QWidget):
@@ -107,6 +107,14 @@ class SubtitlesPanel(QWidget):
 
         self.embedded_sub_group.setVisible(False)
         layout.addWidget(self.embedded_sub_group)
+
+        # ── External Subtitle Tracks ──
+        ext_sub_layout = QHBoxLayout()
+        self.load_sub_btn = QPushButton("Load External Subtitle...")
+        self.load_sub_btn.setToolTip("Load an external subtitle file as an additional track")
+        ext_sub_layout.addWidget(self.load_sub_btn)
+        ext_sub_layout.addStretch()
+        layout.addLayout(ext_sub_layout)
 
         # Info label
         preview_info = QLabel("Preview supports .srt only | Encoding supports all formats")
@@ -326,6 +334,9 @@ class SubtitlesPanel(QWidget):
         self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
         self.on_handbrake_available_changed(self.app_state.handbrake_available)
 
+        # External subtitles
+        self.load_sub_btn.clicked.connect(self.on_load_external_subtitle)
+
         # Shadow controls
         self.shadow_check.toggled.connect(self.on_shadow_changed)
         self.shadow_color_btn.clicked.connect(self.on_shadow_color_clicked)
@@ -350,11 +361,20 @@ class SubtitlesPanel(QWidget):
         """Handle embedded subtitle track selection change"""
         selected_items = self.embedded_sub_list.selectedItems()
         selected_indices = []
+        assignments = []
         for item in selected_items:
-            idx = item.data(256)
-            if idx is not None:
-                selected_indices.append(idx)
+            data = item.data(256)
+            if data is None:
+                continue
+            track_type, track_idx = data
+            selected_indices.append(len(assignments))
+            assignments.append(SubtitleTrackAssignment(
+                stream_index=track_idx,
+                is_external=(track_type == 1),
+                mode="copy"
+            ))
         self.app_state.tracks.selected_subtitle_indices = selected_indices
+        self.app_state.tracks.subtitle_track_assignments = assignments
         self.settings_changed.emit()
 
     def on_burn_embedded_changed(self, index):
@@ -435,10 +455,11 @@ class SubtitlesPanel(QWidget):
         """Update the embedded subtitle track UI with detected tracks"""
         self.embedded_sub_list.blockSignals(True)
         self.burn_embedded_combo.blockSignals(True)
-        self.embedded_sub_list.clear()
         self.burn_embedded_combo.clear()
 
-        if not subtitle_tracks:
+        has_any = bool(subtitle_tracks) or bool(self.app_state.tracks.external_subtitle_tracks)
+
+        if not has_any:
             self.embedded_sub_group.setVisible(False)
             self.embedded_sub_list.blockSignals(False)
             self.burn_embedded_combo.blockSignals(False)
@@ -446,25 +467,10 @@ class SubtitlesPanel(QWidget):
 
         self.embedded_sub_group.setVisible(True)
 
-        # Populate passthrough list
-        for i, track in enumerate(subtitle_tracks):
-            display_text = f"Track {i+1}"
-            if track.language:
-                display_text += f" [{track.language}]"
-            if track.title:
-                display_text += f" - {track.title}"
-            display_text += f" ({track.codec})"
-            item = QListWidgetItem(display_text)
-            item.setData(256, i)
-            self.embedded_sub_list.addItem(item)
+        # Populate combined embedded + external list
+        self._rebuild_embedded_sub_list()
 
-        # Restore selection
-        selected = set(self.app_state.tracks.selected_subtitle_indices)
-        for i in range(self.embedded_sub_list.count()):
-            item = self.embedded_sub_list.item(i)
-            item.setSelected(i in selected)
-
-        # Populate burn combo
+        # Populate burn combo (embedded tracks only)
         self.burn_embedded_combo.addItem("None (use external file)", -1)
         for i, track in enumerate(subtitle_tracks):
             display_text = f"Track {i+1}"
@@ -482,6 +488,71 @@ class SubtitlesPanel(QWidget):
 
         self.embedded_sub_list.blockSignals(False)
         self.burn_embedded_combo.blockSignals(False)
+
+    def on_load_external_subtitle(self):
+        """Handle load external subtitle button click"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select External Subtitle File",
+            "",
+            "Subtitle Files (*.srt *.ass *.ssa *.sub);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        ext_track = ExternalSubtitleTrack(
+            file_path=file_path,
+            codec="subrip" if file_path.endswith('.srt') else "ass" if file_path.endswith(('.ass', '.ssa')) else "subrip",
+            title=os.path.basename(file_path)
+        )
+        self.app_state.tracks.external_subtitle_tracks.append(ext_track)
+        self._rebuild_embedded_sub_list()
+        self.settings_changed.emit()
+
+    def _rebuild_embedded_sub_list(self):
+        """Rebuild the embedded subtitle multi-select list with embedded + external tracks"""
+        self.embedded_sub_list.blockSignals(True)
+        self.embedded_sub_list.clear()
+
+        embedded_tracks = self.app_state.tracks.available_subtitle_tracks
+        external_tracks = self.app_state.tracks.external_subtitle_tracks
+
+        for i, track in enumerate(embedded_tracks):
+            display_text = f"[Embedded] Track {i+1}"
+            if track.language:
+                display_text += f" [{track.language}]"
+            if track.title:
+                display_text += f" - {track.title}"
+            display_text += f" ({track.codec})"
+            item = QListWidgetItem(display_text)
+            item.setData(256, (0, i))
+            self.embedded_sub_list.addItem(item)
+
+        for i, track in enumerate(external_tracks):
+            display_text = f"[External] {track.title}"
+            display_text += f" ({track.codec})"
+            item = QListWidgetItem(display_text)
+            item.setData(256, (1, i))
+            self.embedded_sub_list.addItem(item)
+
+        # Restore selection from subtitle_track_assignments
+        self._sync_sub_list_from_assignments()
+        self.embedded_sub_list.blockSignals(False)
+
+    def _sync_sub_list_from_assignments(self):
+        """Sync QListWidget selection from subtitle_track_assignments"""
+        assignments = self.app_state.tracks.subtitle_track_assignments
+        selected_embedded = {a.stream_index for a in assignments if not a.is_external}
+        selected_external = {a.stream_index for a in assignments if a.is_external}
+        for i in range(self.embedded_sub_list.count()):
+            item = self.embedded_sub_list.item(i)
+            data = item.data(256)
+            if data is not None:
+                track_type, track_idx = data
+                if track_type == 0:
+                    item.setSelected(track_idx in selected_embedded)
+                else:
+                    item.setSelected(track_idx in selected_external)
 
     def on_subtitle_changed(self, text):
         """Handle subtitle file selection change"""

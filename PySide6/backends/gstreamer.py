@@ -730,6 +730,9 @@ class GStreamerBackend(MediaBackend):
         if tracks.external_audio_tracks:
             self.app_state.log(
                 "GStreamer: external audio tracks not supported, falling back to FFmpeg for those tracks", "WARN")
+        if tracks.external_subtitle_tracks:
+            self.app_state.log(
+                "GStreamer: external subtitle tracks not supported, falling back to FFmpeg for those tracks", "WARN")
         if burn_subs:
             self.app_state.log(
                 f"GStreamer: burning DVD subtitle track {self.app_state.dvd.selected_subtitle_index}", "INFO")
