@@ -997,12 +997,16 @@ class EncodingPanel(QWidget):
         self.subtitle_track_list.setVisible(self.app_state.tracks.multi_track_subtitle_enabled)
         sub_layout.addWidget(self.subtitle_track_list)
 
-        # Load external subtitle button
+        # Load / remove external subtitle buttons
         load_sub_layout = QHBoxLayout()
         self.load_sub_btn = QPushButton("Load External Subtitle...")
         self.load_sub_btn.setToolTip("Load an external subtitle file as an additional track")
         self.load_sub_btn.setVisible(self.app_state.tracks.multi_track_subtitle_enabled)
         load_sub_layout.addWidget(self.load_sub_btn)
+        self.remove_sub_btn = QPushButton("Remove Selected")
+        self.remove_sub_btn.setToolTip("Remove selected external subtitle tracks from the list")
+        self.remove_sub_btn.setVisible(self.app_state.tracks.multi_track_subtitle_enabled)
+        load_sub_layout.addWidget(self.remove_sub_btn)
         load_sub_layout.addStretch()
         sub_layout.addLayout(load_sub_layout)
 
