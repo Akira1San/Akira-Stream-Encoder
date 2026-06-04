@@ -5,11 +5,12 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QCheckBox, QSlider, QSpinBox, QLineEdit, QGroupBox,
-    QRadioButton, QButtonGroup, QFrame, QPushButton, QFileDialog
+    QRadioButton, QButtonGroup, QFrame, QPushButton, QFileDialog,
+    QListWidget, QAbstractItemView, QListWidgetItem
 )
 from PySide6.QtCore import Qt, Signal
 
-from models import AppState
+from models import AppState, AudioTrackAssignment
 
 
 class EncodingPanel(QWidget):
@@ -793,6 +794,18 @@ class EncodingPanel(QWidget):
         audio_mode_layout.addStretch()
         advanced_layout.addLayout(audio_mode_layout)
         
+        # Multi-track audio toggle
+        multi_track_layout = QHBoxLayout()
+        self.multi_track_check = QCheckBox("Enable Multi-Track Audio")
+        self.multi_track_check.setChecked(self.app_state.tracks.multi_track_audio_enabled)
+        self.multi_track_check.setToolTip(
+            "When enabled, you can select multiple audio tracks to include in the output.\n"
+            "Each track can be independently copied or re-encoded."
+        )
+        multi_track_layout.addWidget(self.multi_track_check)
+        multi_track_layout.addStretch()
+        advanced_layout.addLayout(multi_track_layout)
+
         # Audio Track Selection
         audio_track_layout = QHBoxLayout()
         audio_track_layout.addWidget(QLabel("Audio Track:"))
@@ -802,6 +815,15 @@ class EncodingPanel(QWidget):
         audio_track_layout.addWidget(self.audio_track_combo)
         audio_track_layout.addStretch()
         advanced_layout.addLayout(audio_track_layout)
+
+        # Multi-track audio list (hidden by default, shown when multi-track enabled)
+        self.audio_track_list = QListWidget()
+        self.audio_track_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        self.audio_track_list.setMaximumHeight(120)
+        self.audio_track_list.setMinimumWidth(300)
+        self.audio_track_list.setToolTip("Select audio tracks to include. Ctrl+click to select multiple.")
+        self.audio_track_list.setVisible(False)
+        advanced_layout.addWidget(self.audio_track_list)
         
         # Audio Codec Selection
         audio_codec_layout = QHBoxLayout()
@@ -967,7 +989,9 @@ class EncodingPanel(QWidget):
         self.tone_mapping_combo.currentTextChanged.connect(self.on_tone_mapping_changed)
         self.aspect_ratio_combo.currentTextChanged.connect(self.on_aspect_ratio_changed)
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
+        self.multi_track_check.toggled.connect(self.on_multi_track_audio_toggled)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
+        self.audio_track_list.itemSelectionChanged.connect(self.on_audio_track_list_changed)
         self.audio_codec_combo.currentTextChanged.connect(self.on_audio_codec_changed)
         self.audio_channels_combo.currentTextChanged.connect(self.on_audio_channels_changed)
         self.gpu_preset_combo.currentTextChanged.connect(self.on_gpu_preset_changed)
@@ -1004,23 +1028,65 @@ class EncodingPanel(QWidget):
         # Set initial preset visibility
         self.update_preset_visibility()
         
+    def on_multi_track_audio_toggled(self, checked):
+        """Handle multi-track audio toggle in encoding panel"""
+        self.app_state.tracks.multi_track_audio_enabled = checked
+        is_multi = checked
+        self.audio_track_combo.setVisible(not is_multi)
+        self.audio_track_list.setVisible(is_multi)
+        has_tracks = self.audio_track_combo.count() > 0
+        self.audio_track_combo.setEnabled(not is_multi and has_tracks)
+        self.audio_track_list.setEnabled(is_multi and has_tracks)
+        if is_multi:
+            # Sync list from model state
+            selected = set(self.app_state.tracks.selected_audio_indices)
+            for i in range(self.audio_track_list.count()):
+                item = self.audio_track_list.item(i)
+                item.setSelected(i in selected)
+        self.settings_changed.emit()
+
     def on_audio_track_changed(self, index):
-        """Handle audio track selection change"""
+        """Handle audio track selection change (single mode)"""
         if hasattr(self.app_state.tracks, 'available_audio_tracks'):
             tracks = self.app_state.tracks.available_audio_tracks
             if index >= 0 and index < len(tracks):
                 self.app_state.tracks.audio_stream_index = index
+                self.app_state.tracks.selected_audio_indices = [index]
                 self.settings_changed.emit()
-    
+
+    def on_audio_track_list_changed(self):
+        """Handle multi-track audio list selection change"""
+        selected_items = self.audio_track_list.selectedItems()
+        selected_indices = []
+        assignments = []
+        for item in selected_items:
+            rel_idx = item.data(256)
+            if rel_idx is not None:
+                selected_indices.append(rel_idx)
+                assignments.append(AudioTrackAssignment(
+                    stream_index=rel_idx,
+                    mode="copy" if self.app_state.tracks.audio_copy_mode else "encode"
+                ))
+        self.app_state.tracks.selected_audio_indices = selected_indices
+        self.app_state.tracks.audio_track_assignments = assignments
+        self.settings_changed.emit()
+
     def populate_audio_tracks(self, tracks: list):
-        """Populate audio track combo with available tracks"""
+        """Populate audio track combo and multi-select list with available tracks"""
         self.audio_track_combo.clear()
-        
+        self.audio_track_list.clear()
+
+        is_multi = self.app_state.tracks.multi_track_audio_enabled
+        self.multi_track_check.setChecked(is_multi)
+        self.audio_track_combo.setVisible(not is_multi)
+        self.audio_track_list.setVisible(is_multi)
+
         if not tracks:
             self.audio_track_combo.addItem("No audio tracks detected")
             self.audio_track_combo.setEnabled(False)
+            self.audio_track_list.setEnabled(False)
             return
-        
+
         for i, track in enumerate(tracks):
             display_text = f"Track {i+1}"
             if track.title:
@@ -1031,13 +1097,35 @@ class EncodingPanel(QWidget):
             if track.sample_rate:
                 display_text += f", {track.sample_rate}Hz"
             self.audio_track_combo.addItem(display_text)
-        
-        self.audio_track_combo.setEnabled(True)
-        
-        # Default to track 1 (index 0) - always use first audio track by default
+
+            item = QListWidgetItem(display_text)
+            item.setData(256, i)
+            self.audio_track_list.addItem(item)
+
+        is_multi = self.app_state.tracks.multi_track_audio_enabled
+        self.audio_track_combo.setVisible(not is_multi)
+        self.audio_track_list.setVisible(is_multi)
+        self.audio_track_combo.setEnabled(not is_multi)
+        self.audio_track_list.setEnabled(is_multi)
+
+        # Default to track 1 (index 0)
         default_index = 0
         self.audio_track_combo.setCurrentIndex(default_index)
         self.app_state.tracks.audio_stream_index = default_index
+        self.app_state.tracks.selected_audio_indices = [0]
+        self.app_state.tracks.audio_track_assignments = [
+            AudioTrackAssignment(stream_index=0, mode=self.app_state.tracks.audio_copy_mode and "copy" or "encode")
+        ]
+
+        # Sync multi-selection
+        self._sync_audio_track_list()
+
+    def _sync_audio_track_list(self):
+        """Sync the multi-select list selection from model state"""
+        selected = set(self.app_state.tracks.selected_audio_indices)
+        for i in range(self.audio_track_list.count()):
+            item = self.audio_track_list.item(i)
+            item.setSelected(i in selected)
 
     def on_video_track_changed(self, index):
         """Handle video track selection change"""

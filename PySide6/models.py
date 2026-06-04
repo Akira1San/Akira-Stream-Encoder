@@ -216,6 +216,22 @@ class AudioTrackInfo:
 
 
 @dataclass
+class AudioTrackAssignment:
+    """Per-track audio assignment for multi-track output"""
+    stream_index: int = 0  # Relative stream index within available_audio_tracks
+    mode: str = "encode"  # "copy" or "encode"
+
+
+@dataclass
+class SubtitleTrackInfo:
+    """Information about a single embedded subtitle track"""
+    index: int = 0  # Stream index (0, 1, 2, etc.)
+    codec: str = ""
+    language: str = ""
+    title: str = ""
+
+
+@dataclass
 class TrackSettings:
     """Track selection settings"""
     video_selected: bool = True
@@ -223,8 +239,22 @@ class TrackSettings:
     audio_selected: bool = True
     audio_copy_mode: bool = False  # True = copy original audio, False = re-encode to AAC
     audio_stream_index: int = 0  # Which audio stream to use (0 = first, 1 = second, etc.)
+
+    # Multi-track audio support
+    multi_track_audio_enabled: bool = False  # Toggle between single and multi-track mode
+    selected_audio_indices: List[int] = field(default_factory=list)  # Which tracks to include (relative indices)
+    audio_track_assignments: List[AudioTrackAssignment] = field(default_factory=list)  # Per-track control
+
     subtitle_available: bool = False
     subtitle_selected: bool = False
+
+    # Multi-track subtitle support (embedded tracks)
+    multi_track_subtitle_enabled: bool = False
+    available_subtitle_tracks: List[SubtitleTrackInfo] = field(default_factory=list)
+    selected_subtitle_indices: List[int] = field(default_factory=list)  # Tracks to passthrough
+    subtitle_burn_index: int = -1  # Which embedded track to burn (-1 = use external file)
+    subtitle_passthrough: bool = False  # Copy subtitle tracks instead of burning
+
     video_info: str = ""
     video_width: int = 0  # Source video width
     video_height: int = 0  # Source video height

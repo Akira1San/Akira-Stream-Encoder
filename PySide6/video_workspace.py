@@ -347,6 +347,26 @@ class VideoWorkspace(QWidget):
         else:
             self.app_state.tracks.available_audio_tracks = []
             self.enc_panel.populate_audio_tracks([])
+
+        # Subtitle tracks (embedded)
+        subtitle_tracks = controller.get_subtitle_tracks(video_path)
+        if subtitle_tracks:
+            from models import SubtitleTrackInfo
+            sub_track_infos = []
+            for track in subtitle_tracks:
+                sub_track_info = SubtitleTrackInfo(
+                    index=track['index'],
+                    codec=track['codec'],
+                    language=track['language'],
+                    title=track['title']
+                )
+                sub_track_infos.append(sub_track_info)
+            self.app_state.tracks.available_subtitle_tracks = sub_track_infos
+            self.subs_panel.update_embedded_subtitles(sub_track_infos)
+            self.app_state.log(f"Detected {len(sub_track_infos)} embedded subtitle track(s)", "INFO")
+        else:
+            self.app_state.tracks.available_subtitle_tracks = []
+            self.subs_panel.update_embedded_subtitles([])
             
     def on_cut_point_set(self, position: float):
         """Handle adding a new cut point"""
@@ -934,3 +954,24 @@ class VideoWorkspace(QWidget):
         
         # Update DVD subtitle selector (will hide if not a DVD source)
         self.subs_panel.update_dvd_subtitles()
+        
+        # Detect embedded subtitle tracks
+        from controller import VideoController
+        controller = VideoController(self.app_state)
+        subtitle_tracks = controller.get_subtitle_tracks(video_path)
+        if subtitle_tracks:
+            from models import SubtitleTrackInfo
+            sub_track_infos = []
+            for track in subtitle_tracks:
+                sub_track_info = SubtitleTrackInfo(
+                    index=track['index'],
+                    codec=track['codec'],
+                    language=track['language'],
+                    title=track['title']
+                )
+                sub_track_infos.append(sub_track_info)
+            self.app_state.tracks.available_subtitle_tracks = sub_track_infos
+            self.subs_panel.update_embedded_subtitles(sub_track_infos)
+        else:
+            self.app_state.tracks.available_subtitle_tracks = []
+            self.subs_panel.update_embedded_subtitles([])

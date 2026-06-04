@@ -139,6 +139,30 @@ class FFmpegBackend(MediaBackend):
 
         return audio_tracks
 
+    def get_subtitle_tracks(self, input_path: str) -> List[dict]:
+        subtitle_tracks = []
+        ffprobe_path = self._get_ffprobe_path()
+        try:
+            cmd = [ffprobe_path, "-v", "error", "-i", input_path,
+                   "-show_entries", "stream=index,codec_type,codec_name:stream_tags=language,title",
+                   "-of", "json"]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                for stream in data.get('streams', []):
+                    if stream.get('codec_type') == 'subtitle':
+                        tags = stream.get('tags', {})
+                        track_info = {
+                            'index': stream.get('index', 0),
+                            'codec': stream.get('codec_name', 'unknown'),
+                            'language': tags.get('language', ''),
+                            'title': tags.get('title', '')
+                        }
+                        subtitle_tracks.append(track_info)
+        except Exception as e:
+            self.app_state.log(f"Subtitle track detection failed: {e}", "WARN")
+        return subtitle_tracks
+
     def get_video_tracks(self, input_path: str) -> List[dict]:
         video_tracks = []
         ffprobe_path = self._get_ffprobe_path()
@@ -1235,11 +1259,37 @@ class FFmpegBackend(MediaBackend):
                     video_stream_idx = 0
                 cmd.extend(["-map", f"0:v:{video_stream_idx}"])
 
-            if tracks.audio_selected:
+            multi_track_audio = (tracks.multi_track_audio_enabled
+                                 and len(tracks.selected_audio_indices) > 0)
+            if tracks.audio_selected and multi_track_audio:
+                audio_output_idx = 0
+                for rel_idx in tracks.selected_audio_indices:
+                    if rel_idx is None or rel_idx < 0:
+                        continue
+                    cmd.extend(["-map", f"0:a:{rel_idx}"])
+                    track_copy = tracks.audio_copy_mode
+                    for assignment in tracks.audio_track_assignments:
+                        if assignment.stream_index == rel_idx:
+                            track_copy = (assignment.mode == "copy")
+                            break
+                    if track_copy:
+                        cmd.extend([f"-c:a:{audio_output_idx}", "copy"])
+                    else:
+                        cmd.extend([f"-c:a:{audio_output_idx}", self._audio_codec(),
+                                    "-b:a", "128k", *self._audio_channels_args()])
+                    audio_output_idx += 1
+            elif tracks.audio_selected:
                 audio_stream_idx = tracks.audio_stream_index
                 if audio_stream_idx is None or audio_stream_idx < 0:
                     audio_stream_idx = 0
                 cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+
+            # Subtitle passthrough
+            if tracks.multi_track_subtitle_enabled and tracks.selected_subtitle_indices:
+                for idx, rel_idx in enumerate(tracks.selected_subtitle_indices):
+                    if rel_idx >= 0:
+                        cmd.extend(["-map", f"0:s:{rel_idx}"])
+                        cmd.extend([f"-c:s:{idx}", "copy"])
 
             # Exclude embedded subtitle streams when burning external subs
             if burn_subs and sub_path:
@@ -1259,6 +1309,8 @@ class FFmpegBackend(MediaBackend):
                 else:
                     cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", *self._audio_channels_args()])
                 cmd.extend(["-shortest"])
+            elif multi_track_audio:
+                pass  # Per-track codecs already set above
             elif tracks.audio_copy_mode:
                 cmd.extend(["-c:a", "copy"])
             else:
@@ -1439,19 +1491,47 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             cmd.extend(["-shortest"])
         elif tracks.audio_selected:
-            audio_stream_idx = tracks.audio_stream_index
-            if audio_stream_idx is None or audio_stream_idx < 0:
-                audio_stream_idx = 0
-            cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
-            if audio_copy:
-                cmd.extend(["-c:a", "copy"])
+            multi_track = tracks.multi_track_audio_enabled and len(tracks.selected_audio_indices) > 0
+            if multi_track:
+                audio_output_idx = 0
+                for rel_idx in tracks.selected_audio_indices:
+                    if rel_idx is None or rel_idx < 0:
+                        continue
+                    cmd.extend(["-map", f"0:a:{rel_idx}"])
+                    # Check per-track assignment mode
+                    track_copy = audio_copy
+                    for assignment in tracks.audio_track_assignments:
+                        if assignment.stream_index == rel_idx:
+                            track_copy = (assignment.mode == "copy")
+                            break
+                    if track_copy:
+                        cmd.extend([f"-c:a:{audio_output_idx}", "copy"])
+                    else:
+                        cmd.extend([f"-c:a:{audio_output_idx}", self._audio_codec(),
+                                    "-b:a", "128k", "-ar", encoding.audio_sample_rate,
+                                    *self._audio_channels_args()])
+                    audio_output_idx += 1
             else:
-                cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
+                audio_stream_idx = tracks.audio_stream_index
+                if audio_stream_idx is None or audio_stream_idx < 0:
+                    audio_stream_idx = 0
+                cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+                if audio_copy:
+                    cmd.extend(["-c:a", "copy"])
+                else:
+                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
         else:
             cmd.extend(["-an"])
             audio_copy = True
 
         video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
+
+        # ── Subtitle passthrough (multi-track embedded subtitles) ──
+        if tracks.multi_track_subtitle_enabled and tracks.selected_subtitle_indices:
+            for idx, rel_idx in enumerate(tracks.selected_subtitle_indices):
+                if rel_idx >= 0:
+                    cmd.extend(["-map", f"0:s:{rel_idx}"])
+                    cmd.extend([f"-c:s:{idx}", "copy"])
 
         # Subtitle burning (text subtitles)
         skip_vf = (video_mode == "copy")
@@ -1577,14 +1657,34 @@ class FFmpegBackend(MediaBackend):
                 else:
                     cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
             else:
-                audio_stream_idx = tracks.audio_stream_index
-                cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
-                audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
-                audio_copy = (audio_mode == 'copy') or tracks.audio_copy_mode
-                if audio_copy:
-                    cmd.extend(["-c:a", "copy"])
+                multi_track = tracks.multi_track_audio_enabled and len(tracks.selected_audio_indices) > 0
+                if multi_track:
+                    audio_output_idx = 0
+                    for rel_idx in tracks.selected_audio_indices:
+                        if rel_idx is None or rel_idx < 0:
+                            continue
+                        cmd.extend(["-map", f"0:a:{rel_idx}"])
+                        track_copy = tracks.audio_copy_mode
+                        for assignment in tracks.audio_track_assignments:
+                            if assignment.stream_index == rel_idx:
+                                track_copy = (assignment.mode == "copy")
+                                break
+                        if track_copy:
+                            cmd.extend([f"-c:a:{audio_output_idx}", "copy"])
+                        else:
+                            cmd.extend([f"-c:a:{audio_output_idx}", self._audio_codec(),
+                                        "-b:a", "128k", "-ar", encoding.audio_sample_rate,
+                                        *self._audio_channels_args()])
+                        audio_output_idx += 1
                 else:
-                    cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
+                    audio_stream_idx = tracks.audio_stream_index
+                    cmd.extend(["-map", f"0:a:{audio_stream_idx}"])
+                    audio_mode = getattr(self.app_state.encoding, 'audio_mode', 'encode')
+                    audio_copy = (audio_mode == 'copy') or tracks.audio_copy_mode
+                    if audio_copy:
+                        cmd.extend(["-c:a", "copy"])
+                    else:
+                        cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", "-ar", encoding.audio_sample_rate, *self._audio_channels_args()])
         else:
             cmd.extend(["-an"])
 

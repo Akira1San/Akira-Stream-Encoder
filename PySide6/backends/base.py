@@ -23,6 +23,10 @@ class MediaBackend(ABC):
         ...
 
     @abstractmethod
+    def get_subtitle_tracks(self, input_path: str) -> List[dict]:
+        ...
+
+    @abstractmethod
     def get_video_tracks(self, input_path: str) -> List[dict]:
         ...
 

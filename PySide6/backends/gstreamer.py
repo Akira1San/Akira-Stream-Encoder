@@ -284,6 +284,23 @@ class GStreamerBackend(MediaBackend):
             self.app_state.log(f"GStreamer audio track detection failed: {e}", "WARN")
         return tracks
 
+    def get_subtitle_tracks(self, input_path: str) -> List[dict]:
+        tracks = []
+        try:
+            text = self._run_discoverer(input_path)
+            info = self._parse_discoverer_output(text)
+            for s in info['streams']:
+                if s['type'] == 'subtitle':
+                    tracks.append({
+                        'index': s['id'],
+                        'codec': s.get('codec', 'unknown'),
+                        'language': s.get('language', ''),
+                        'title': ''
+                    })
+        except Exception as e:
+            self.app_state.log(f"GStreamer subtitle track detection failed: {e}", "WARN")
+        return tracks
+
     def get_video_tracks(self, input_path: str) -> List[dict]:
         tracks = []
         try:
@@ -554,7 +571,7 @@ class GStreamerBackend(MediaBackend):
 
         return elements
 
-    def _build_audio_chain(self) -> List[str]:
+    def _build_audio_chain(self, stream_index: int = 0) -> List[str]:
         tracks = self.app_state.tracks
         filters = self.app_state.filters
         encoding = self.app_state.encoding
@@ -562,7 +579,14 @@ class GStreamerBackend(MediaBackend):
         if not tracks.audio_selected:
             return []
 
+        # Check if this specific track should be copied
         audio_copy = tracks.audio_copy_mode or encoding.audio_mode == "copy"
+        if tracks.multi_track_audio_enabled:
+            for assignment in tracks.audio_track_assignments:
+                if assignment.stream_index == stream_index:
+                    audio_copy = (assignment.mode == "copy")
+                    break
+
         elements = ["queue", "decodebin", "audioconvert"]
 
         if filters.volume_enabled:
@@ -631,6 +655,44 @@ class GStreamerBackend(MediaBackend):
             "!", "subparse", "subtitle-encoding=utf-8"
         ]
 
+    def _get_audio_pads(self, use_vob: bool) -> List[str]:
+        """Return list of audio pad names to route."""
+        if use_vob:
+            return ["audio_00"]
+        tracks = self.app_state.tracks
+        if tracks.multi_track_audio_enabled and tracks.selected_audio_indices:
+            return [f"audio_{i}" for i in tracks.selected_audio_indices]
+        return ["audio_0"]
+
+    def _add_audio_branch(self, pipeline: list, pad_name: str,
+                          audio_chain: list, track_idx: int = 0):
+        """Add audio routing for a single pad to the pipeline."""
+        pipeline += [f"demux.{pad_name}", "!", "queue", "!", "decodebin", "!",
+                     "audioconvert", "!", "queue", "!"]
+        chain = self._build_audio_chain(track_idx) if track_idx > 0 else audio_chain
+        pipeline += chain[3:]  # Skip queue, decodebin, audioconvert (already in pipeline)
+        pipeline += ["!", "queue", "!", "mux."]
+
+    def _add_audio_branches(self, pipeline: list, audio_pads: list, audio_chain: list):
+        """Add audio routing for all selected audio tracks."""
+        tracks = self.app_state.tracks
+        if tracks.multi_track_audio_enabled and tracks.selected_audio_indices:
+            for stream_idx in tracks.selected_audio_indices:
+                pad_name = f"audio_{stream_idx}"
+                self._add_audio_branch(pipeline, pad_name, audio_chain, stream_idx)
+        else:
+            self._add_audio_branch(pipeline, audio_pads[0], audio_chain, 0)
+
+    def _add_subtitle_passthrough_branches(self, pipeline: list):
+        """Add subtitle passthrough routing for selected embedded subtitle tracks."""
+        tracks = self.app_state.tracks
+        if not tracks.multi_track_subtitle_enabled or not tracks.selected_subtitle_indices:
+            return
+        for idx, rel_idx in enumerate(tracks.selected_subtitle_indices):
+            pad_name = f"subtitle_{rel_idx}"
+            pipeline += [f"demux.{pad_name}", "!", "queue", "!",
+                         "identity", "!", "queue", "!", "mux."]
+
     def _build_pipeline_list(self, input_path: str, output_path: str) -> List[str]:
         """Build a ``gst-launch-1.0`` pipeline argument list (no trim)."""
         encoding = self.app_state.encoding
@@ -685,7 +747,6 @@ class GStreamerBackend(MediaBackend):
         if use_vob:
             demuxer = "mpegpsdemux"
             vid_pad = "video_00"
-            aud_pad = "audio_00"
             sub_pad = f"subpicture_{self.app_state.dvd.selected_subtitle_index:02x}"
         else:
             ext = os.path.splitext(input_path)[1].lower()
@@ -700,8 +761,9 @@ class GStreamerBackend(MediaBackend):
             else:
                 demuxer = "qtdemux"
             vid_pad = "video_0"
-            aud_pad = "audio_0"
             sub_pad = "subtitle_0"
+
+        audio_pads = self._get_audio_pads(use_vob)
 
         if use_branches or burn_subs or text_subs:
             pipeline += [f"{muxer_el}", "name=mux", "!",
@@ -731,10 +793,8 @@ class GStreamerBackend(MediaBackend):
                 pipeline += ["spu.", "!", "queue", "!", "videoconvert", "!", "queue", "!"]
                 pipeline += video_filters
                 pipeline += video_enc + ["!", "queue", "!", "mux."]
-                pipeline += [f"demux.{aud_pad}", "!", "queue", "!", "decodebin", "!",
-                             "audioconvert", "!", "queue", "!"]
-                pipeline += audio_chain[3:]
-                pipeline += ["!", "queue", "!", "mux."]
+                self._add_audio_branches(pipeline, audio_pads, audio_chain)
+                self._add_subtitle_passthrough_branches(pipeline)
             elif text_subs:
                 sub_path = self.find_subtitle_file(input_path)
                 subs = self.app_state.subtitles
@@ -771,19 +831,15 @@ class GStreamerBackend(MediaBackend):
                 pipeline += sub_chain + ["!", "queue", "!", "txt.text_sink"]
 
                 if use_branches:
-                    pipeline += [f"demux.{aud_pad}", "!", "queue", "!", "decodebin", "!",
-                                 "audioconvert", "!", "queue", "!"]
-                    pipeline += audio_chain[3:]
-                    pipeline += ["!", "queue", "!", "mux."]
+                    self._add_audio_branches(pipeline, audio_pads, audio_chain)
+                    self._add_subtitle_passthrough_branches(pipeline)
             elif use_branches:
                 pipeline += [f"demux.{vid_pad}", "!", "queue", "!", "decodebin", "!",
                              "videoconvert", "!", "queue", "!"]
                 pipeline += video_filters
                 pipeline += video_enc + ["!", "queue", "!", "mux."]
-                pipeline += [f"demux.{aud_pad}", "!", "queue", "!", "decodebin", "!",
-                             "audioconvert", "!", "queue", "!"]
-                pipeline += audio_chain[3:]
-                pipeline += ["!", "queue", "!", "mux."]
+                self._add_audio_branches(pipeline, audio_pads, audio_chain)
+                self._add_subtitle_passthrough_branches(pipeline)
         else:
             if use_vob:
                 if is_multi:

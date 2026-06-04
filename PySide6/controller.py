@@ -34,6 +34,9 @@ class VideoController:
     def get_audio_tracks(self, input_path: str) -> List[dict]:
         return self.backend.get_audio_tracks(input_path)
 
+    def get_subtitle_tracks(self, input_path: str) -> List[dict]:
+        return self.backend.get_subtitle_tracks(input_path)
+
     def get_video_tracks(self, input_path: str) -> List[dict]:
         return self.backend.get_video_tracks(input_path)
 
