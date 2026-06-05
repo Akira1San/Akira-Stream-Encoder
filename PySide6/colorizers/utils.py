@@ -88,3 +88,37 @@ def apply_saturation(rgb: np.ndarray, saturation: float) -> np.ndarray:
     lab[:, :, 1] = np.clip(a, -128, 127)
     lab[:, :, 2] = np.clip(b, -128, 127)
     return lab_to_rgb(lab)
+
+
+def apply_contrast(rgb: np.ndarray, contrast: float) -> np.ndarray:
+    """Adjust contrast of RGB uint8 image. 1.0 = no change."""
+    if abs(contrast - 1.0) < 1e-6:
+        return rgb
+    factor = (259.0 * (contrast * 127.5 + 127.5)) / (255.0 * (259.0 - contrast * 127.5 - 127.5))
+    arr = rgb.astype(np.float32)
+    arr = factor * (arr - 128.0) + 128.0
+    return np.clip(arr, 0, 255).astype(np.uint8)
+
+
+def apply_denoise(rgb: np.ndarray, strength: float) -> np.ndarray:
+    """Apply light bilateral/median denoise. strength 0-5, 0 = off."""
+    if strength < 0.5:
+        return rgb
+    import cv2
+    k = int(strength) * 2 + 1
+    if k < 3:
+        return rgb
+    return cv2.bilateralFilter(rgb, k, strength * 20, strength * 20)
+
+
+def apply_postprocessing(rgb: np.ndarray, saturation: float = 1.0,
+                          contrast: float = 1.0, denoise: float = 0.0) -> np.ndarray:
+    """Apply all post-processing steps in optimal order."""
+    result = rgb
+    if denoise > 0.0:
+        result = apply_denoise(result, denoise)
+    if saturation != 1.0:
+        result = apply_saturation(result, saturation)
+    if contrast != 1.0:
+        result = apply_contrast(result, contrast)
+    return result

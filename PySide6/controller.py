@@ -430,6 +430,27 @@ class VideoController:
                 batch_size=ai.batch_size,
             )
             return colorizer
+        elif engine == "siggraph17":
+            from colorizers.siggraph17 import SIGGRAPH17
+            weight_path = os.path.join(
+                os.path.dirname(__file__),
+                "colorizers", "models", "siggraph17-df00044c.pth"
+            )
+            if not os.path.isfile(weight_path):
+                self.app_state.log(
+                    f"SIGGRAPH17 weights not found at: {weight_path}. "
+                    f"Download from: https://colorizers.s3.us-east-2.amazonaws.com/siggraph17-df00044c.pth",
+                    "ERROR"
+                )
+                return None
+            device = ai.gpu_device if ai.gpu_device else "cuda:0"
+            colorizer = SIGGRAPH17(
+                weight_path=weight_path,
+                device=device,
+                fp16=ai.fp16,
+                batch_size=ai.batch_size,
+            )
+            return colorizer
         elif engine == "deoldify":
             self.app_state.log("DeOldify engine not yet implemented", "ERROR")
             return None
@@ -602,12 +623,154 @@ class VideoController:
         """Colorize a batch of frames and write to encode pipe."""
         batch_arr = np.stack(batch_buffer, axis=0)
         rgb_batch = colorizer.colorize_batch(batch_arr)
-        if ai.saturation != 1.0:
-            from colorizers.utils import apply_saturation
+        needs_pp = ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0
+        if needs_pp:
+            from colorizers.utils import apply_postprocessing
             for i in range(len(rgb_batch)):
-                rgb_batch[i] = apply_saturation(rgb_batch[i], ai.saturation)
+                rgb_batch[i] = apply_postprocessing(
+                    rgb_batch[i], ai.saturation, ai.contrast, ai.denoise
+                )
         for frame in rgb_batch:
             encode_proc.stdin.write(frame.tobytes())
+
+    # ── Disk-based AI Colorization Pipeline ────────────────────
+
+    def _get_colorize_frames_dir(self, input_path: str) -> str:
+        import os
+        from pathlib import Path
+        ai = self.app_state.ai_colorization
+        if ai.frames_dir:
+            return ai.frames_dir
+        stem = Path(input_path).stem
+        base = os.path.join(os.path.dirname(input_path), f".{stem}_colorize_frames")
+        return base
+
+    def extract_colorize_frames(self, input_path: str, progress_callback=None) -> bool:
+        """Extract video frames to disk for AI colorization."""
+        ai = self.app_state.ai_colorization
+        frames_dir = self._get_colorize_frames_dir(input_path)
+        ai.frames_dir = frames_dir
+        fps = self.backend.get_fps(input_path)
+        part_min = 1
+        self.app_state.log(
+            f"🎨 Extracting frames to {frames_dir} ({part_min}min parts @ {fps:.2f}fps)...",
+            "INFO"
+        )
+        result = self.backend.extract_frames(
+            input_path, frames_dir, part_min, fps, progress_callback
+        )
+        if result:
+            ai.frames_extracted = True
+            part_dirs = self.backend.get_part_dirs(frames_dir)
+            self.app_state.log(f"✅ Extraction complete: {len(part_dirs)} part(s)", "SUCCESS")
+        else:
+            ai.frames_extracted = False
+            self.app_state.log("❌ Frame extraction failed", "ERROR")
+        return result
+
+    def colorize_disk_frames(self, progress_callback=None) -> bool:
+        """Colorize all extracted frame parts using AI colorizer."""
+        import os
+        ai = self.app_state.ai_colorization
+        if not ai.frames_dir or not ai.frames_extracted:
+            self.app_state.log("No frames to colorize. Extract frames first.", "ERROR")
+            return False
+
+        colorizer = self._get_colorizer()
+        if colorizer is None:
+            return False
+
+        part_dirs = self.backend.get_part_dirs(ai.frames_dir)
+        total_files = 0
+        processed = 0
+
+        for part_name in part_dirs:
+            src_dir = os.path.join(ai.frames_dir, part_name)
+            out_dir = os.path.join(ai.frames_dir, f"{part_name}_colorized")
+            os.makedirs(out_dir, exist_ok=True)
+            frames = sorted([f for f in os.listdir(src_dir) if f.endswith('.png')])
+            total_files += len(frames)
+
+            batch_buffer = []
+            batch_size = ai.batch_size
+
+            for fname in frames:
+                src_path = os.path.join(src_dir, fname)
+                out_path = os.path.join(out_dir, fname)
+                if os.path.isfile(out_path):
+                    processed += 1
+                    continue
+
+                import cv2
+                gray = cv2.imread(src_path, cv2.IMREAD_GRAYSCALE)
+                if gray is None:
+                    continue
+                luma_norm = gray.astype(np.float32) / 255.0
+                batch_buffer.append(luma_norm)
+
+                if len(batch_buffer) >= batch_size:
+                    batch_arr = np.stack(batch_buffer, axis=0)
+                    rgb_batch = colorizer.colorize_batch(batch_arr)
+                    needs_pp = ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0
+                    if needs_pp:
+                        from colorizers.utils import apply_postprocessing
+                        for i in range(len(rgb_batch)):
+                            rgb_batch[i] = apply_postprocessing(
+                                rgb_batch[i], ai.saturation, ai.contrast, ai.denoise
+                            )
+                    for frame_rgb in rgb_batch:
+                        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                        cv2.imwrite(out_path, frame_bgr)
+                    processed += len(batch_buffer)
+                    batch_buffer = []
+
+                    if progress_callback and total_files > 0:
+                        progress_callback(int(processed / total_files * 100))
+
+            if batch_buffer:
+                batch_arr = np.stack(batch_buffer, axis=0)
+                rgb_batch = colorizer.colorize_batch(batch_arr)
+                needs_pp = ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0
+                if needs_pp:
+                    from colorizers.utils import apply_postprocessing
+                    for i in range(len(rgb_batch)):
+                        rgb_batch[i] = apply_postprocessing(
+                            rgb_batch[i], ai.saturation, ai.contrast, ai.denoise
+                        )
+                for frame_rgb in rgb_batch:
+                    frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                    cv2.imwrite(out_path, frame_bgr)
+
+            self.app_state.log(f"🎨 Part {part_name}: {len(frames)} frames colorized", "INFO")
+
+        ai.frames_colorized = True
+        self.app_state.log(f"✅ Colorization complete: {total_files} frames", "SUCCESS")
+        return True
+
+    def recombine_colorized_frames(self, input_path: str, progress_callback=None) -> str:
+        """Recombine colorized frames back into a video."""
+        import os
+        from pathlib import Path
+        ai = self.app_state.ai_colorization
+        if not ai.frames_dir or not ai.frames_colorized:
+            self.app_state.log("No colorized frames to recombine.", "ERROR")
+            return ""
+
+        stem = Path(input_path).stem
+        output_path = os.path.join(ai.frames_dir, f"{stem}_ai_colorized.mp4")
+        fps = self.backend.get_fps(input_path) if input_path else 24000 / 1001
+
+        self.app_state.log("🎨 Recombining colorized frames into video...", "INFO")
+        result = self.backend.recombine_frames(ai.frames_dir, output_path, fps, progress_callback)
+
+        if result:
+            ai.frames_recombined = True
+            self.app_state.log(f"✅ Colorized video: {output_path}", "SUCCESS")
+            return output_path
+        else:
+            ai.frames_recombined = False
+            self.app_state.log("❌ Recombination failed", "ERROR")
+            return ""
 
     def cancel_encode(self):
         """Cancel the current encoding operation"""

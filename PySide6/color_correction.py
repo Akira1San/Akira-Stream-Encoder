@@ -353,10 +353,16 @@ class ColorCorrectionPanel(QWidget):
         engine_row = QHBoxLayout()
         engine_row.addWidget(QLabel("Engine:"))
         self.ai_engine_combo = QComboBox()
-        self.ai_engine_combo.addItems(["ECCV16 (Lightweight)", "DeOldify (Premium)"])
-        self.ai_engine_combo.setCurrentText("ECCV16 (Lightweight)")
+        self.ai_engine_combo.addItems(["ECCV16 (Lightweight)", "SIGGRAPH17 (Balanced)", "DeOldify (Premium)"])
+        current_engine = self.app_state.ai_colorization.engine
+        idx = self.ai_engine_combo.findText(current_engine)
+        if idx >= 0:
+            self.ai_engine_combo.setCurrentIndex(idx)
+        else:
+            self.ai_engine_combo.setCurrentIndex(0)
         self.ai_engine_combo.setToolTip(
             "ECCV16: Small CNN, runs on CPU/GPU, plausible colors, washed-out\n"
+            "SIGGRAPH17: Medium UNet, runs on CPU/GPU, better quality, richer colors\n"
             "DeOldify: ResNet U-Net, GPU only, vibrant colors, requires fastai"
         )
         engine_row.addWidget(self.ai_engine_combo)
@@ -384,6 +390,24 @@ class ColorCorrectionPanel(QWidget):
             "1.0 = No change, 0.1 = Desaturated, 2.0 = Vibrant"
         )
         ai_layout.addLayout(self.ai_sat_slider['layout'])
+
+        # Contrast slider
+        self.ai_contrast_slider = self.create_slider(
+            "Contrast", self.app_state.ai_colorization.contrast,
+            0.5, 2.0, 1.0,
+            "Contrast adjustment after colorization.\n"
+            "1.0 = No change, 0.5 = Lower contrast, 2.0 = Higher contrast"
+        )
+        ai_layout.addLayout(self.ai_contrast_slider['layout'])
+
+        # Denoise slider
+        self.ai_denoise_slider = self.create_slider(
+            "Denoise", self.app_state.ai_colorization.denoise,
+            0.0, 5.0, 0.0,
+            "Light bilateral denoise after colorization.\n"
+            "0 = Off, 1-2 = Light, 3-5 = Strong. Helps reduce artifacts."
+        )
+        ai_layout.addLayout(self.ai_denoise_slider['layout'])
 
         # Batch Size and FP16 in one row
         batch_fp16_row = QHBoxLayout()
@@ -526,6 +550,12 @@ class ColorCorrectionPanel(QWidget):
         self.ai_sat_slider['slider'].valueChanged.connect(
             lambda v: self.on_ai_slider_changed(v, self.ai_sat_slider, 'saturation')
         )
+        self.ai_contrast_slider['slider'].valueChanged.connect(
+            lambda v: self.on_ai_slider_changed(v, self.ai_contrast_slider, 'contrast')
+        )
+        self.ai_denoise_slider['slider'].valueChanged.connect(
+            lambda v: self.on_ai_slider_changed(v, self.ai_denoise_slider, 'denoise')
+        )
         self.ai_batch_spin.valueChanged.connect(self.on_ai_batch_changed)
         self.ai_fp16_check.toggled.connect(self.on_ai_fp16_changed)
         
@@ -631,6 +661,8 @@ class ColorCorrectionPanel(QWidget):
         self.ai_engine_combo.setEnabled(ai_en)
         self.ai_device_combo.setEnabled(ai_en)
         self.ai_sat_slider['slider'].setEnabled(ai_en)
+        self.ai_contrast_slider['slider'].setEnabled(ai_en)
+        self.ai_denoise_slider['slider'].setEnabled(ai_en)
         self.ai_batch_spin.setEnabled(ai_en)
         self.ai_fp16_check.setEnabled(ai_en and "cuda" in self.app_state.ai_colorization.gpu_device)
 
@@ -921,6 +953,7 @@ class ColorCorrectionPanel(QWidget):
         """Handle AI engine selection change"""
         engine_map = {
             "ECCV16 (Lightweight)": "eccv16",
+            "SIGGRAPH17 (Balanced)": "siggraph17",
             "DeOldify (Premium)": "deoldify",
         }
         self.app_state.ai_colorization.engine = engine_map.get(text, "eccv16")
@@ -1051,6 +1084,8 @@ class ColorCorrectionPanel(QWidget):
         ai.enabled = False
         ai.engine = "eccv16"
         ai.saturation = 1.0
+        ai.contrast = 1.0
+        ai.denoise = 0.0
         ai.fp16 = True
         ai.gpu_device = "cuda:0"
         ai.batch_size = 8
@@ -1065,3 +1100,15 @@ class ColorCorrectionPanel(QWidget):
         self.ai_sat_slider['slider'].setValue(int(1.0 * m_sat))
         self.ai_sat_slider['slider'].blockSignals(False)
         self.ai_sat_slider['value_label'].setText("1.00")
+        # Contrast reset
+        m_con = self.ai_contrast_slider['slider'].property("multiplier")
+        self.ai_contrast_slider['slider'].blockSignals(True)
+        self.ai_contrast_slider['slider'].setValue(int(1.0 * m_con))
+        self.ai_contrast_slider['slider'].blockSignals(False)
+        self.ai_contrast_slider['value_label'].setText("1.00")
+        # Denoise reset
+        m_den = self.ai_denoise_slider['slider'].property("multiplier")
+        self.ai_denoise_slider['slider'].blockSignals(True)
+        self.ai_denoise_slider['slider'].setValue(0)
+        self.ai_denoise_slider['slider'].blockSignals(False)
+        self.ai_denoise_slider['value_label'].setText("0.00")
