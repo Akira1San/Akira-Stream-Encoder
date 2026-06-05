@@ -431,6 +431,67 @@ class ColorCorrectionPanel(QWidget):
         batch_fp16_row.addWidget(self.ai_fp16_check)
         ai_layout.addLayout(batch_fp16_row)
 
+        # ── Pipeline Buttons ──
+        pipeline_line = QFrame()
+        pipeline_line.setFrameShape(QFrame.HLine)
+        pipeline_line.setFrameShadow(QFrame.Sunken)
+        ai_layout.addWidget(pipeline_line)
+
+        # Colorize Single Image
+        single_img_row = QHBoxLayout()
+        self.ai_colorize_img_btn = QPushButton("Colorize Single Image")
+        self.ai_colorize_img_btn.setToolTip(
+            "Colorize a single image file (not from a video).\n"
+            "Opens a file dialog to select an image, then saves the result."
+        )
+        single_img_row.addWidget(self.ai_colorize_img_btn)
+        single_img_row.addStretch()
+        ai_layout.addLayout(single_img_row)
+
+        # Extract frames
+        extract_row = QHBoxLayout()
+        self.ai_extract_btn = QPushButton("1. Extract Frames")
+        self.ai_extract_btn.setToolTip(
+            "Step 1: Split video into parts and extract PNG frames.\n"
+            "Each part is stored in its own folder.\n"
+            "Existing parts are skipped (resume-friendly)."
+        )
+        extract_row.addWidget(self.ai_extract_btn)
+        self.ai_extract_status = QLabel("Waiting...")
+        self.ai_extract_status.setStyleSheet("color: gray;")
+        extract_row.addWidget(self.ai_extract_status)
+        extract_row.addStretch()
+        ai_layout.addLayout(extract_row)
+
+        # Colorize all
+        colorize_row = QHBoxLayout()
+        self.ai_colorize_btn = QPushButton("2. Colorize All")
+        self.ai_colorize_btn.setToolTip(
+            "Step 2: Colorize all extracted frames using the selected AI engine.\n"
+            "Runs on extracted PNG frames using batch GPU inference."
+        )
+        colorize_row.addWidget(self.ai_colorize_btn)
+        self.ai_colorize_progress = QLabel("")
+        self.ai_colorize_progress.setStyleSheet("color: gray;")
+        colorize_row.addWidget(self.ai_colorize_progress)
+        colorize_row.addStretch()
+        ai_layout.addLayout(colorize_row)
+
+        # Recombine video
+        recombine_row = QHBoxLayout()
+        self.ai_recombine_btn = QPushButton("3. Recombine Video")
+        self.ai_recombine_btn.setToolTip(
+            "Step 3: Combine all colorized frame parts into a single video file.\n"
+            "Each colorized folder is encoded to a temp MP4, then all are concatenated.\n"
+            "Result is saved as <video>_ai_colorized.mp4 in the frames directory."
+        )
+        recombine_row.addWidget(self.ai_recombine_btn)
+        self.ai_recombine_status = QLabel("Waiting...")
+        self.ai_recombine_status.setStyleSheet("color: gray;")
+        recombine_row.addWidget(self.ai_recombine_status)
+        recombine_row.addStretch()
+        ai_layout.addLayout(recombine_row)
+
         self.ai_group.setEnabled(self.app_state.ai_colorization.enabled)
         layout.addWidget(self.ai_group)
 
@@ -558,6 +619,10 @@ class ColorCorrectionPanel(QWidget):
         )
         self.ai_batch_spin.valueChanged.connect(self.on_ai_batch_changed)
         self.ai_fp16_check.toggled.connect(self.on_ai_fp16_changed)
+        self.ai_colorize_img_btn.clicked.connect(self.on_ai_colorize_single_image)
+        self.ai_extract_btn.clicked.connect(self.on_ai_extract_frames)
+        self.ai_colorize_btn.clicked.connect(self.on_ai_colorize_all)
+        self.ai_recombine_btn.clicked.connect(self.on_ai_recombine)
         
     def update_engine_state(self):
         """Disable/enable EQ UI controls based on current backend's supported_filters()."""
@@ -665,6 +730,10 @@ class ColorCorrectionPanel(QWidget):
         self.ai_denoise_slider['slider'].setEnabled(ai_en)
         self.ai_batch_spin.setEnabled(ai_en)
         self.ai_fp16_check.setEnabled(ai_en and "cuda" in self.app_state.ai_colorization.gpu_device)
+        self.ai_colorize_img_btn.setEnabled(ai_en)
+        self.ai_extract_btn.setEnabled(ai_en)
+        self.ai_colorize_btn.setEnabled(ai_en)
+        self.ai_recombine_btn.setEnabled(ai_en)
 
     def _set_enabled_with_tip(self, widget, supported, feature_name):
         """Set a widget's enabled state; if not supported, append note to tooltip."""
@@ -989,6 +1058,155 @@ class ColorCorrectionPanel(QWidget):
         self.app_state.ai_colorization.fp16 = checked
         self.settings_changed.emit()
 
+    def on_ai_colorize_single_image(self):
+        """Colorize a single image file."""
+        import threading
+        from PySide6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Image to Colorize", "",
+            "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
+        )
+        if not path:
+            return
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Colorized Image", "",
+            "PNG (*.png);;JPEG (*.jpg *.jpeg)"
+        )
+        if not save_path:
+            return
+
+        self.ai_colorize_img_btn.setEnabled(False)
+        self.ai_colorize_img_btn.setText("Colorizing...")
+
+        def run():
+            from controller import VideoController
+            ctrl = VideoController(self.app_state)
+            colorizer = ctrl._get_colorizer()
+            if colorizer is None:
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, self._on_colorize_single_done)
+                return
+            import cv2, numpy as np
+            gray = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            if gray is None:
+                self.app_state.log(f"Could not read image: {path}", "ERROR")
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, self._on_colorize_single_done)
+                return
+            luma = gray.astype(np.float32) / 255.0
+            rgb = colorizer.colorize_frame(luma)
+            ai = self.app_state.ai_colorization
+            if ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0:
+                from colorizers.utils import apply_postprocessing
+                rgb = apply_postprocessing(rgb, ai.saturation, ai.contrast, ai.denoise)
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(save_path, bgr)
+            self.app_state.log(f"Colorized image saved: {save_path}", "SUCCESS")
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._on_colorize_single_done)
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_colorize_single_done(self):
+        self.ai_colorize_img_btn.setEnabled(True)
+        self.ai_colorize_img_btn.setText("Colorize Single Image")
+
+    def on_ai_extract_frames(self):
+        """Extract frames from the input video for disk-based colorization."""
+        import threading
+        input_files = self.app_state.input_files
+        if not input_files:
+            self.app_state.log("No input file loaded.", "WARN")
+            return
+        input_path = input_files[0]
+        from controller import VideoController
+        controller = VideoController(self.app_state)
+
+        self.ai_extract_btn.setEnabled(False)
+        self.ai_extract_status.setText("Extracting...")
+        self.ai_extract_status.setStyleSheet("color: orange;")
+
+        def run():
+            result = controller.extract_colorize_frames(input_path)
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._on_extract_done(result))
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_extract_done(self, result):
+        self.ai_extract_btn.setEnabled(True)
+        if result:
+            self.ai_extract_status.setText("Done ✓")
+            self.ai_extract_status.setStyleSheet("color: green;")
+        else:
+            self.ai_extract_status.setText("Failed ✗")
+            self.ai_extract_status.setStyleSheet("color: red;")
+
+    def on_ai_colorize_all(self):
+        """Colorize all extracted frames using disk-based pipeline."""
+        import threading
+        from controller import VideoController
+        controller = VideoController(self.app_state)
+
+        self.ai_colorize_btn.setEnabled(False)
+        self.ai_colorize_btn.setText("Colorizing...")
+        self.ai_colorize_progress.setText("Running...")
+        self.ai_colorize_progress.setStyleSheet("color: orange;")
+
+        def run():
+            result = controller.colorize_disk_frames()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._on_colorize_all_done(result))
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_colorize_all_done(self, result):
+        self.ai_colorize_btn.setEnabled(True)
+        self.ai_colorize_btn.setText("2. Colorize All")
+        if result:
+            self.ai_colorize_progress.setText("Done ✓")
+            self.ai_colorize_progress.setStyleSheet("color: green;")
+        else:
+            self.ai_colorize_progress.setText("Failed ✗")
+            self.ai_colorize_progress.setStyleSheet("color: red;")
+
+    def on_ai_recombine(self):
+        """Recombine colorized frames into a video."""
+        import threading
+        input_files = self.app_state.input_files
+        if not input_files:
+            self.app_state.log("No input file loaded.", "WARN")
+            return
+        input_path = input_files[0]
+        from controller import VideoController
+        controller = VideoController(self.app_state)
+
+        self.ai_recombine_btn.setEnabled(False)
+        self.ai_recombine_status.setText("Recombining...")
+        self.ai_recombine_status.setStyleSheet("color: orange;")
+
+        def run():
+            result = controller.recombine_colorized_frames(input_path)
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._on_recombine_done(result))
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_recombine_done(self, output_path):
+        self.ai_recombine_btn.setEnabled(True)
+        if output_path:
+            self.ai_recombine_status.setText("Done ✓")
+            self.ai_recombine_status.setStyleSheet("color: green;")
+        else:
+            self.ai_recombine_status.setText("Failed ✗")
+            self.ai_recombine_status.setStyleSheet("color: red;")
+
     def reset_defaults(self):
         """Reset all EQ settings to defaults"""
         self.app_state.eq.brightness = 0.0
@@ -1112,3 +1330,10 @@ class ColorCorrectionPanel(QWidget):
         self.ai_denoise_slider['slider'].setValue(0)
         self.ai_denoise_slider['slider'].blockSignals(False)
         self.ai_denoise_slider['value_label'].setText("0.00")
+        # Reset pipeline status labels
+        self.ai_extract_status.setText("Waiting...")
+        self.ai_extract_status.setStyleSheet("color: gray;")
+        self.ai_colorize_progress.setText("")
+        self.ai_colorize_progress.setStyleSheet("color: gray;")
+        self.ai_recombine_status.setText("Waiting...")
+        self.ai_recombine_status.setStyleSheet("color: gray;")
