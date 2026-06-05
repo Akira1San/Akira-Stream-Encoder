@@ -4,7 +4,7 @@ Color Correction (EQ) Panel (PySide6)
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
     QSlider, QPushButton, QFrame, QComboBox, QFileDialog,
-    QGroupBox
+    QGroupBox, QSpinBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 import os
@@ -331,6 +331,85 @@ class ColorCorrectionPanel(QWidget):
         self.lut_group.setEnabled(self.app_state.colorization.enabled and c.method == "lut")
         layout.addWidget(self.lut_group)
 
+        # === AI Colorization Section ===
+        line4 = QFrame()
+        line4.setFrameShape(QFrame.HLine)
+        line4.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line4)
+
+        self.ai_enable_check = QCheckBox("Enable AI Colorization")
+        self.ai_enable_check.setChecked(self.app_state.ai_colorization.enabled)
+        self.ai_enable_check.setToolTip(
+            "Deep learning-based colorization using PyTorch.\n"
+            "ECCV16: Lightweight, runs on CPU/GPU (~15-60 fps)\n"
+            "DeOldify: Premium, GPU only (~8-12 fps)"
+        )
+        layout.addWidget(self.ai_enable_check)
+
+        self.ai_group = QGroupBox("AI Colorization Settings")
+        ai_layout = QVBoxLayout(self.ai_group)
+
+        # Engine selector
+        engine_row = QHBoxLayout()
+        engine_row.addWidget(QLabel("Engine:"))
+        self.ai_engine_combo = QComboBox()
+        self.ai_engine_combo.addItems(["ECCV16 (Lightweight)", "DeOldify (Premium)"])
+        self.ai_engine_combo.setCurrentText("ECCV16 (Lightweight)")
+        self.ai_engine_combo.setToolTip(
+            "ECCV16: Small CNN, runs on CPU/GPU, plausible colors, washed-out\n"
+            "DeOldify: ResNet U-Net, GPU only, vibrant colors, requires fastai"
+        )
+        engine_row.addWidget(self.ai_engine_combo)
+        engine_row.addStretch()
+        ai_layout.addLayout(engine_row)
+
+        # Device selector
+        device_row = QHBoxLayout()
+        device_row.addWidget(QLabel("Device:"))
+        self.ai_device_combo = QComboBox()
+        self.ai_device_combo.addItems(["cuda:0 (GPU)", "cpu (CPU)"])
+        self.ai_device_combo.setCurrentText(
+            "cuda:0 (GPU)" if "cuda" in self.app_state.ai_colorization.gpu_device else "cpu (CPU)"
+        )
+        self.ai_device_combo.setToolTip("GPU: Fast inference with CUDA\nCPU: Slower but compatible")
+        device_row.addWidget(self.ai_device_combo)
+        device_row.addStretch()
+        ai_layout.addLayout(device_row)
+
+        # Saturation slider
+        self.ai_sat_slider = self.create_slider(
+            "Saturation", self.app_state.ai_colorization.saturation,
+            0.1, 2.0, 1.0,
+            "Color saturation boost after AI colorization.\n"
+            "1.0 = No change, 0.1 = Desaturated, 2.0 = Vibrant"
+        )
+        ai_layout.addLayout(self.ai_sat_slider['layout'])
+
+        # Batch Size and FP16 in one row
+        batch_fp16_row = QHBoxLayout()
+        batch_fp16_row.addWidget(QLabel("Batch Size:"))
+        self.ai_batch_spin = QSpinBox()
+        self.ai_batch_spin.setRange(1, 128)
+        self.ai_batch_spin.setValue(self.app_state.ai_colorization.batch_size)
+        self.ai_batch_spin.setToolTip(
+            "Frames processed simultaneously on GPU.\n"
+            "Higher = faster but uses more VRAM.\n"
+            "8 is safe for ECCV16 on 8GB+ GPUs."
+        )
+        batch_fp16_row.addWidget(self.ai_batch_spin)
+        batch_fp16_row.addStretch()
+        self.ai_fp16_check = QCheckBox("FP16 (Half Precision)")
+        self.ai_fp16_check.setChecked(self.app_state.ai_colorization.fp16)
+        self.ai_fp16_check.setToolTip(
+            "Use half-precision (float16) for ~2x faster inference.\n"
+            "Only applies to GPU mode."
+        )
+        batch_fp16_row.addWidget(self.ai_fp16_check)
+        ai_layout.addLayout(batch_fp16_row)
+
+        self.ai_group.setEnabled(self.app_state.ai_colorization.enabled)
+        layout.addWidget(self.ai_group)
+
         layout.addStretch()
         
     def create_slider(self, label_text, value, min_val, max_val, default_val, tooltip=""):
@@ -440,6 +519,16 @@ class ColorCorrectionPanel(QWidget):
         self.lut_type_combo.currentTextChanged.connect(self.on_lut_type_changed)
         self.lut_browse_btn.clicked.connect(self.on_lut_browse)
         
+        # AI Colorization signals
+        self.ai_enable_check.toggled.connect(self.on_ai_enable_changed)
+        self.ai_engine_combo.currentTextChanged.connect(self.on_ai_engine_changed)
+        self.ai_device_combo.currentTextChanged.connect(self.on_ai_device_changed)
+        self.ai_sat_slider['slider'].valueChanged.connect(
+            lambda v: self.on_ai_slider_changed(v, self.ai_sat_slider, 'saturation')
+        )
+        self.ai_batch_spin.valueChanged.connect(self.on_ai_batch_changed)
+        self.ai_fp16_check.toggled.connect(self.on_ai_fp16_changed)
+        
     def update_engine_state(self):
         """Disable/enable EQ UI controls based on current backend's supported_filters()."""
         try:
@@ -530,6 +619,20 @@ class ColorCorrectionPanel(QWidget):
         is_lut = cz_en and method == "lut"
         self.lut_type_combo.setEnabled(is_lut)
         self.lut_browse_btn.setEnabled(is_lut)
+
+        # AI Colorization
+        ai_supported = support.get('ai_colorization', False)
+        self._set_enabled_with_tip(
+            self.ai_enable_check, ai_supported,
+            "AI Colorization" if is_gst else ""
+        )
+        ai_en = ai_supported and self.app_state.ai_colorization.enabled
+        self.ai_group.setEnabled(ai_en)
+        self.ai_engine_combo.setEnabled(ai_en)
+        self.ai_device_combo.setEnabled(ai_en)
+        self.ai_sat_slider['slider'].setEnabled(ai_en)
+        self.ai_batch_spin.setEnabled(ai_en)
+        self.ai_fp16_check.setEnabled(ai_en and "cuda" in self.app_state.ai_colorization.gpu_device)
 
     def _set_enabled_with_tip(self, widget, supported, feature_name):
         """Set a widget's enabled state; if not supported, append note to tooltip."""
@@ -806,6 +909,53 @@ class ColorCorrectionPanel(QWidget):
             self.lut_path_label.setStyleSheet("color: white; font-size: 10px;")
             self.settings_changed.emit()
 
+    # ---- AI Colorization Handlers ----
+
+    def on_ai_enable_changed(self, checked):
+        """Handle AI colorization enable checkbox change"""
+        self.app_state.ai_colorization.enabled = checked
+        self.update_engine_state()
+        self.settings_changed.emit()
+
+    def on_ai_engine_changed(self, text):
+        """Handle AI engine selection change"""
+        engine_map = {
+            "ECCV16 (Lightweight)": "eccv16",
+            "DeOldify (Premium)": "deoldify",
+        }
+        self.app_state.ai_colorization.engine = engine_map.get(text, "eccv16")
+        self.settings_changed.emit()
+
+    def on_ai_device_changed(self, text):
+        """Handle AI device selection change"""
+        device_map = {
+            "cuda:0 (GPU)": "cuda:0",
+            "cpu (CPU)": "cpu",
+        }
+        self.app_state.ai_colorization.gpu_device = device_map.get(text, "cuda:0")
+        self.ai_fp16_check.setEnabled(
+            self.app_state.ai_colorization.enabled and "cuda" in self.app_state.ai_colorization.gpu_device
+        )
+        self.settings_changed.emit()
+
+    def on_ai_slider_changed(self, value, slider_dict, attr_name):
+        """Handle AI slider value change"""
+        multiplier = slider_dict['slider'].property("multiplier")
+        float_value = value / multiplier
+        slider_dict['value_label'].setText(f"{float_value:.2f}")
+        setattr(self.app_state.ai_colorization, attr_name, float_value)
+        self.settings_changed.emit()
+
+    def on_ai_batch_changed(self, value):
+        """Handle AI batch size change"""
+        self.app_state.ai_colorization.batch_size = value
+        self.settings_changed.emit()
+
+    def on_ai_fp16_changed(self, checked):
+        """Handle AI FP16 checkbox change"""
+        self.app_state.ai_colorization.fp16 = checked
+        self.settings_changed.emit()
+
     def reset_defaults(self):
         """Reset all EQ settings to defaults"""
         self.app_state.eq.brightness = 0.0
@@ -885,8 +1035,33 @@ class ColorCorrectionPanel(QWidget):
         self.lut_type_combo.setCurrentText("lut3d")
         self.lut_path_label.setText("No LUT file selected")
         self.lut_path_label.setStyleSheet("color: gray; font-size: 10px;")
+        # Reset AI colorization
+        self._reset_ai_colorization()
         # Re-apply engine state
         self.update_engine_state()
             
         self.settings_changed.emit()
         self.app_state.log("EQ settings reset to defaults", "INFO")
+
+    # ── AI Colorization Reset ──
+
+    def _reset_ai_colorization(self):
+        """Reset AI colorization settings to defaults"""
+        ai = self.app_state.ai_colorization
+        ai.enabled = False
+        ai.engine = "eccv16"
+        ai.saturation = 1.0
+        ai.fp16 = True
+        ai.gpu_device = "cuda:0"
+        ai.batch_size = 8
+        # Update UI
+        self.ai_enable_check.setChecked(False)
+        self.ai_engine_combo.setCurrentText("ECCV16 (Lightweight)")
+        self.ai_device_combo.setCurrentText("cuda:0 (GPU)")
+        self.ai_fp16_check.setChecked(True)
+        self.ai_batch_spin.setValue(8)
+        m_sat = self.ai_sat_slider['slider'].property("multiplier")
+        self.ai_sat_slider['slider'].blockSignals(True)
+        self.ai_sat_slider['slider'].setValue(int(1.0 * m_sat))
+        self.ai_sat_slider['slider'].blockSignals(False)
+        self.ai_sat_slider['value_label'].setText("1.00")
