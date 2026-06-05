@@ -479,6 +479,8 @@ class FFmpegBackend(MediaBackend):
             'white_balance': True,
             # Colorization (B&W → Color)
             'colorization': True,
+            # AI Colorization (ECCV16 / DeOldify)
+            'ai_colorization': True,
             # Audio filters
             'volume': True,
             'audio_denoise': True,

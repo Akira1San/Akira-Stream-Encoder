@@ -183,6 +183,9 @@ class MediaBackend(ABC):
           Colorization (B&W → Color):
             - 'colorization'        (colorchannelmixer / pseudocolor / lut3d)
 
+          AI Colorization:
+            - 'ai_colorization'     (ECCV16 / DeOldify PyTorch)
+
           Audio filters:
             - 'volume'
             - 'audio_denoise'

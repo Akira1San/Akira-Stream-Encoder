@@ -375,6 +375,17 @@ class CutSettings:
 
 
 @dataclass
+class AIColorizationSettings:
+    """AI colorization settings (ECCV16 / DeOldify)"""
+    enabled: bool = False
+    engine: str = "eccv16"              # "eccv16" / "deoldify"
+    saturation: float = 1.0             # 0.1 - 2.0
+    fp16: bool = True
+    gpu_device: str = "cuda:0"          # "cuda:0" / "cpu"
+    batch_size: int = 8                 # Frames per GPU inference batch
+
+
+@dataclass
 class AIUpscalingSettings:
     """AI upscaling settings (Real-ESRGAN / Anime4K via ncnn-vulkan)"""
     enabled: bool = False
@@ -498,6 +509,7 @@ class AppState(QObject):
         self.cut = CutSettings()
         self.dvd = DVDSettings()
         self.colorization = ColorizationSettings()
+        self.ai_colorization = AIColorizationSettings()
         self.ai_upscaling = AIUpscalingSettings()
         self.extra = ExtraSettings()
         

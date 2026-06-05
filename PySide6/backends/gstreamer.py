@@ -1254,6 +1254,8 @@ class GStreamerBackend(MediaBackend):
             'white_balance': False,  # colorbalance not available in GStreamer
             # Colorization (B&W → Color)
             'colorization': False,
+            # AI Colorization (ECCV16 / DeOldify)
+            'ai_colorization': False,
             # Audio filters
             'volume': self._element_available('volume'),
             'audio_denoise': False,  # webrtcdsp / audiochebband not implemented

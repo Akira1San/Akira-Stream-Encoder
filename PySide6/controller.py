@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+import numpy as np
 
 from models import AppState
 from handbrake_handler import HandBrakeHandler, ISO639_1_TO_639_2
@@ -98,6 +99,10 @@ class VideoController:
         Returns:
             True if successful, False otherwise
         """
+        # ── AI Colorization (ECCV16 / DeOldify) ──
+        if self.app_state.ai_colorization.enabled:
+            return self._encode_with_ai_colorization(input_path, output_path, progress_callback)
+
         # ── Extra: Standalone generated video ──
         if self.app_state.extra.generate_video:
             return self._encode_generated_video(output_path, progress_callback)
@@ -398,6 +403,204 @@ class VideoController:
         finally:
             self.is_encoding = False
             self.current_process = None
+
+    def _get_colorizer(self):
+        """Lazy-load the AI colorizer based on current settings."""
+        ai = self.app_state.ai_colorization
+        engine = ai.engine
+
+        if engine == "eccv16":
+            from colorizers.eccv16 import ECCV16
+            weight_path = os.path.join(
+                os.path.dirname(__file__),
+                "colorizers", "models", "colorization_release_v2-9b330a0b.pth"
+            )
+            if not os.path.isfile(weight_path):
+                self.app_state.log(
+                    f"ECCV16 weights not found at: {weight_path}. "
+                    f"Download from: https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v2-9b330a0b.pth",
+                    "ERROR"
+                )
+                return None
+            device = ai.gpu_device if ai.gpu_device else "cuda:0"
+            colorizer = ECCV16(
+                weight_path=weight_path,
+                device=device,
+                fp16=ai.fp16,
+                batch_size=ai.batch_size,
+            )
+            return colorizer
+        elif engine == "deoldify":
+            self.app_state.log("DeOldify engine not yet implemented", "ERROR")
+            return None
+        else:
+            self.app_state.log(f"Unknown AI colorization engine: {engine}", "ERROR")
+            return None
+
+    def _encode_with_ai_colorization(self, input_path: str, output_path: str,
+                                      progress_callback=None) -> bool:
+        """Encode video with AI colorization using pipe-based pipeline."""
+        ai = self.app_state.ai_colorization
+        encoder = self.app_state.encoding.encoder
+
+        self.app_state.log(
+            f"AI Colorization: engine={ai.engine}, device={ai.gpu_device}, "
+            f"batch={ai.batch_size}, fp16={ai.fp16}",
+            "INFO"
+        )
+
+        colorizer = self._get_colorizer()
+        if colorizer is None:
+            return False
+
+        try:
+            # ── Query input video properties ──
+            vinfo = self.backend.get_video_tracks(input_path)
+            if not vinfo:
+                self.app_state.log("No video track found in input", "ERROR")
+                return False
+            vtrack = vinfo[0]
+            W, H = vtrack.get('width', 0), vtrack.get('height', 0)
+            if W == 0 or H == 0:
+                self.app_state.log("Could not determine video resolution", "ERROR")
+                return False
+
+            fps = self.backend.get_fps(input_path)
+            if fps <= 0:
+                fps = 24000.0 / 1001.0
+
+            vid_duration = self.backend.get_duration(input_path)
+            total_frames = int(vid_duration * fps) if vid_duration > 0 else 0
+            frame_bytes_luma = W * H
+            frame_bytes_rgb = W * H * 3
+
+            self.app_state.log(
+                f"Input: {W}x{H} @ {fps:.2f} fps, ~{total_frames} frames",
+                "INFO"
+            )
+
+            # ── Weight output path suffix ──
+            base, ext = os.path.splitext(output_path)
+            temp_output = f"{base}_ai_color{ext}"
+
+            # ── Spawn decode + encode subprocesses ──
+            ffmpeg = self.app_state.ffmpeg_path
+
+            decode_cmd = [
+                ffmpeg, "-i", input_path,
+                "-f", "rawvideo", "-pix_fmt", "gray",
+                "-s", f"{W}x{H}", "-r", str(fps),
+                "-vcodec", "rawvideo", "-an", "-sn",
+                "-"
+            ]
+            encode_cmd = [
+                ffmpeg, "-y",
+                "-f", "rawvideo", "-pix_fmt", "rgb24",
+                "-s", f"{W}x{H}", "-r", str(fps),
+                "-i", "-",
+                "-i", input_path,
+                "-map", "0:v", "-map", "1:a?",
+                "-c:v", encoder, "-c:a", "copy",
+                "-shortest",
+                temp_output
+            ]
+
+            decode_proc = subprocess.Popen(
+                decode_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            encode_proc = subprocess.Popen(
+                encode_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+
+            self.current_process = encode_proc
+            self.is_encoding = True
+
+            # ── Pipe frames through colorizer ──
+            batch_buffer = []
+            batch_size = ai.batch_size
+            frames_processed = 0
+            last_progress = 0
+            stream = decode_proc.stdout
+            buf = b""
+
+            while True:
+                chunk = stream.read(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while len(buf) >= frame_bytes_luma:
+                    frame_data = buf[:frame_bytes_luma]
+                    buf = buf[frame_bytes_luma:]
+                    luma = np.frombuffer(frame_data, dtype=np.uint8).reshape(H, W)
+                    luma_norm = luma.astype(np.float32) / 255.0
+                    batch_buffer.append(luma_norm)
+                    if len(batch_buffer) >= batch_size:
+                        self._flush_ai_batch(batch_buffer, colorizer, encode_proc, ai)
+                        frames_processed += len(batch_buffer)
+                        batch_buffer = []
+                        if progress_callback and total_frames > 0:
+                            pct = min(99, int(frames_processed / total_frames * 100))
+                            if abs(pct - last_progress) >= 2:
+                                progress_callback(pct)
+                                last_progress = pct
+
+            if batch_buffer:
+                self._flush_ai_batch(batch_buffer, colorizer, encode_proc, ai)
+                frames_processed += len(batch_buffer)
+                batch_buffer = []
+
+            encode_proc.stdin.close()
+            decode_proc.wait()
+            encode_proc.wait()
+
+            if progress_callback:
+                progress_callback(100)
+
+            if encode_proc.returncode == 0 and os.path.exists(temp_output):
+                self.app_state.log(
+                    f"✅ AI colorization complete: {os.path.basename(temp_output)} "
+                    f"({frames_processed} frames)",
+                    "SUCCESS"
+                )
+                os.replace(temp_output, output_path)
+                self._append_command_log(output_path, f"Result: AI colorized ({ai.engine})")
+                return True
+            else:
+                self.app_state.log(
+                    f"❌ AI colorization encode failed (code {encode_proc.returncode})",
+                    "ERROR"
+                )
+                if os.path.exists(temp_output):
+                    os.remove(temp_output)
+                self._append_command_log(output_path, f"Result: Failed (code {encode_proc.returncode})")
+                return False
+
+        except ImportError as e:
+            self.app_state.log(
+                f"❌ AI colorization requires torch, numpy, opencv: {e}",
+                "ERROR"
+            )
+            return False
+        except Exception as e:
+            self.app_state.log(f"❌ AI colorization error: {e}", "ERROR")
+            self._append_command_log(output_path, f"Result: Error - {e}")
+            return False
+        finally:
+            self.is_encoding = False
+            self.current_process = None
+
+    @staticmethod
+    def _flush_ai_batch(batch_buffer, colorizer, encode_proc, ai):
+        """Colorize a batch of frames and write to encode pipe."""
+        batch_arr = np.stack(batch_buffer, axis=0)
+        rgb_batch = colorizer.colorize_batch(batch_arr)
+        if ai.saturation != 1.0:
+            from colorizers.utils import apply_saturation
+            for i in range(len(rgb_batch)):
+                rgb_batch[i] = apply_saturation(rgb_batch[i], ai.saturation)
+        for frame in rgb_batch:
+            encode_proc.stdin.write(frame.tobytes())
 
     def cancel_encode(self):
         """Cancel the current encoding operation"""
