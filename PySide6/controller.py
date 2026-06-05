@@ -539,10 +539,15 @@ class VideoController:
                         self._flush_ai_batch(batch_buffer, colorizer, encode_proc, ai)
                         frames_processed += len(batch_buffer)
                         batch_buffer = []
-                        if progress_callback and total_frames > 0:
+                        if total_frames > 0:
                             pct = min(99, int(frames_processed / total_frames * 100))
-                            if abs(pct - last_progress) >= 2:
-                                progress_callback(pct)
+                            if abs(pct - last_progress) >= 5:
+                                self.app_state.log(
+                                    f"🎨 AI Colorization: {pct}% ({frames_processed}/{total_frames} frames)",
+                                    "INFO"
+                                )
+                                if progress_callback:
+                                    progress_callback(pct)
                                 last_progress = pct
 
             if batch_buffer:
@@ -556,6 +561,8 @@ class VideoController:
 
             if progress_callback:
                 progress_callback(100)
+
+            self.app_state.log(f"🎨 AI Colorization: 100% ({frames_processed} frames processed)", "INFO")
 
             if encode_proc.returncode == 0 and os.path.exists(temp_output):
                 self.app_state.log(
