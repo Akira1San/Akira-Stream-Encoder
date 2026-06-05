@@ -1483,6 +1483,9 @@ class EncodingPanel(QWidget):
             if self.app_state.encoding.audio_codec not in ("libopus", "libvorbis"):
                 self.audio_codec_combo.setCurrentText("libopus")
                 self.app_state.encoding.audio_codec = "libopus"
+            if self.app_state.encoding.audio_sample_rate not in ("48000", "24000", "16000", "12000", "8000"):
+                self.sample_rate_combo.setCurrentText("48000 Hz")
+                self.app_state.encoding.audio_sample_rate = "48000"
             self.bframes_combo.setCurrentText("0")
             self.app_state.encoding.bframes = "0"
             self.gop_combo.setCurrentText("144")
@@ -1494,6 +1497,9 @@ class EncodingPanel(QWidget):
             if self.app_state.encoding.audio_codec not in ("libopus", "libvorbis"):
                 self.audio_codec_combo.setCurrentText("libopus")
                 self.app_state.encoding.audio_codec = "libopus"
+            if self.app_state.encoding.audio_sample_rate not in ("48000", "24000", "16000", "12000", "8000"):
+                self.sample_rate_combo.setCurrentText("48000 Hz")
+                self.app_state.encoding.audio_sample_rate = "48000"
             self.bframes_combo.setCurrentText("0")
             self.app_state.encoding.bframes = "0"
             self.gop_combo.setCurrentText("144")
