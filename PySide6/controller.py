@@ -692,43 +692,13 @@ class VideoController:
             total_files += len(frames)
 
             batch_buffer = []
+            batch_paths = []
             batch_size = ai.batch_size
 
-            for fname in frames:
-                src_path = os.path.join(src_dir, fname)
-                out_path = os.path.join(out_dir, fname)
-                if os.path.isfile(out_path):
-                    processed += 1
-                    continue
-
-                import cv2
-                gray = cv2.imread(src_path, cv2.IMREAD_GRAYSCALE)
-                if gray is None:
-                    continue
-                luma_norm = gray.astype(np.float32) / 255.0
-                batch_buffer.append(luma_norm)
-
-                if len(batch_buffer) >= batch_size:
-                    batch_arr = np.stack(batch_buffer, axis=0)
-                    rgb_batch = colorizer.colorize_batch(batch_arr)
-                    needs_pp = ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0
-                    if needs_pp:
-                        from colorizers.utils import apply_postprocessing
-                        for i in range(len(rgb_batch)):
-                            rgb_batch[i] = apply_postprocessing(
-                                rgb_batch[i], ai.saturation, ai.contrast, ai.denoise
-                            )
-                    for frame_rgb in rgb_batch:
-                        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                        cv2.imwrite(out_path, frame_bgr)
-                    processed += len(batch_buffer)
-                    batch_buffer = []
-
-                    if progress_callback and total_files > 0:
-                        progress_callback(int(processed / total_files * 100))
-
-            if batch_buffer:
-                batch_arr = np.stack(batch_buffer, axis=0)
+            def _flush_disk_batch(buf, paths):
+                if not buf:
+                    return
+                batch_arr = np.stack(buf, axis=0)
                 rgb_batch = colorizer.colorize_batch(batch_arr)
                 needs_pp = ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0
                 if needs_pp:
@@ -737,9 +707,35 @@ class VideoController:
                         rgb_batch[i] = apply_postprocessing(
                             rgb_batch[i], ai.saturation, ai.contrast, ai.denoise
                         )
-                for frame_rgb in rgb_batch:
+                for frame_rgb, out_p in zip(rgb_batch, paths):
                     frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                    cv2.imwrite(out_path, frame_bgr)
+                    cv2.imwrite(out_p, frame_bgr)
+
+            import cv2
+            for fname in frames:
+                src_path = os.path.join(src_dir, fname)
+                out_path = os.path.join(out_dir, fname)
+                if os.path.isfile(out_path):
+                    processed += 1
+                    continue
+
+                gray = cv2.imread(src_path, cv2.IMREAD_GRAYSCALE)
+                if gray is None:
+                    continue
+                luma_norm = gray.astype(np.float32) / 255.0
+                batch_buffer.append(luma_norm)
+                batch_paths.append(out_path)
+
+                if len(batch_buffer) >= batch_size:
+                    _flush_disk_batch(batch_buffer, batch_paths)
+                    processed += len(batch_buffer)
+                    batch_buffer = []
+                    batch_paths = []
+
+                    if progress_callback and total_files > 0:
+                        progress_callback(int(processed / total_files * 100))
+
+            _flush_disk_batch(batch_buffer, batch_paths)
 
             self.app_state.log(f"🎨 Part {part_name}: {len(frames)} frames colorized", "INFO")
 

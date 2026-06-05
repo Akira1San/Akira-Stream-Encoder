@@ -237,6 +237,17 @@ class SIGGRAPH17(Colorizer):
         """Convert normalized L [0,1] to centered L* [-50, 50] as expected by the model."""
         return l_channel * 100.0 - 50.0
 
+    @staticmethod
+    def _pad_to_multiple(tensor, multiple=8):
+        """Pad spatial dims to multiples of `multiple` using reflection padding."""
+        h, w = tensor.shape[-2:]
+        pad_h = (multiple - h % multiple) % multiple
+        pad_w = (multiple - w % multiple) % multiple
+        if pad_h == 0 and pad_w == 0:
+            return tensor, h, w
+        import torch.nn.functional as F
+        return F.pad(tensor, (0, pad_w, 0, pad_h), mode='reflect'), h, w
+
     def colorize_frame(self, l_channel: np.ndarray) -> np.ndarray:
         """Take L channel (HxW float32 0-1), return RGB (HxWx3 uint8)."""
         self._load()
@@ -246,9 +257,10 @@ class SIGGRAPH17(Colorizer):
         input_tensor = input_tensor.to(self._device)
         if self._fp16:
             input_tensor = input_tensor.half()
+        input_tensor, orig_h, _ = self._pad_to_multiple(input_tensor)
         with torch.no_grad():
             pred_ab = self._model(input_tensor)
-        pred_ab = pred_ab.squeeze(0).cpu().numpy().transpose(1, 2, 0)
+        pred_ab = pred_ab[..., :orig_h, :].squeeze(0).cpu().numpy().transpose(1, 2, 0)
         rgb = luma_to_rgb(l_channel, pred_ab)
         return rgb
 
@@ -261,9 +273,10 @@ class SIGGRAPH17(Colorizer):
         input_tensor = input_tensor.to(self._device)
         if self._fp16:
             input_tensor = input_tensor.half()
+        input_tensor, orig_h, orig_w = self._pad_to_multiple(input_tensor)
         with torch.no_grad():
             pred_ab = self._model(input_tensor)
-        pred_ab = pred_ab.cpu().numpy().transpose(0, 2, 3, 1)
+        pred_ab = pred_ab[..., :orig_h, :orig_w].cpu().numpy().transpose(0, 2, 3, 1)
         results = []
         for i in range(B):
             rgb = luma_to_rgb(l_batch[i], pred_ab[i])
