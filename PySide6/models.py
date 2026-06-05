@@ -385,6 +385,8 @@ class AIColorizationSettings:
     fp16: bool = True
     gpu_device: str = "cuda:0"          # "cuda:0" / "cpu"
     batch_size: int = 8                 # Frames per GPU inference batch
+    deoldify_model: str = "video"       # "video" / "artistic" / "stable"
+    render_factor: int = 21             # 10-45, DeOldify render resolution multiplier
     frames_dir: str = ""
     frames_extracted: bool = False
     frames_colorized: bool = False

@@ -452,8 +452,31 @@ class VideoController:
             )
             return colorizer
         elif engine == "deoldify":
-            self.app_state.log("DeOldify engine not yet implemented", "ERROR")
-            return None
+            from colorizers.deoldify import DeOldifyColorizer
+            variant = ai.deoldify_model if hasattr(ai, 'deoldify_model') else 'video'
+            weight_files = {
+                'video': 'ColorizeVideo_gen.pth',
+                'artistic': 'ColorizeArtistic_gen.pth',
+                'stable': 'ColorizeStable_gen.pth',
+            }
+            weight_name = weight_files.get(variant, 'ColorizeVideo_gen.pth')
+            weight_path = os.path.join(os.path.dirname(__file__), "colorizers", "models", weight_name)
+            if not os.path.isfile(weight_path):
+                self.app_state.log(
+                    f"DeOldify ({variant}) weights not found at: {weight_path}. "
+                    f"Download from data.deepai.org/deoldify/{weight_name}",
+                    "ERROR"
+                )
+                return None
+            device = ai.gpu_device if ai.gpu_device else "cuda:0"
+            colorizer = DeOldifyColorizer(
+                weight_path=weight_path,
+                device=device,
+                fp16=ai.fp16,
+                render_factor=ai.render_factor,
+                model_variant=variant,
+            )
+            return colorizer
         else:
             self.app_state.log(f"Unknown AI colorization engine: {engine}", "ERROR")
             return None

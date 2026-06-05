@@ -382,6 +382,41 @@ class ColorCorrectionPanel(QWidget):
         device_row.addStretch()
         ai_layout.addLayout(device_row)
 
+        # DeOldify-specific: model variant + render factor
+        self.ai_deoldify_widgets = []
+
+        mv_row = QHBoxLayout()
+        mv_row.addWidget(QLabel("DeOldify Model:"))
+        self.ai_deoldify_model_combo = QComboBox()
+        self.ai_deoldify_model_combo.addItems(["Video (ResNet101)", "Artistic (ResNet34)", "Stable (ResNet101)"])
+        current_mv = getattr(self.app_state.ai_colorization, 'deoldify_model', 'video')
+        mv_idx = {"video": 0, "artistic": 1, "stable": 2}.get(current_mv, 0)
+        self.ai_deoldify_model_combo.setCurrentIndex(mv_idx)
+        self.ai_deoldify_model_combo.setToolTip(
+            "Video: Best for video, temporal coherence (834 MB)\n"
+            "Artistic: Best for artistic stills (243 MB)\n"
+            "Stable: Balanced quality (834 MB)"
+        )
+        mv_row.addWidget(self.ai_deoldify_model_combo)
+        mv_row.addStretch()
+        ai_layout.addLayout(mv_row)
+        self.ai_deoldify_widgets.append(self.ai_deoldify_model_combo)
+
+        rf_row = QHBoxLayout()
+        rf_row.addWidget(QLabel("Render Factor:"))
+        self.ai_render_factor_spin = QSpinBox()
+        self.ai_render_factor_spin.setRange(10, 45)
+        self.ai_render_factor_spin.setValue(getattr(self.app_state.ai_colorization, 'render_factor', 21))
+        self.ai_render_factor_spin.setToolTip(
+            "Base resolution multiplier (render_factor * 16 = px).\n"
+            "Higher = better quality but slower.\n"
+            "21 = 336px (default), 30 = 480px, 45 = 720px"
+        )
+        rf_row.addWidget(self.ai_render_factor_spin)
+        rf_row.addStretch()
+        ai_layout.addLayout(rf_row)
+        self.ai_deoldify_widgets.append(self.ai_render_factor_spin)
+
         # Saturation slider
         self.ai_sat_slider = self.create_slider(
             "Saturation", self.app_state.ai_colorization.saturation,
@@ -430,6 +465,11 @@ class ColorCorrectionPanel(QWidget):
         )
         batch_fp16_row.addWidget(self.ai_fp16_check)
         ai_layout.addLayout(batch_fp16_row)
+
+        # Show/hide DeOldify widgets based on initial engine
+        is_deoldify = self.app_state.ai_colorization.engine == "deoldify"
+        for w in self.ai_deoldify_widgets:
+            w.setVisible(is_deoldify)
 
         # ── Pipeline Buttons ──
         pipeline_line = QFrame()
@@ -608,6 +648,8 @@ class ColorCorrectionPanel(QWidget):
         self.ai_enable_check.toggled.connect(self.on_ai_enable_changed)
         self.ai_engine_combo.currentTextChanged.connect(self.on_ai_engine_changed)
         self.ai_device_combo.currentTextChanged.connect(self.on_ai_device_changed)
+        self.ai_deoldify_model_combo.currentTextChanged.connect(self.on_ai_deoldify_model_changed)
+        self.ai_render_factor_spin.valueChanged.connect(self.on_ai_render_factor_changed)
         self.ai_sat_slider['slider'].valueChanged.connect(
             lambda v: self.on_ai_slider_changed(v, self.ai_sat_slider, 'saturation')
         )
@@ -1026,6 +1068,18 @@ class ColorCorrectionPanel(QWidget):
             "DeOldify (Premium)": "deoldify",
         }
         self.app_state.ai_colorization.engine = engine_map.get(text, "eccv16")
+        is_deoldify = self.app_state.ai_colorization.engine == "deoldify"
+        for w in getattr(self, 'ai_deoldify_widgets', []):
+            w.setVisible(is_deoldify)
+        self.settings_changed.emit()
+
+    def on_ai_deoldify_model_changed(self, text):
+        mv_map = {"Video (ResNet101)": "video", "Artistic (ResNet34)": "artistic", "Stable (ResNet101)": "stable"}
+        self.app_state.ai_colorization.deoldify_model = mv_map.get(text, "video")
+        self.settings_changed.emit()
+
+    def on_ai_render_factor_changed(self, value):
+        self.app_state.ai_colorization.render_factor = value
         self.settings_changed.emit()
 
     def on_ai_device_changed(self, text):

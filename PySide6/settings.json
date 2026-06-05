@@ -4,6 +4,6 @@
   "handbrake_path": "HandBrakeCLI",
   "media_engine": "ffmpeg",
   "gstreamer_path": "gst-launch-1.0",
-  "realesrgan_path": "",
+  "realesrgan_path": "/home/akira/Downloads/realesrgan-ncnn-vulkan-20220424-ubuntu/realesrgan-ncnn-vulkan",
   "anime4k_path": ""
 }
