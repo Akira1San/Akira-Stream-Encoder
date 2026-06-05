@@ -35,7 +35,7 @@ non-AI colorization (Tint/Pseudocolor/LUT) from the Color Correction panel.
 | Python | 3.13.5 | ✅ |
 | PyTorch | 2.6.0 (cu124) | ✅ |
 | torchvision | 0.21.0 | ✅ |
-| fastai | **Not installed** |
+| fastai | **Installed (broken on Python 3.13)** — used pure PyTorch reimplementation |
 | OpenCV (cv2) | 4.13.0 (headless) | ✅ |
 | CUDA Driver | 580.142 (CUDA 13.0) | ✅ |
 | GPU | NVIDIA (available) | ✅ |
@@ -181,25 +181,25 @@ Python:  read raw luma bytes → reshape → normalize → torch → model.forwa
 FFmpeg:  -f rawvideo -pix_fmt rgb24 -s {W}x{H} -r {fps} -i -
 ```
 
-### Phase 2 — DeOldify Integration
+### Phase 2 — DeOldify Integration ✅
 
 | # | Step | Files | Details |
 |---|---|---|---|---|
-| 2.1 | Install fastai | — | `pip install fastai` |
-| 2.2 | Download weights | `colorizers/models/` | `ColorizeVideo_gen.pth` (834 MB) |
-| 2.3 | Port DeOldify | `colorizers/deoldify.py` | Wrap `deoldify.visualize.VideoColorizer` or reimplement with raw PyTorch (to avoid heavyweight fastai dep); load pretrained U-Net |
-| 2.4 | Render factor support | `colorizers/deoldify.py` | Map `render_factor` to internal resolution scaling |
-| 2.5 | Temporal smoothing | `colorizers/deoldify.py` | Frame overlap / optical flow blending for flicker reduction |
+| 2.1 | Install fastai | — | `pip install fastai` — SKIPPED: fastai 2.8.7 broken on Python 3.13 (callback.py vs callback/ shadow); used pure PyTorch reimplementation instead | ❌ (see note) |
+| 2.2 | Download weights | `colorizers/models/` | `ColorizeVideo_gen.pth` (834 MB), `ColorizeArtistic_gen.pth` (243 MB) | ✅ |
+| 2.3 | Port DeOldify | `colorizers/deoldify.py` | Pure PyTorch reimplementation matching checkpoint architecture: `DynamicUnetWide` (Video/Stable) + `DynamicUnetDeep` (Artistic); 0 missing / 0 unexpected weights | ✅ |
+| 2.4 | Render factor support | `colorizers/deoldify.py` | Map `render_factor` to internal resolution scaling (10-45) | ✅ |
+| 2.5 | Temporal smoothing | `colorizers/deoldify.py` | Frame overlap / optical flow blending for flicker reduction | ⏳ |
 
 ### Phase 3 — Integration into App ✅
 
 | # | Step | Files | Details |
-|---|---|---|---|
+|---|---|---|---|---|
 | 3.1 | Add AI colorization panel | `colorizers/panel.py` OR extend `color_correction.py` | New "AI Colorization" section: engine selector, DeOldify model variant, render factor, saturation, device | ✅ |
 | 3.2 | Wire into controller | `controller.py` | New `encode_with_ai_colorization()` method; orchestrates FFmpeg decode → colorizer → FFmpeg encode pipeline | ✅ |
 | 3.3 | Preview support | `video_preview.py` — `apply_filters()` | If AI colorization enabled and frame is grayscale, run it through the colorizer; **performance concern**: run on separate thread, cache result |
 | 3.4 | Progress reporting | `controller.py` | Report per-frame progress during encode | ✅ |
-| 3.5 | GPU memory management | `colorizers/base.py` | Batch sizing, CUDA memory cleanup, fallback to CPU |
+| 3.5 | GPU memory management | `colorizers/base.py` | Batch sizing, CUDA memory cleanup, fallback to CPU | ✅ |
 
 ### Phase 4 — Polish
 
