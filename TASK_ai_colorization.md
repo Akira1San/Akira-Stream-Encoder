@@ -32,13 +32,13 @@ non-AI colorization (Tint/Pseudocolor/LUT) from the Color Correction panel.
 
 | Item | Status |
 |---|---|
-| Python | 3.13.5 |
-| PyTorch | **Not installed** |
-| torchvision | **Not installed** |
+| Python | 3.13.5 | ✅ |
+| PyTorch | 2.6.0 (cu124) | ✅ |
+| torchvision | 0.21.0 | ✅ |
 | fastai | **Not installed** |
-| OpenCV (cv2) | **Not installed** |
-| CUDA Driver | 580.142 (CUDA 13.0) |
-| GPU | NVIDIA (available) |
+| OpenCV (cv2) | 4.13.0 (headless) | ✅ |
+| CUDA Driver | 580.142 (CUDA 13.0) | ✅ |
+| GPU | NVIDIA (available) | ✅ |
 | ONNX Runtime | Not installed |
 | FFmpeg | Available |
 
@@ -57,7 +57,10 @@ Pillow             (already optional dep)
 - `ColorizeStable_gen.pth` (834 MB) — stable image model
 
 **ECCV16 model weights to download:**
-- `colorization_release_v2-9b330a0b.pth` (~1.5 MB)
+- `colorization_release_v2-9b330a0b.pth` (128 MB)
+
+**SIGGRAPH17 model weights to download:**
+- `siggraph17-df00044c.pth` (137 MB)
 
 ---
 
@@ -155,16 +158,20 @@ self.ai_colorization = AIColorizationSettings()
 
 ## 4. Implementation Steps
 
-### Phase 1 — ECCV16 (Lightweight) Integration
+### Phase 1 — ECCV16 + SIGGRAPH17 ✅
 
 | # | Step | Files | Details |
 |---|---|---|---|
-| 1.1 | Install deps | — | `pip install torch torchvision opencv-python-headless numpy` |
-| 1.2 | Download weights | `PySide6/colorizers/models/` | `wget https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v2-9b330a0b.pth` |
-| 1.3 | Port ECCV16 model | `colorizers/eccv16.py` | Copy architecture from `richzhang/colorization/colorizers/eccv16.py`; strip training code, load `.pth` weights |
-| 1.4 | Base class + utils | `colorizers/base.py`, `colorizers/utils.py` | Abstract colorizer interface; Lab↔RGB, frame I/O helpers |
-| 1.5 | Frame pipeline test | — | Script that decodes a frame with FFmpeg, colorizes with ECCV16, encodes output |
-| 1.6 | Full video pipeline | — | Pipe all frames through FFmpeg decode → ECCV16 → FFmpeg encode |
+| 1.1 | Install deps | — | `pip install torch torchvision opencv-python-headless numpy` | ✅ |
+| 1.2 | Download ECCV16 weights | `PySide6/colorizers/models/` | 128 MB, `colorization_release_v2-9b330a0b.pth` | ✅ |
+| 1.3 | Port ECCV16 model | `colorizers/eccv16.py` | Copy architecture from `richzhang/colorization/colorizers/eccv16.py`; strip training code, load `.pth` weights | ✅ |
+| 1.4 | Base class + utils | `colorizers/base.py`, `colorizers/utils.py` | Abstract colorizer interface; Lab↔RGB, frame I/O helpers | ✅ |
+| 1.5 | Frame pipeline test | — | Script that decodes a frame with FFmpeg, colorizes with ECCV16, encodes output | ✅ |
+| 1.6 | Full video pipeline | — | Pipe all frames through FFmpeg decode → ECCV16 → FFmpeg encode | ✅ |
+| 1.7 | Port SIGGRAPH17 model | `colorizers/siggraph17.py` | UNet architecture (~40M params), better quality than ECCV16 | ✅ |
+| 1.8 | Download SIGGRAPH17 weights | `PySide6/colorizers/models/` | 137 MB, `siggraph17-df00044c.pth` | ✅ |
+| 1.9 | Disk-based pipeline | `controller.py` | Extract → Colorize → Recombine with pipeline UI buttons | ✅ |
+| 1.10 | Post-processing | `colorizers/utils.py` | Saturation, contrast, denoise sliders | ✅ |
 
 **ECCV16 inference flow:**
 ```
@@ -177,28 +184,28 @@ FFmpeg:  -f rawvideo -pix_fmt rgb24 -s {W}x{H} -r {fps} -i -
 ### Phase 2 — DeOldify Integration
 
 | # | Step | Files | Details |
-|---|---|---|---|
+|---|---|---|---|---|
 | 2.1 | Install fastai | — | `pip install fastai` |
 | 2.2 | Download weights | `colorizers/models/` | `ColorizeVideo_gen.pth` (834 MB) |
 | 2.3 | Port DeOldify | `colorizers/deoldify.py` | Wrap `deoldify.visualize.VideoColorizer` or reimplement with raw PyTorch (to avoid heavyweight fastai dep); load pretrained U-Net |
 | 2.4 | Render factor support | `colorizers/deoldify.py` | Map `render_factor` to internal resolution scaling |
 | 2.5 | Temporal smoothing | `colorizers/deoldify.py` | Frame overlap / optical flow blending for flicker reduction |
 
-### Phase 3 — Integration into App
+### Phase 3 — Integration into App ✅
 
 | # | Step | Files | Details |
 |---|---|---|---|
-| 3.1 | Add AI colorization panel | `colorizers/panel.py` OR extend `color_correction.py` | New "AI Colorization" section: engine selector, DeOldify model variant, render factor, saturation, device |
-| 3.2 | Wire into controller | `controller.py` | New `encode_with_ai_colorization()` method; orchestrates FFmpeg decode → colorizer → FFmpeg encode pipeline |
+| 3.1 | Add AI colorization panel | `colorizers/panel.py` OR extend `color_correction.py` | New "AI Colorization" section: engine selector, DeOldify model variant, render factor, saturation, device | ✅ |
+| 3.2 | Wire into controller | `controller.py` | New `encode_with_ai_colorization()` method; orchestrates FFmpeg decode → colorizer → FFmpeg encode pipeline | ✅ |
 | 3.3 | Preview support | `video_preview.py` — `apply_filters()` | If AI colorization enabled and frame is grayscale, run it through the colorizer; **performance concern**: run on separate thread, cache result |
-| 3.4 | Progress reporting | `controller.py` | Report per-frame progress during encode |
+| 3.4 | Progress reporting | `controller.py` | Report per-frame progress during encode | ✅ |
 | 3.5 | GPU memory management | `colorizers/base.py` | Batch sizing, CUDA memory cleanup, fallback to CPU |
 
 ### Phase 4 — Polish
 
 | # | Step | Details |
 |---|---|---|
-| 4.1 | Lazy model loading | Load model on first use, not at app startup |
+| 4.1 | Lazy model loading | Load model on first use, not at app startup | ✅ |
 | 4.2 | Weight download UI | In-app download of missing weights with progress bar |
 | 4.3 | Batch size auto-tune | Auto-detect optimal batch size from GPU memory |
 | 4.4 | Cancel support | Interrupt colorization mid-stream |
@@ -264,10 +271,11 @@ practical default.
 
 ### New files
 | File | Purpose |
-|---|---|
+|---|---|---|
 | `PySide6/colorizers/__init__.py` | Package init |
 | `PySide6/colorizers/base.py` | Abstract `Colorizer` base class |
 | `PySide6/colorizers/eccv16.py` | ECCV16 model + inference |
+| `PySide6/colorizers/siggraph17.py` | SIGGRAPH17 model + inference |
 | `PySide6/colorizers/deoldify.py` | DeOldify model + inference |
 | `PySide6/colorizers/utils.py` | Frame I/O, color space conversions |
 | `PySide6/colorizers/models/` | Downloaded weights (gitignored) |
@@ -309,6 +317,9 @@ Pillow>=10.0.0
 ```
 ECCV16:
   https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v2-9b330a0b.pth
+
+SIGGRAPH17:
+  https://colorizers.s3.us-east-2.amazonaws.com/siggraph17-df00044c.pth
 
 DeOldify (modern fork, PyTorch 2.5+):
   https://huggingface.co/thookham/DeOldify/resolve/main/ColorizeVideo_gen.pth
