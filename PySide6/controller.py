@@ -642,7 +642,7 @@ class VideoController:
         if ai.frames_dir:
             return ai.frames_dir
         stem = Path(input_path).stem
-        base = os.path.join(os.path.dirname(input_path), f".{stem}_colorize_frames")
+        base = os.path.join(os.path.dirname(input_path), f"{stem}_colorize_frames")
         return base
 
     def extract_colorize_frames(self, input_path: str, progress_callback=None) -> bool:
