@@ -377,6 +377,13 @@ class DeOldifyGenerator(nn.Module):
         errs = self.load_state_dict(key_map, strict=False)
         ckpt_names = set(sd.keys())
         unmatched_ckpt = [k for k in sd if self._map_key(k) is None]
+
+        # SelfAttention with negative gamma causes resolution-dependent
+        # color instability (R→-3, B→+3) at inputs >128px for
+        # Wide models (Video/Stable).  Zero gamma to disable.
+        for name, mod in self.named_modules():
+            if isinstance(mod, _SelfAttention) and mod.gamma.item() < 0:
+                mod.gamma.data.zero_()
         if strict:
             if errs[0]:
                 print(f'Missing keys ({len(errs[0])}):', list(errs[0])[:5])
