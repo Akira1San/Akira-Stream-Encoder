@@ -469,12 +469,14 @@ class VideoController:
                 )
                 return None
             device = ai.gpu_device if ai.gpu_device else "cuda:0"
+            cc_strength = getattr(ai, 'color_correct_strength', 0.5)
             colorizer = DeOldifyColorizer(
                 weight_path=weight_path,
                 device=device,
                 fp16=ai.fp16,
                 render_factor=ai.render_factor,
                 model_variant=variant,
+                color_correct_strength=cc_strength,
             )
             return colorizer
         else:

@@ -439,7 +439,8 @@ class DeOldifyGenerator(nn.Module):
 
 class DeOldifyColorizer(Colorizer):
     def __init__(self, weight_path, device='cuda:0', fp16=True,
-                 render_factor=21, model_variant='video'):
+                 render_factor=21, model_variant='video',
+                 color_correct_strength=0.5):
         self.weight_path = weight_path
         self.device_str = device
         self.fp16 = fp16
@@ -447,6 +448,31 @@ class DeOldifyColorizer(Colorizer):
         self.variant = model_variant
         self._model = None
         self._dev = None
+        self._cc_strength = color_correct_strength
+        self._cc_offset = self._compute_cc_offset(model_variant)
+
+    @staticmethod
+    def _compute_cc_offset(variant):
+        """Compute UV bias offsets from uniform-gray test results.
+
+        These offsets neutralize each model's inherent color cast by shifting
+        the UV center back toward 128 (neutral gray).  Measured with
+        SelfAttention gamma fixed and (o+3)/6 denormalization.
+        """
+        # uniform-gray RGB model response for each variant (R, G, B)
+        gray_rgb = {
+            'video':    (0.453, 0.547, 0.531),
+            'artistic': (0.301, 0.475, 0.802),
+            'stable':   (0.103, 0.575, 0.957),
+        }
+        rgb = gray_rgb.get(variant)
+        if rgb is None:
+            return None
+        r, g, b = rgb
+        # Convert float [0,1] RGB to YUV (BT.601) to find UV center offset
+        u = (-0.14713 * r - 0.28886 * g + 0.436 * b) * 255.0 + 128.0
+        v = (0.615 * r - 0.51499 * g - 0.10001 * b) * 255.0 + 128.0
+        return (u - 128.0, v - 128.0)  # offset from neutral
 
     @property
     def render_factor(self): return self._rf
@@ -476,9 +502,11 @@ class DeOldifyColorizer(Colorizer):
     def _pre(self, l_ch):
         import cv2
         h, w = l_ch.shape[:2]
-        sz = self._rf * RENDER_BASE
+        short = min(h, w)
+        scale = self._rf * RENDER_BASE / short
+        new_w, new_h = int(w * scale), int(h * scale)
         rgb = np.stack([l_ch] * 3, axis=-1).astype(np.float32)
-        sq = cv2.resize(rgb, (sz, sz), interpolation=cv2.INTER_LINEAR)
+        sq = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
         t = torch.from_numpy(sq.transpose(2, 0, 1)).unsqueeze(0)
         mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
         std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
@@ -493,6 +521,10 @@ class DeOldifyColorizer(Colorizer):
         oyuv = cv2.cvtColor((np.stack([ol] * 3, -1) * 255).astype(np.uint8), cv2.COLOR_RGB2YUV)
         r = oyuv.copy()
         r[:, :, 1:] = cyuv[:, :, 1:]
+        if self._cc_offset is not None and self._cc_strength > 0:
+            u_off, v_off = self._cc_offset
+            r[:, :, 1] = np.clip(r[:, :, 1].astype(np.float32) - u_off * self._cc_strength, 0, 255).astype(np.uint8)
+            r[:, :, 2] = np.clip(r[:, :, 2].astype(np.float32) - v_off * self._cc_strength, 0, 255).astype(np.uint8)
         return cv2.cvtColor(r, cv2.COLOR_YUV2RGB)
 
     def colorize_frame(self, l):
@@ -503,9 +535,7 @@ class DeOldifyColorizer(Colorizer):
             t = t.half()
         with torch.no_grad():
             o = self._model(t)
-            mean = torch.tensor([0.485, 0.456, 0.406], device=o.device, dtype=o.dtype).view(1, 3, 1, 1)
-            std = torch.tensor([0.229, 0.224, 0.225], device=o.device, dtype=o.dtype).view(1, 3, 1, 1)
-            o = (o * std + mean).clamp(0, 1)
+            o = (o + 3) / 6
         return self._post(o, h, w, l)
 
     def colorize_batch(self, b):

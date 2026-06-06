@@ -387,6 +387,7 @@ class AIColorizationSettings:
     batch_size: int = 8                 # Frames per GPU inference batch
     deoldify_model: str = "video"       # "video" / "artistic" / "stable"
     render_factor: int = 21             # 10-45, DeOldify render resolution multiplier
+    color_correct_strength: float = 0.5  # 0-1, DeOldify color cast correction strength
     frames_dir: str = ""
     frames_extracted: bool = False
     frames_colorized: bool = False
