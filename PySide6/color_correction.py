@@ -16,6 +16,7 @@ class ColorCorrectionPanel(QWidget):
     """Panel for color correction (EQ) settings"""
     
     settings_changed = Signal()
+    _ai_single_done = Signal()
     
     def __init__(self, app_state: AppState, parent=None):
         super().__init__(parent)
@@ -665,6 +666,7 @@ class ColorCorrectionPanel(QWidget):
         self.ai_extract_btn.clicked.connect(self.on_ai_extract_frames)
         self.ai_colorize_btn.clicked.connect(self.on_ai_colorize_all)
         self.ai_recombine_btn.clicked.connect(self.on_ai_recombine)
+        self._ai_single_done.connect(self._on_colorize_single_done)
         
     def update_engine_state(self):
         """Disable/enable EQ UI controls based on current backend's supported_filters()."""
@@ -1135,31 +1137,32 @@ class ColorCorrectionPanel(QWidget):
         self.ai_colorize_img_btn.setText("Colorizing...")
 
         def run():
-            from controller import VideoController
-            ctrl = VideoController(self.app_state)
-            colorizer = ctrl._get_colorizer()
-            if colorizer is None:
-                from PySide6.QtCore import QTimer
-                QTimer.singleShot(0, self._on_colorize_single_done)
-                return
-            import cv2, numpy as np
-            gray = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-            if gray is None:
-                self.app_state.log(f"Could not read image: {path}", "ERROR")
-                from PySide6.QtCore import QTimer
-                QTimer.singleShot(0, self._on_colorize_single_done)
-                return
-            luma = gray.astype(np.float32) / 255.0
-            rgb = colorizer.colorize_frame(luma)
-            ai = self.app_state.ai_colorization
-            if ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0:
-                from colorizers.utils import apply_postprocessing
-                rgb = apply_postprocessing(rgb, ai.saturation, ai.contrast, ai.denoise)
-            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            cv2.imwrite(save_path, bgr)
-            self.app_state.log(f"Colorized image saved: {save_path}", "SUCCESS")
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._on_colorize_single_done)
+            try:
+                from controller import VideoController
+                ctrl = VideoController(self.app_state)
+                colorizer = ctrl._get_colorizer()
+                if colorizer is None:
+                    return
+                import cv2, numpy as np
+                gray = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+                if gray is None:
+                    self.app_state.log(f"Could not read image: {path}", "ERROR")
+                    return
+                luma = gray.astype(np.float32) / 255.0
+                rgb = colorizer.colorize_frame(luma)
+                ai = self.app_state.ai_colorization
+                if ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0:
+                    from colorizers.utils import apply_postprocessing
+                    rgb = apply_postprocessing(rgb, ai.saturation, ai.contrast, ai.denoise)
+                bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(save_path, bgr)
+                self.app_state.log(f"Colorized image saved: {save_path}", "SUCCESS")
+            except Exception as e:
+                self.app_state.log(f"Colorize single image failed: {e}", "ERROR")
+                import traceback
+                traceback.print_exc()
+            finally:
+                self._ai_single_done.emit()
 
         thread = threading.Thread(target=run)
         thread.start()
