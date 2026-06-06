@@ -211,6 +211,60 @@ FFmpeg:  -f rawvideo -pix_fmt rgb24 -s {W}x{H} -r {fps} -i -
 | 4.4 | Cancel support | Interrupt colorization mid-stream |
 | 4.5 | ONNX export (optional) | Convert ECCV16 to ONNX for faster CPU inference via onnxruntime |
 
+### Phase 4b — DeOldify Bugfixes & Color Quality
+
+| # | Step | Details |
+|---|---|---|
+| 4b.1 | Fix button-stuck bug | Replace `QTimer.singleShot` from worker thread with proper `Signal` (`_ai_single_done`) |
+| 4b.2 | Fix crash-safety | `try/finally` wrapper in `on_ai_colorize_single_image` |
+| 4b.3 | Fix Stable download URL | `thookham/DeOldify` → `spensercai/DeOldify` in `MODEL_URLS` |
+| 4b.4 | Fix ECCV16/SIGGRAPH17 double-centering | `_prepare_input` changed from `l_channel * 100.0 - 50.0` to `l_channel * 100.0` |
+| 4b.5 | Fix fp16/OpenCV crash | Add `.float()` before `.numpy()` in `_post` |
+| 4b.6 | SelfAttention gamma fix | Zero gamma on load for Video/Stable (negative gamma caused resolution-dependent color instability at >128px) |
+| 4b.7 | Aspect-ratio fix | `_pre` changed from squaring to `(sz, sz)` to preserving aspect ratio (short side = rf×16) |
+| 4b.8 | Switch to `(o+3)/6` denorm | Replace `(o * std + mean)` with `(o + 3) / 6` (version B) per user preference |
+| 4b.9 | Per-model color cast correction | UV offset correction in YUV space after blend; configurable via `color_correct_strength` slider (0-1, default 0.5) |
+| 4b.10 | Saturation slider | Already existed; wired through `apply_postprocessing` |
+| 4b.11 | DeOldify-only widget visibility | DeOldify-specific controls hidden when other engine selected |
+
+### Debug results — uniform-gray model response (SelfAttention fixed, (o+3)/6)
+
+| Variant | R | G | B | U offset | V offset |
+|---|---|---|---|---|---|
+| Video | 0.453 | 0.547 | 0.531 | +1.7 | -14.5 |
+| Artistic | 0.301 | 0.475 | 0.802 | +42.9 | -35.6 |
+| Stable | 0.103 | 0.575 | 0.957 | +60.2 | -83.6 |
+
+Offsets computed as BT.601 YUV center deviation from 128 (neutral gray).
+
+### Commits
+
+| Commit | Description |
+|---|---|
+| `8f8fe3a` | Initial DeOldify pure PyTorch reimplementation |
+| `7771c98` | Wire DeOldify into controller, UI, settings |
+| `02e493e` | Fix single-image colorize button stuck disabled |
+| `105cc90` | Fix Stable model download URL |
+| `36873e2` | Fix colorizer bugs causing desaturated 'blob' output |
+| `773e202` | Fix cv2.resize crash with fp16 tensors in DeOldify _post |
+| `b98ff84` | Fix DeOldify Video/Stable resolution-dependent color instability |
+| `466cd75` | Switch DeOldify to (o+3)/6 denorm, add per-model YUV color cast correction |
+| `ee6b397` | Add Color Correct strength slider to DeOldify UI panel |
+
+### Phase 5 — Single-Image UI Redesign
+
+Current `Colorize Single Image` button is slow (loads model, processes, saves all in one click).
+Redesign to a list-based workflow for faster iteration:
+
+| # | Step | Details |
+|---|---|---|
+| 5.1 | Replace button with list + controls | `QListWidget` + Load / Remove buttons |
+| 5.2 | Load button | File dialog (multi-select images), adds paths to list |
+| 5.3 | Remove button | Removes selected item from list |
+| 5.4 | Colorize button | Enabled when an item is selected; processes that single image |
+| 5.5 | Auto output dir | Create `{filename}_colorized/` folder next to input image, save result there |
+| 5.6 | Model stays loaded | Keep colorizer instance alive so subsequent colorizations are fast |
+
 ---
 
 ## 5. UI Design

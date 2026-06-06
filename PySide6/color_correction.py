@@ -4,7 +4,7 @@ Color Correction (EQ) Panel (PySide6)
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
     QSlider, QPushButton, QFrame, QComboBox, QFileDialog,
-    QGroupBox, QSpinBox
+    QGroupBox, QSpinBox, QListWidget, QAbstractItemView
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 import os
@@ -23,6 +23,7 @@ class ColorCorrectionPanel(QWidget):
         self.app_state = app_state
         
         self.setup_ui()
+        self._cached_colorizer = None
         self.connect_signals()
         
         # Connect engine change signal
@@ -489,16 +490,28 @@ class ColorCorrectionPanel(QWidget):
         pipeline_line.setFrameShadow(QFrame.Sunken)
         ai_layout.addWidget(pipeline_line)
 
-        # Colorize Single Image
-        single_img_row = QHBoxLayout()
-        self.ai_colorize_img_btn = QPushButton("Colorize Single Image")
-        self.ai_colorize_img_btn.setToolTip(
-            "Colorize a single image file (not from a video).\n"
-            "Opens a file dialog to select an image, then saves the result."
+        # Single Image Colorization (list-based)
+        img_row = QHBoxLayout()
+        self.ai_img_list = QListWidget()
+        self.ai_img_list.setMinimumHeight(100)
+        self.ai_img_list.setAlternatingRowColors(True)
+        img_row.addWidget(self.ai_img_list)
+        img_btn_col = QVBoxLayout()
+        self.ai_img_load_btn = QPushButton("Load")
+        self.ai_img_load_btn.setToolTip("Add images to the list")
+        self.ai_img_remove_btn = QPushButton("Remove")
+        self.ai_img_remove_btn.setToolTip("Remove selected image from list")
+        self.ai_img_colorize_btn = QPushButton("Colorize Selected")
+        self.ai_img_colorize_btn.setToolTip(
+            "Colorize the selected image.\n"
+            "Output saved to {filename}_colorized/ folder next to input."
         )
-        single_img_row.addWidget(self.ai_colorize_img_btn)
-        single_img_row.addStretch()
-        ai_layout.addLayout(single_img_row)
+        img_btn_col.addWidget(self.ai_img_load_btn)
+        img_btn_col.addWidget(self.ai_img_remove_btn)
+        img_btn_col.addWidget(self.ai_img_colorize_btn)
+        img_btn_col.addStretch()
+        img_row.addLayout(img_btn_col)
+        ai_layout.addLayout(img_row)
 
         # Extract frames
         extract_row = QHBoxLayout()
@@ -676,7 +689,10 @@ class ColorCorrectionPanel(QWidget):
         )
         self.ai_batch_spin.valueChanged.connect(self.on_ai_batch_changed)
         self.ai_fp16_check.toggled.connect(self.on_ai_fp16_changed)
-        self.ai_colorize_img_btn.clicked.connect(self.on_ai_colorize_single_image)
+        self.ai_img_load_btn.clicked.connect(self.on_ai_img_load)
+        self.ai_img_remove_btn.clicked.connect(self.on_ai_img_remove)
+        self.ai_img_colorize_btn.clicked.connect(self.on_ai_img_colorize)
+        self.ai_img_list.itemDoubleClicked.connect(self.on_ai_img_colorize)
         self.ai_extract_btn.clicked.connect(self.on_ai_extract_frames)
         self.ai_colorize_btn.clicked.connect(self.on_ai_colorize_all)
         self.ai_recombine_btn.clicked.connect(self.on_ai_recombine)
@@ -788,7 +804,9 @@ class ColorCorrectionPanel(QWidget):
         self.ai_denoise_slider['slider'].setEnabled(ai_en)
         self.ai_batch_spin.setEnabled(ai_en)
         self.ai_fp16_check.setEnabled(ai_en and "cuda" in self.app_state.ai_colorization.gpu_device)
-        self.ai_colorize_img_btn.setEnabled(ai_en)
+        self.ai_img_load_btn.setEnabled(ai_en)
+        self.ai_img_remove_btn.setEnabled(ai_en)
+        self.ai_img_colorize_btn.setEnabled(ai_en)
         self.ai_extract_btn.setEnabled(ai_en)
         self.ai_colorize_btn.setEnabled(ai_en)
         self.ai_recombine_btn.setEnabled(ai_en)
@@ -1128,37 +1146,50 @@ class ColorCorrectionPanel(QWidget):
         self.app_state.ai_colorization.fp16 = checked
         self.settings_changed.emit()
 
-    def on_ai_colorize_single_image(self):
-        """Colorize a single image file."""
-        import threading
-        from PySide6.QtWidgets import QFileDialog
-
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Image to Colorize", "",
+    def on_ai_img_load(self):
+        """Load images into the list."""
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Images to Colorize", "",
             "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
         )
-        if not path:
-            return
+        for p in paths:
+            self.ai_img_list.addItem(p)
 
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Colorized Image", "",
-            "PNG (*.png);;JPEG (*.jpg *.jpeg)"
-        )
-        if not save_path:
-            return
+    def on_ai_img_remove(self):
+        """Remove selected image from the list."""
+        item = self.ai_img_list.currentItem()
+        if item:
+            self.ai_img_list.takeItem(self.ai_img_list.row(item))
 
-        self.ai_colorize_img_btn.setEnabled(False)
-        self.ai_colorize_img_btn.setText("Colorizing...")
+    def on_ai_img_colorize(self, *args):
+        """Colorize the selected image and save to auto-created folder."""
+        import threading
+        item = self.ai_img_list.currentItem()
+        if not item:
+            return
+        path = item.text()
+        import os
+        from pathlib import Path
+        stem = Path(path).stem
+        parent = Path(path).parent
+        out_dir = parent / f"{stem}_colorized"
+        out_dir.mkdir(exist_ok=True)
+        out_path = out_dir / f"{stem}.png"
+
+        self.ai_img_colorize_btn.setEnabled(False)
+        self.ai_img_colorize_btn.setText("Colorizing...")
 
         def run():
             try:
                 from controller import VideoController
-                ctrl = VideoController(self.app_state)
-                colorizer = ctrl._get_colorizer()
+                if self._cached_colorizer is None:
+                    ctrl = VideoController(self.app_state)
+                    self._cached_colorizer = ctrl._get_colorizer()
+                colorizer = self._cached_colorizer
                 if colorizer is None:
                     return
                 import cv2, numpy as np
-                gray = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+                gray = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
                 if gray is None:
                     self.app_state.log(f"Could not read image: {path}", "ERROR")
                     return
@@ -1169,10 +1200,10 @@ class ColorCorrectionPanel(QWidget):
                     from colorizers.utils import apply_postprocessing
                     rgb = apply_postprocessing(rgb, ai.saturation, ai.contrast, ai.denoise)
                 bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-                cv2.imwrite(save_path, bgr)
-                self.app_state.log(f"Colorized image saved: {save_path}", "SUCCESS")
+                cv2.imwrite(str(out_path), bgr)
+                self.app_state.log(f"Colorized image saved: {out_path}", "SUCCESS")
             except Exception as e:
-                self.app_state.log(f"Colorize single image failed: {e}", "ERROR")
+                self.app_state.log(f"Colorize failed: {e}", "ERROR")
                 import traceback
                 traceback.print_exc()
             finally:
@@ -1182,8 +1213,8 @@ class ColorCorrectionPanel(QWidget):
         thread.start()
 
     def _on_colorize_single_done(self):
-        self.ai_colorize_img_btn.setEnabled(True)
-        self.ai_colorize_img_btn.setText("Colorize Single Image")
+        self.ai_img_colorize_btn.setEnabled(True)
+        self.ai_img_colorize_btn.setText("Colorize Selected")
 
     def on_ai_extract_frames(self):
         """Extract frames from the input video for disk-based colorization."""
