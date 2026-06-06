@@ -8,7 +8,7 @@ from colorizers.base import Colorizer
 MODEL_URLS = {
     "video": "https://data.deepai.org/deoldify/ColorizeVideo_gen.pth",
     "artistic": "https://data.deepai.org/deoldify/ColorizeArtistic_gen.pth",
-    "stable": "https://huggingface.co/thookham/DeOldify/resolve/main/ColorizeStable_gen.pth",
+    "stable": "https://huggingface.co/spensercai/DeOldify/resolve/main/ColorizeStable_gen.pth",
 }
 MODEL_FILES = {
     "video": "ColorizeVideo_gen.pth",
