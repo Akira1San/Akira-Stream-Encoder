@@ -3,6 +3,7 @@ Models and Shared State for Video Encoder Application
 """
 from dataclasses import dataclass, field
 from typing import List, Optional
+from threading import Event
 from PySide6.QtCore import QObject, Signal, Property
 
 
@@ -534,6 +535,9 @@ class AppState(QObject):
         # UI State
         self._is_encoding: bool = False
         self._current_process = None
+
+        # AI cancel event — set to request cancellation, cleared when operation ends
+        self.ai_cancel_event = Event()
     
     # Properties with getters/setters
     @Property(list, notify=input_files_changed)

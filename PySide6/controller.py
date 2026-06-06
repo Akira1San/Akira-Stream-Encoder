@@ -488,6 +488,8 @@ class VideoController:
         """Encode video with AI colorization using pipe-based pipeline."""
         ai = self.app_state.ai_colorization
         encoder = self.app_state.encoding.encoder
+        cancel = self.app_state.ai_cancel_event
+        cancel.clear()
 
         self.app_state.log(
             f"AI Colorization: engine={ai.engine}, device={ai.gpu_device}, "
@@ -571,6 +573,8 @@ class VideoController:
             buf = b""
 
             while True:
+                if cancel.is_set():
+                    break
                 chunk = stream.read(65536)
                 if not chunk:
                     break
@@ -595,15 +599,28 @@ class VideoController:
                                 if progress_callback:
                                     progress_callback(pct)
                                 last_progress = pct
+                        if cancel.is_set():
+                            break
 
-            if batch_buffer:
-                self._flush_ai_batch(batch_buffer, colorizer, encode_proc, ai)
-                frames_processed += len(batch_buffer)
-                batch_buffer = []
+            if cancel.is_set():
+                if batch_buffer:
+                    self._flush_ai_batch(batch_buffer, colorizer, encode_proc, ai)
+                    frames_processed += len(batch_buffer)
+                    batch_buffer = []
+                self.app_state.log(
+                    f"⏹ AI Colorization cancelled after {frames_processed} frames", "WARN"
+                )
 
             encode_proc.stdin.close()
+            decode_proc.terminate()
             decode_proc.wait()
             encode_proc.wait()
+
+            if cancel.is_set():
+                cancel.clear()
+                if os.path.exists(temp_output):
+                    os.remove(temp_output)
+                return False
 
             if progress_callback:
                 progress_callback(100)
@@ -701,6 +718,9 @@ class VideoController:
             self.app_state.log("No frames to colorize. Extract frames first.", "ERROR")
             return False
 
+        cancel = self.app_state.ai_cancel_event
+        cancel.clear()
+
         colorizer = self._get_colorizer()
         if colorizer is None:
             return False
@@ -710,6 +730,8 @@ class VideoController:
         processed = 0
 
         for part_name in part_dirs:
+            if cancel.is_set():
+                break
             src_dir = os.path.join(ai.frames_dir, part_name)
             out_dir = os.path.join(ai.frames_dir, f"{part_name}_colorized")
             os.makedirs(out_dir, exist_ok=True)
@@ -738,6 +760,8 @@ class VideoController:
 
             import cv2
             for fname in frames:
+                if cancel.is_set():
+                    break
                 src_path = os.path.join(src_dir, fname)
                 out_path = os.path.join(out_dir, fname)
                 if os.path.isfile(out_path):
@@ -760,9 +784,16 @@ class VideoController:
                     if progress_callback and total_files > 0:
                         progress_callback(int(processed / total_files * 100))
 
-            _flush_disk_batch(batch_buffer, batch_paths)
+            if batch_buffer:
+                _flush_disk_batch(batch_buffer, batch_paths)
+                processed += len(batch_buffer)
 
             self.app_state.log(f"🎨 Part {part_name}: {len(frames)} frames colorized", "INFO")
+
+        if cancel.is_set():
+            self.app_state.log(f"⏹ Colorization cancelled after {processed} frames", "WARN")
+            cancel.clear()
+            return False
 
         ai.frames_colorized = True
         self.app_state.log(f"✅ Colorization complete: {total_files} frames", "SUCCESS")

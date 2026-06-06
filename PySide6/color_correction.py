@@ -557,6 +557,18 @@ class ColorCorrectionPanel(QWidget):
         recombine_row.addStretch()
         ai_layout.addLayout(recombine_row)
 
+        # Cancel button for pipeline operations
+        cancel_row = QHBoxLayout()
+        self.ai_cancel_btn = QPushButton("Cancel")
+        self.ai_cancel_btn.setEnabled(False)
+        self.ai_cancel_btn.setStyleSheet(
+            "QPushButton { background-color: #c0392b; color: white; font-weight: bold; }"
+        )
+        self.ai_cancel_btn.setToolTip("Cancel the current AI colorization operation")
+        cancel_row.addStretch()
+        cancel_row.addWidget(self.ai_cancel_btn)
+        ai_layout.addLayout(cancel_row)
+
         self.ai_group.setEnabled(self.app_state.ai_colorization.enabled)
         layout.addWidget(self.ai_group)
 
@@ -696,6 +708,7 @@ class ColorCorrectionPanel(QWidget):
         self.ai_extract_btn.clicked.connect(self.on_ai_extract_frames)
         self.ai_colorize_btn.clicked.connect(self.on_ai_colorize_all)
         self.ai_recombine_btn.clicked.connect(self.on_ai_recombine)
+        self.ai_cancel_btn.clicked.connect(self.on_ai_cancel)
         self._ai_single_done.connect(self._on_colorize_single_done)
         
     def update_engine_state(self):
@@ -1219,6 +1232,10 @@ class ColorCorrectionPanel(QWidget):
         self.ai_img_colorize_btn.setEnabled(True)
         self.ai_img_colorize_btn.setText("Colorize Selected")
 
+    def _enable_cancel(self, enabled):
+        self.ai_cancel_btn.setEnabled(enabled)
+        self.ai_cancel_btn.setText("Cancel" if enabled else "Cancel")
+
     def on_ai_extract_frames(self):
         """Extract frames from the input video for disk-based colorization."""
         import threading
@@ -1233,6 +1250,7 @@ class ColorCorrectionPanel(QWidget):
         self.ai_extract_btn.setEnabled(False)
         self.ai_extract_status.setText("Extracting...")
         self.ai_extract_status.setStyleSheet("color: orange;")
+        self._enable_cancel(True)
 
         def run():
             result = controller.extract_colorize_frames(input_path)
@@ -1244,6 +1262,7 @@ class ColorCorrectionPanel(QWidget):
 
     def _on_extract_done(self, result):
         self.ai_extract_btn.setEnabled(True)
+        self._enable_cancel(False)
         if result:
             self.ai_extract_status.setText("Done ✓")
             self.ai_extract_status.setStyleSheet("color: green;")
@@ -1261,6 +1280,7 @@ class ColorCorrectionPanel(QWidget):
         self.ai_colorize_btn.setText("Colorizing...")
         self.ai_colorize_progress.setText("Running...")
         self.ai_colorize_progress.setStyleSheet("color: orange;")
+        self._enable_cancel(True)
 
         def run():
             result = controller.colorize_disk_frames()
@@ -1273,6 +1293,7 @@ class ColorCorrectionPanel(QWidget):
     def _on_colorize_all_done(self, result):
         self.ai_colorize_btn.setEnabled(True)
         self.ai_colorize_btn.setText("2. Colorize All")
+        self._enable_cancel(False)
         if result:
             self.ai_colorize_progress.setText("Done ✓")
             self.ai_colorize_progress.setStyleSheet("color: green;")
@@ -1294,6 +1315,7 @@ class ColorCorrectionPanel(QWidget):
         self.ai_recombine_btn.setEnabled(False)
         self.ai_recombine_status.setText("Recombining...")
         self.ai_recombine_status.setStyleSheet("color: orange;")
+        self._enable_cancel(True)
 
         def run():
             result = controller.recombine_colorized_frames(input_path)
@@ -1305,12 +1327,20 @@ class ColorCorrectionPanel(QWidget):
 
     def _on_recombine_done(self, output_path):
         self.ai_recombine_btn.setEnabled(True)
+        self._enable_cancel(False)
         if output_path:
             self.ai_recombine_status.setText("Done ✓")
             self.ai_recombine_status.setStyleSheet("color: green;")
         else:
             self.ai_recombine_status.setText("Failed ✗")
             self.ai_recombine_status.setStyleSheet("color: red;")
+
+    def on_ai_cancel(self):
+        """Cancel the current AI colorization operation."""
+        self.app_state.ai_cancel_event.set()
+        self.ai_cancel_btn.setEnabled(False)
+        self.ai_cancel_btn.setText("Cancelling...")
+        self.app_state.log("⏹ Cancel requested — stopping AI colorization...", "WARN")
 
     def reset_defaults(self):
         """Reset all EQ settings to defaults"""

@@ -208,7 +208,7 @@ FFmpeg:  -f rawvideo -pix_fmt rgb24 -s {W}x{H} -r {fps} -i -
 | 4.1 | Lazy model loading | Load model on first use, not at app startup | ✅ |
 | 4.2 | Weight download UI | In-app download of missing weights with progress bar |
 | 4.3 | Batch size auto-tune | Auto-detect optimal batch size from GPU memory |
-| 4.4 | Cancel support | Interrupt colorization mid-stream |
+| 4.4 | Cancel support | Interrupt colorization mid-stream | ✅ |
 | 4.5 | ONNX export (optional) | Convert ECCV16 to ONNX for faster CPU inference via onnxruntime |
 
 ### Phase 4b — DeOldify Bugfixes & Color Quality
