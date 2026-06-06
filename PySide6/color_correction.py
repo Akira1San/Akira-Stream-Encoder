@@ -1254,7 +1254,9 @@ class ColorCorrectionPanel(QWidget):
         cancel.clear()
 
         def run():
-            import os
+            import os, time
+            t0 = time.time()
+            last_pct = 0
             from controller import VideoController
             if self._cached_colorizer is None:
                 ctrl = VideoController(self.app_state)
@@ -1298,6 +1300,10 @@ class ColorCorrectionPanel(QWidget):
                         processed += len(batch_luma)
                         batch_luma = []
                         batch_names = []
+                        pct = int(processed / total * 100) if total > 0 else 0
+                        if abs(pct - last_pct) >= 5:
+                            self.app_state.log(f"Colorizing: {pct}% ({processed}/{total} frames)", "INFO")
+                            last_pct = pct
                 if batch_luma:
                     arr = np.stack(batch_luma, axis=0)
                     rgb_batch = colorizer.colorize_batch(arr)
@@ -1312,10 +1318,11 @@ class ColorCorrectionPanel(QWidget):
                         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
                         cv2.imwrite(str(out_path), bgr)
                     processed += len(batch_luma)
+                elapsed = time.time() - t0
                 if cancel.is_set():
-                    self.app_state.log(f"⏹ Colour cancelled after {processed}/{total} frames", "WARN")
+                    self.app_state.log(f"⏹ Colour cancelled after {processed}/{total} frames ({elapsed:.1f}s)", "WARN")
                 else:
-                    self.app_state.log(f"Colour complete: {processed}/{total} frames", "SUCCESS")
+                    self.app_state.log(f"Colour complete: {processed}/{total} frames in {elapsed:.1f}s", "SUCCESS")
             except Exception as e:
                 self.app_state.log(f"Colour failed: {e}", "ERROR")
                 import traceback
