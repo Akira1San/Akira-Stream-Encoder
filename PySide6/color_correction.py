@@ -1172,9 +1172,12 @@ class ColorCorrectionPanel(QWidget):
         from pathlib import Path
         stem = Path(path).stem
         parent = Path(path).parent
-        out_dir = parent / f"{stem}_colorized"
+        out_dir = parent / "ai_colorized"
         out_dir.mkdir(exist_ok=True)
-        out_path = out_dir / f"{stem}.png"
+        n = 1
+        while (out_dir / f"{stem}_{n:03d}.png").exists():
+            n += 1
+        out_path = out_dir / f"{stem}_{n:03d}.png"
 
         self.ai_img_colorize_btn.setEnabled(False)
         self.ai_img_colorize_btn.setText("Colorizing...")
