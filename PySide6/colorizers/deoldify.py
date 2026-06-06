@@ -479,7 +479,7 @@ class DeOldifyColorizer(Colorizer):
 
     def _post(self, ot, oh, ow, ol):
         import cv2
-        out = ot.squeeze(0).cpu().numpy().transpose(1, 2, 0)
+        out = ot.squeeze(0).cpu().float().numpy().transpose(1, 2, 0)
         out = cv2.resize(out, (ow, oh), interpolation=cv2.INTER_LINEAR)
         out_u8 = (out * 255).astype(np.uint8)
         cyuv = cv2.cvtColor(out_u8, cv2.COLOR_RGB2YUV)
