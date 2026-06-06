@@ -234,8 +234,8 @@ class SIGGRAPH17(Colorizer):
         self._model = model
 
     def _prepare_input(self, l_channel: np.ndarray):
-        """Convert normalized L [0,1] to centered L* [-50, 50] as expected by the model."""
-        return l_channel * 100.0 - 50.0
+        """Convert normalized L [0,1] to L* [0, 100] as expected by the model."""
+        return l_channel * 100.0
 
     @staticmethod
     def _pad_to_multiple(tensor, multiple=8):

@@ -164,8 +164,8 @@ class ECCV16(Colorizer):
         self._model = model
 
     def _prepare_input(self, l_channel: np.ndarray):
-        """Convert normalized L [0,1] to centered L* [-50, 50] as expected by the model."""
-        return l_channel * 100.0 - 50.0
+        """Convert normalized L [0,1] to L* [0, 100] as expected by the model."""
+        return l_channel * 100.0
 
     def colorize_frame(self, l_channel: np.ndarray) -> np.ndarray:
         """Take L channel (HxW float32 0-1), return RGB (HxWx3 uint8)."""

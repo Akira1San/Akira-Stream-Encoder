@@ -479,9 +479,7 @@ class DeOldifyColorizer(Colorizer):
 
     def _post(self, ot, oh, ow, ol):
         import cv2
-        mean = torch.tensor([0.485, 0.456, 0.406], device=ot.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=ot.device).view(1, 3, 1, 1)
-        out = (ot * std + mean).clamp(0, 1).squeeze(0).cpu().numpy().transpose(1, 2, 0)
+        out = ot.squeeze(0).cpu().numpy().transpose(1, 2, 0)
         out = cv2.resize(out, (ow, oh), interpolation=cv2.INTER_LINEAR)
         out_u8 = (out * 255).astype(np.uint8)
         cyuv = cv2.cvtColor(out_u8, cv2.COLOR_RGB2YUV)
@@ -498,7 +496,9 @@ class DeOldifyColorizer(Colorizer):
             t = t.half()
         with torch.no_grad():
             o = self._model(t)
-            o = ((o + 3) / 6).clamp(0, 1)
+            mean = torch.tensor([0.485, 0.456, 0.406], device=o.device, dtype=o.dtype).view(1, 3, 1, 1)
+            std = torch.tensor([0.229, 0.224, 0.225], device=o.device, dtype=o.dtype).view(1, 3, 1, 1)
+            o = (o * std + mean).clamp(0, 1)
         return self._post(o, h, w, l)
 
     def colorize_batch(self, b):
