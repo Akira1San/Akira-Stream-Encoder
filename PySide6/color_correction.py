@@ -1242,6 +1242,18 @@ class ColorCorrectionPanel(QWidget):
         import threading
         from pathlib import Path
         out_dir = Path(folder) / "ai_colorized"
+        if out_dir.exists() and any(out_dir.iterdir()):
+            from PySide6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self,
+                "Overwrite?",
+                f"ai_colorized/ already exists with colorized frames.\n"
+                f"Overwrite? Existing files with the same name will be replaced.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
         out_dir.mkdir(exist_ok=True)
 
         self.ai_colorize_btn.setEnabled(False)
