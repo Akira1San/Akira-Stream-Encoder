@@ -418,6 +418,17 @@ class ColorCorrectionPanel(QWidget):
         ai_layout.addLayout(rf_row)
         self.ai_deoldify_widgets.append(self.ai_render_factor_spin)
 
+        # Color correct strength slider (DeOldify-only)
+        self.ai_cc_slider = self.create_slider(
+            "Color Correct",
+            getattr(self.app_state.ai_colorization, 'color_correct_strength', 0.5),
+            0.0, 1.0, 0.5,
+            "Reduce inherent model color cast in YUV space.\n"
+            "0.0 = No correction, 0.5 = Half (default), 1.0 = Full neutralization"
+        )
+        ai_layout.addLayout(self.ai_cc_slider['layout'])
+        self.ai_deoldify_widgets.append(self.ai_cc_slider['slider'])
+
         # Saturation slider
         self.ai_sat_slider = self.create_slider(
             "Saturation", self.app_state.ai_colorization.saturation,
@@ -659,6 +670,9 @@ class ColorCorrectionPanel(QWidget):
         )
         self.ai_denoise_slider['slider'].valueChanged.connect(
             lambda v: self.on_ai_slider_changed(v, self.ai_denoise_slider, 'denoise')
+        )
+        self.ai_cc_slider['slider'].valueChanged.connect(
+            lambda v: self.on_ai_slider_changed(v, self.ai_cc_slider, 'color_correct_strength')
         )
         self.ai_batch_spin.valueChanged.connect(self.on_ai_batch_changed)
         self.ai_fp16_check.toggled.connect(self.on_ai_fp16_changed)
@@ -1387,6 +1401,13 @@ class ColorCorrectionPanel(QWidget):
         self.ai_denoise_slider['slider'].setValue(0)
         self.ai_denoise_slider['slider'].blockSignals(False)
         self.ai_denoise_slider['value_label'].setText("0.00")
+        # Color correct reset
+        ai.color_correct_strength = 0.5
+        m_cc = self.ai_cc_slider['slider'].property("multiplier")
+        self.ai_cc_slider['slider'].blockSignals(True)
+        self.ai_cc_slider['slider'].setValue(int(0.5 * m_cc))
+        self.ai_cc_slider['slider'].blockSignals(False)
+        self.ai_cc_slider['value_label'].setText("0.50")
         # Reset pipeline status labels
         self.ai_extract_status.setText("Waiting...")
         self.ai_extract_status.setStyleSheet("color: gray;")
