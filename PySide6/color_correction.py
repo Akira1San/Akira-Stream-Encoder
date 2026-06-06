@@ -17,6 +17,7 @@ class ColorCorrectionPanel(QWidget):
     
     settings_changed = Signal()
     _ai_single_done = Signal()
+    _batch_folder_done = Signal()
     
     def __init__(self, app_state: AppState, parent=None):
         super().__init__(parent)
@@ -513,49 +514,32 @@ class ColorCorrectionPanel(QWidget):
         img_row.addLayout(img_btn_col)
         ai_layout.addLayout(img_row)
 
-        # Extract frames
-        extract_row = QHBoxLayout()
-        self.ai_extract_btn = QPushButton("1. Extract Frames")
-        self.ai_extract_btn.setToolTip(
-            "Step 1: Split video into parts and extract PNG frames.\n"
-            "Each part is stored in its own folder.\n"
-            "Existing parts are skipped (resume-friendly)."
+        # Batch folder colorization
+        folder_row = QHBoxLayout()
+        self.ai_folder_list = QListWidget()
+        self.ai_folder_list.setMinimumHeight(100)
+        self.ai_folder_list.setAlternatingRowColors(True)
+        folder_row.addWidget(self.ai_folder_list)
+        folder_btn_col = QVBoxLayout()
+        self.ai_folder_load_btn = QPushButton("Load Folder")
+        self.ai_folder_load_btn.setToolTip("Add a folder of PNG frames to colorize")
+        self.ai_folder_remove_btn = QPushButton("Remove")
+        self.ai_folder_remove_btn.setToolTip("Remove selected folder from list")
+        self.ai_folder_colorize_btn = QPushButton("Colorize All")
+        self.ai_folder_colorize_btn.setToolTip(
+            "Colorize all PNG frames in the selected folder.\n"
+            "Output saved to ai_colorized/ subfolder.\n"
+            "Existing outputs are skipped (resume-friendly)."
         )
-        extract_row.addWidget(self.ai_extract_btn)
-        self.ai_extract_status = QLabel("Waiting...")
-        self.ai_extract_status.setStyleSheet("color: gray;")
-        extract_row.addWidget(self.ai_extract_status)
-        extract_row.addStretch()
-        ai_layout.addLayout(extract_row)
-
-        # Colorize all
-        colorize_row = QHBoxLayout()
-        self.ai_colorize_btn = QPushButton("2. Colorize All")
-        self.ai_colorize_btn.setToolTip(
-            "Step 2: Colorize all extracted frames using the selected AI engine.\n"
-            "Runs on extracted PNG frames using batch GPU inference."
-        )
-        colorize_row.addWidget(self.ai_colorize_btn)
-        self.ai_colorize_progress = QLabel("")
-        self.ai_colorize_progress.setStyleSheet("color: gray;")
-        colorize_row.addWidget(self.ai_colorize_progress)
-        colorize_row.addStretch()
-        ai_layout.addLayout(colorize_row)
-
-        # Recombine video
-        recombine_row = QHBoxLayout()
-        self.ai_recombine_btn = QPushButton("3. Recombine Video")
-        self.ai_recombine_btn.setToolTip(
-            "Step 3: Combine all colorized frame parts into a single video file.\n"
-            "Each colorized folder is encoded to a temp MP4, then all are concatenated.\n"
-            "Result is saved as <video>_ai_colorized.mp4 in the frames directory."
-        )
-        recombine_row.addWidget(self.ai_recombine_btn)
-        self.ai_recombine_status = QLabel("Waiting...")
-        self.ai_recombine_status.setStyleSheet("color: gray;")
-        recombine_row.addWidget(self.ai_recombine_status)
-        recombine_row.addStretch()
-        ai_layout.addLayout(recombine_row)
+        folder_btn_col.addWidget(self.ai_folder_load_btn)
+        folder_btn_col.addWidget(self.ai_folder_remove_btn)
+        folder_btn_col.addWidget(self.ai_folder_colorize_btn)
+        folder_btn_col.addStretch()
+        folder_row.addLayout(folder_btn_col)
+        ai_layout.addLayout(folder_row)
+        self.ai_folder_progress = QLabel("")
+        self.ai_folder_progress.setStyleSheet("color: gray;")
+        ai_layout.addWidget(self.ai_folder_progress)
 
         # Cancel button for pipeline operations
         cancel_row = QHBoxLayout()
@@ -705,12 +689,14 @@ class ColorCorrectionPanel(QWidget):
         self.ai_img_remove_btn.clicked.connect(self.on_ai_img_remove)
         self.ai_img_colorize_btn.clicked.connect(self.on_ai_img_colorize)
         self.ai_img_list.itemDoubleClicked.connect(self.on_ai_img_colorize)
-        self.ai_extract_btn.clicked.connect(self.on_ai_extract_frames)
-        self.ai_colorize_btn.clicked.connect(self.on_ai_colorize_all)
-        self.ai_recombine_btn.clicked.connect(self.on_ai_recombine)
+        self.ai_folder_load_btn.clicked.connect(self.on_ai_folder_load)
+        self.ai_folder_remove_btn.clicked.connect(self.on_ai_folder_remove)
+        self.ai_folder_colorize_btn.clicked.connect(self.on_ai_folder_colorize)
+        self.ai_folder_list.itemDoubleClicked.connect(self.on_ai_folder_colorize)
         self.ai_cancel_btn.clicked.connect(self.on_ai_cancel)
         self._ai_single_done.connect(self._on_colorize_single_done)
-        
+        self._batch_folder_done.connect(self._on_folder_done)
+
     def update_engine_state(self):
         """Disable/enable EQ UI controls based on current backend's supported_filters()."""
         try:
@@ -820,9 +806,9 @@ class ColorCorrectionPanel(QWidget):
         self.ai_img_load_btn.setEnabled(ai_en)
         self.ai_img_remove_btn.setEnabled(ai_en)
         self.ai_img_colorize_btn.setEnabled(ai_en)
-        self.ai_extract_btn.setEnabled(ai_en)
-        self.ai_colorize_btn.setEnabled(ai_en)
-        self.ai_recombine_btn.setEnabled(ai_en)
+        self.ai_folder_load_btn.setEnabled(ai_en)
+        self.ai_folder_remove_btn.setEnabled(ai_en)
+        self.ai_folder_colorize_btn.setEnabled(ai_en)
 
     def _set_enabled_with_tip(self, widget, supported, feature_name):
         """Set a widget's enabled state; if not supported, append note to tooltip."""
@@ -1236,104 +1222,120 @@ class ColorCorrectionPanel(QWidget):
         self.ai_cancel_btn.setEnabled(enabled)
         self.ai_cancel_btn.setText("Cancel" if enabled else "Cancel")
 
-    def on_ai_extract_frames(self):
-        """Extract frames from the input video for disk-based colorization."""
+    def on_ai_folder_load(self):
+        """Load a folder into the batch list."""
+        from PySide6.QtWidgets import QFileDialog
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder with PNG Frames")
+        if folder:
+            self.ai_folder_list.addItem(folder)
+
+    def on_ai_folder_remove(self):
+        """Remove selected folder from the list."""
+        item = self.ai_folder_list.currentItem()
+        if item:
+            self.ai_folder_list.takeItem(self.ai_folder_list.row(item))
+
+    def on_ai_folder_colorize(self, *args):
+        """Colorize all PNG frames in the selected folder."""
         import threading
-        input_files = self.app_state.input_files
-        if not input_files:
-            self.app_state.log("No input file loaded.", "WARN")
+        item = self.ai_folder_list.currentItem()
+        if not item:
             return
-        input_path = input_files[0]
-        from controller import VideoController
-        controller = VideoController(self.app_state)
+        folder = item.text()
+        import os
+        from pathlib import Path
+        out_dir = Path(folder) / "ai_colorized"
+        out_dir.mkdir(exist_ok=True)
 
-        self.ai_extract_btn.setEnabled(False)
-        self.ai_extract_status.setText("Extracting...")
-        self.ai_extract_status.setStyleSheet("color: orange;")
+        self.ai_folder_colorize_btn.setEnabled(False)
+        self.ai_folder_colorize_btn.setText("Colorizing...")
+        self.ai_folder_progress.setText("Running...")
+        self.ai_folder_progress.setStyleSheet("color: orange;")
         self._enable_cancel(True)
 
+        cancel = self.app_state.ai_cancel_event
+        cancel.clear()
+
         def run():
-            result = controller.extract_colorize_frames(input_path)
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self._on_extract_done(result))
+            from controller import VideoController
+            if self._cached_colorizer is None:
+                ctrl = VideoController(self.app_state)
+                self._cached_colorizer = ctrl._get_colorizer()
+            colorizer = self._cached_colorizer
+            if colorizer is None:
+                self._batch_folder_done.emit()
+                return
+            import cv2, numpy as np
+            frames = sorted([f for f in os.listdir(folder) if f.lower().endswith('.png')])
+            total = len(frames)
+            processed = 0
+            batch_luma = []
+            batch_names = []
+            batch_sz = self.app_state.ai_colorization.batch_size
+            ai = self.app_state.ai_colorization
+            try:
+                for fname in frames:
+                    if cancel.is_set():
+                        break
+                    src = os.path.join(folder, fname)
+                    gray = cv2.imread(src, cv2.IMREAD_GRAYSCALE)
+                    if gray is None:
+                        continue
+                    luma = gray.astype(np.float32) / 255.0
+                    batch_luma.append(luma)
+                    batch_names.append(fname)
+                    if len(batch_luma) >= batch_sz:
+                        arr = np.stack(batch_luma, axis=0)
+                        rgb_batch = colorizer.colorize_batch(arr)
+                        if ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0:
+                            from colorizers.utils import apply_postprocessing
+                            for i in range(len(rgb_batch)):
+                                rgb_batch[i] = apply_postprocessing(
+                                    rgb_batch[i], ai.saturation, ai.contrast, ai.denoise
+                                )
+                        for fn, rgb in zip(batch_names, rgb_batch):
+                            out_path = out_dir / fn
+                            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                            cv2.imwrite(str(out_path), bgr)
+                        processed += len(batch_luma)
+                        batch_luma = []
+                        batch_names = []
+                if batch_luma:
+                    arr = np.stack(batch_luma, axis=0)
+                    rgb_batch = colorizer.colorize_batch(arr)
+                    if ai.saturation != 1.0 or ai.contrast != 1.0 or ai.denoise > 0.0:
+                        from colorizers.utils import apply_postprocessing
+                        for i in range(len(rgb_batch)):
+                            rgb_batch[i] = apply_postprocessing(
+                                rgb_batch[i], ai.saturation, ai.contrast, ai.denoise
+                            )
+                    for fn, rgb in zip(batch_names, rgb_batch):
+                        out_path = out_dir / fn
+                        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                        cv2.imwrite(str(out_path), bgr)
+                    processed += len(batch_luma)
+                    batch_luma = []
+                if cancel.is_set():
+                    self.app_state.log(f"⏹ Batch colour cancelled after {processed}/{total} frames", "WARN")
+                else:
+                    self.app_state.log(f"Batch colour complete: {processed}/{total} frames", "SUCCESS")
+            except Exception as e:
+                self.app_state.log(f"Batch colour failed: {e}", "ERROR")
+                import traceback
+                traceback.print_exc()
+            finally:
+                cancel.clear()
+                self._batch_folder_done.emit()
 
         thread = threading.Thread(target=run)
         thread.start()
 
-    def _on_extract_done(self, result):
-        self.ai_extract_btn.setEnabled(True)
+    def _on_folder_done(self):
+        self.ai_folder_colorize_btn.setEnabled(True)
+        self.ai_folder_colorize_btn.setText("Colorize All")
+        self.ai_folder_progress.setText("")
+        self.ai_folder_progress.setStyleSheet("color: gray;")
         self._enable_cancel(False)
-        if result:
-            self.ai_extract_status.setText("Done ✓")
-            self.ai_extract_status.setStyleSheet("color: green;")
-        else:
-            self.ai_extract_status.setText("Failed ✗")
-            self.ai_extract_status.setStyleSheet("color: red;")
-
-    def on_ai_colorize_all(self):
-        """Colorize all extracted frames using disk-based pipeline."""
-        import threading
-        from controller import VideoController
-        controller = VideoController(self.app_state)
-
-        self.ai_colorize_btn.setEnabled(False)
-        self.ai_colorize_btn.setText("Colorizing...")
-        self.ai_colorize_progress.setText("Running...")
-        self.ai_colorize_progress.setStyleSheet("color: orange;")
-        self._enable_cancel(True)
-
-        def run():
-            result = controller.colorize_disk_frames()
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self._on_colorize_all_done(result))
-
-        thread = threading.Thread(target=run)
-        thread.start()
-
-    def _on_colorize_all_done(self, result):
-        self.ai_colorize_btn.setEnabled(True)
-        self.ai_colorize_btn.setText("2. Colorize All")
-        self._enable_cancel(False)
-        if result:
-            self.ai_colorize_progress.setText("Done ✓")
-            self.ai_colorize_progress.setStyleSheet("color: green;")
-        else:
-            self.ai_colorize_progress.setText("Failed ✗")
-            self.ai_colorize_progress.setStyleSheet("color: red;")
-
-    def on_ai_recombine(self):
-        """Recombine colorized frames into a video."""
-        import threading
-        input_files = self.app_state.input_files
-        if not input_files:
-            self.app_state.log("No input file loaded.", "WARN")
-            return
-        input_path = input_files[0]
-        from controller import VideoController
-        controller = VideoController(self.app_state)
-
-        self.ai_recombine_btn.setEnabled(False)
-        self.ai_recombine_status.setText("Recombining...")
-        self.ai_recombine_status.setStyleSheet("color: orange;")
-        self._enable_cancel(True)
-
-        def run():
-            result = controller.recombine_colorized_frames(input_path)
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self._on_recombine_done(result))
-
-        thread = threading.Thread(target=run)
-        thread.start()
-
-    def _on_recombine_done(self, output_path):
-        self.ai_recombine_btn.setEnabled(True)
-        self._enable_cancel(False)
-        if output_path:
-            self.ai_recombine_status.setText("Done ✓")
-            self.ai_recombine_status.setStyleSheet("color: green;")
-        else:
-            self.ai_recombine_status.setText("Failed ✗")
-            self.ai_recombine_status.setStyleSheet("color: red;")
 
     def on_ai_cancel(self):
         """Cancel the current AI colorization operation."""
@@ -1473,9 +1475,5 @@ class ColorCorrectionPanel(QWidget):
         self.ai_cc_slider['slider'].blockSignals(False)
         self.ai_cc_slider['value_label'].setText("0.50")
         # Reset pipeline status labels
-        self.ai_extract_status.setText("Waiting...")
-        self.ai_extract_status.setStyleSheet("color: gray;")
-        self.ai_colorize_progress.setText("")
-        self.ai_colorize_progress.setStyleSheet("color: gray;")
-        self.ai_recombine_status.setText("Waiting...")
-        self.ai_recombine_status.setStyleSheet("color: gray;")
+        self.ai_folder_progress.setText("")
+        self.ai_folder_progress.setStyleSheet("color: gray;")
