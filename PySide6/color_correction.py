@@ -494,67 +494,47 @@ class ColorCorrectionPanel(QWidget):
         pipeline_line.setFrameShadow(QFrame.Sunken)
         ai_layout.addWidget(pipeline_line)
 
-        # Single Image Colorization (list-based)
-        img_row = QHBoxLayout()
-        self.ai_img_list = QListWidget()
-        self.ai_img_list.setMinimumHeight(100)
-        self.ai_img_list.setAlternatingRowColors(True)
-        img_row.addWidget(self.ai_img_list)
-        img_btn_col = QVBoxLayout()
-        self.ai_img_load_btn = QPushButton("Load")
-        self.ai_img_load_btn.setToolTip("Add images to the list")
-        self.ai_img_remove_btn = QPushButton("Remove")
-        self.ai_img_remove_btn.setToolTip("Remove selected image from list")
-        self.ai_img_colorize_btn = QPushButton("Colorize Selected")
-        self.ai_img_colorize_btn.setToolTip(
-            "Colorize the selected image.\n"
-            "Output saved to ai_colorized/ folder next to input."
+        # Item list (single images + folders)
+        item_row = QHBoxLayout()
+        self.ai_item_list = QListWidget()
+        self.ai_item_list.setMinimumHeight(120)
+        self.ai_item_list.setAlternatingRowColors(True)
+        item_row.addWidget(self.ai_item_list)
+        btn_col = QVBoxLayout()
+        self.ai_load_btn = QPushButton("Load")
+        self.ai_load_btn.setToolTip("Add image files to the list")
+        self.ai_load_folder_btn = QPushButton("Load Folder")
+        self.ai_load_folder_btn.setToolTip("Add a folder of PNG frames")
+        self.ai_extract_btn = QPushButton("Extract")
+        self.ai_extract_btn.setToolTip(
+            "Extract PNG frames from a video into a folder.\n"
+            "The folder is added to the list."
         )
-        img_btn_col.addWidget(self.ai_img_load_btn)
-        img_btn_col.addWidget(self.ai_img_remove_btn)
-        img_btn_col.addWidget(self.ai_img_colorize_btn)
-        img_btn_col.addStretch()
-        img_row.addLayout(img_btn_col)
-        ai_layout.addLayout(img_row)
-
-        # Batch folder colorization (extract → colorize → recombine)
-        folder_row = QHBoxLayout()
-        self.ai_folder_list = QListWidget()
-        self.ai_folder_list.setMinimumHeight(100)
-        self.ai_folder_list.setAlternatingRowColors(True)
-        folder_row.addWidget(self.ai_folder_list)
-        folder_btn_col = QVBoxLayout()
-        self.ai_folder_extract_btn = QPushButton("Extract")
-        self.ai_folder_extract_btn.setToolTip(
-            "Extract PNG frames from a video file into a folder.\n"
-            "The folder is added to the list for colorization."
+        self.ai_remove_btn = QPushButton("Remove")
+        self.ai_remove_btn.setToolTip("Remove selected item from list")
+        self.ai_colorize_btn = QPushButton("Colorize")
+        self.ai_colorize_btn.setToolTip(
+            "Colorize the selected item.\n"
+            "If it's an image: saves to ai_colorized/ folder.\n"
+            "If it's a folder: colorizes all PNGs inside."
         )
-        self.ai_folder_load_btn = QPushButton("Load Folder")
-        self.ai_folder_load_btn.setToolTip("Add an existing folder of PNG frames")
-        self.ai_folder_remove_btn = QPushButton("Remove")
-        self.ai_folder_remove_btn.setToolTip("Remove selected folder from list")
-        self.ai_folder_colorize_btn = QPushButton("Colorize All")
-        self.ai_folder_colorize_btn.setToolTip(
-            "Colorize all PNG frames in the selected folder.\n"
-            "Output saved to ai_colorized/ subfolder.\n"
-            "Existing outputs are skipped (resume-friendly)."
+        self.ai_recombine_btn = QPushButton("Recombine")
+        self.ai_recombine_btn.setToolTip(
+            "Recombine colorized folder frames into a video with audio.\n"
+            "For folders extracted from a video."
         )
-        self.ai_folder_recombine_btn = QPushButton("Recombine")
-        self.ai_folder_recombine_btn.setToolTip(
-            "Recombine colorized frames into a video with audio.\n"
-            "Requires the original video (stored when Extracted, or select manually)."
-        )
-        folder_btn_col.addWidget(self.ai_folder_extract_btn)
-        folder_btn_col.addWidget(self.ai_folder_load_btn)
-        folder_btn_col.addWidget(self.ai_folder_remove_btn)
-        folder_btn_col.addWidget(self.ai_folder_colorize_btn)
-        folder_btn_col.addWidget(self.ai_folder_recombine_btn)
-        folder_btn_col.addStretch()
-        folder_row.addLayout(folder_btn_col)
-        ai_layout.addLayout(folder_row)
-        self.ai_folder_progress = QLabel("")
-        self.ai_folder_progress.setStyleSheet("color: gray;")
-        ai_layout.addWidget(self.ai_folder_progress)
+        btn_col.addWidget(self.ai_load_btn)
+        btn_col.addWidget(self.ai_load_folder_btn)
+        btn_col.addWidget(self.ai_extract_btn)
+        btn_col.addWidget(self.ai_remove_btn)
+        btn_col.addWidget(self.ai_colorize_btn)
+        btn_col.addWidget(self.ai_recombine_btn)
+        btn_col.addStretch()
+        item_row.addLayout(btn_col)
+        ai_layout.addLayout(item_row)
+        self.ai_item_progress = QLabel("")
+        self.ai_item_progress.setStyleSheet("color: gray;")
+        ai_layout.addWidget(self.ai_item_progress)
 
         # Cancel button for pipeline operations
         cancel_row = QHBoxLayout()
@@ -700,18 +680,13 @@ class ColorCorrectionPanel(QWidget):
         )
         self.ai_batch_spin.valueChanged.connect(self.on_ai_batch_changed)
         self.ai_fp16_check.toggled.connect(self.on_ai_fp16_changed)
-        self.ai_img_load_btn.clicked.connect(self.on_ai_img_load)
-        self.ai_img_remove_btn.clicked.connect(self.on_ai_img_remove)
-        self.ai_img_colorize_btn.clicked.connect(self.on_ai_img_colorize)
-        self.ai_img_list.itemDoubleClicked.connect(self.on_ai_img_colorize)
-        self.ai_folder_load_btn.clicked.connect(self.on_ai_folder_load)
-        self.ai_folder_remove_btn.clicked.connect(self.on_ai_folder_remove)
-        self.ai_folder_extract_btn.clicked.connect(self.on_ai_folder_extract)
-        self.ai_folder_load_btn.clicked.connect(self.on_ai_folder_load)
-        self.ai_folder_remove_btn.clicked.connect(self.on_ai_folder_remove)
-        self.ai_folder_colorize_btn.clicked.connect(self.on_ai_folder_colorize)
-        self.ai_folder_recombine_btn.clicked.connect(self.on_ai_folder_recombine)
-        self.ai_folder_list.itemDoubleClicked.connect(self.on_ai_folder_colorize)
+        self.ai_load_btn.clicked.connect(self.on_ai_load)
+        self.ai_load_folder_btn.clicked.connect(self.on_ai_load_folder)
+        self.ai_extract_btn.clicked.connect(self.on_ai_extract)
+        self.ai_remove_btn.clicked.connect(self.on_ai_remove)
+        self.ai_colorize_btn.clicked.connect(self.on_ai_colorize)
+        self.ai_recombine_btn.clicked.connect(self.on_ai_recombine)
+        self.ai_item_list.itemDoubleClicked.connect(self.on_ai_colorize)
         self.ai_cancel_btn.clicked.connect(self.on_ai_cancel)
         self._ai_single_done.connect(self._on_colorize_single_done)
         self._batch_folder_done.connect(self._on_folder_done)
@@ -824,14 +799,12 @@ class ColorCorrectionPanel(QWidget):
         self.ai_denoise_slider['slider'].setEnabled(ai_en)
         self.ai_batch_spin.setEnabled(ai_en)
         self.ai_fp16_check.setEnabled(ai_en and "cuda" in self.app_state.ai_colorization.gpu_device)
-        self.ai_img_load_btn.setEnabled(ai_en)
-        self.ai_img_remove_btn.setEnabled(ai_en)
-        self.ai_img_colorize_btn.setEnabled(ai_en)
-        self.ai_folder_extract_btn.setEnabled(ai_en)
-        self.ai_folder_load_btn.setEnabled(ai_en)
-        self.ai_folder_remove_btn.setEnabled(ai_en)
-        self.ai_folder_colorize_btn.setEnabled(ai_en)
-        self.ai_folder_recombine_btn.setEnabled(ai_en)
+        self.ai_load_btn.setEnabled(ai_en)
+        self.ai_load_folder_btn.setEnabled(ai_en)
+        self.ai_extract_btn.setEnabled(ai_en)
+        self.ai_remove_btn.setEnabled(ai_en)
+        self.ai_colorize_btn.setEnabled(ai_en)
+        self.ai_recombine_btn.setEnabled(ai_en)
 
     def _set_enabled_with_tip(self, widget, supported, feature_name):
         """Set a widget's enabled state; if not supported, append note to tooltip."""
@@ -1168,29 +1141,51 @@ class ColorCorrectionPanel(QWidget):
         self.app_state.ai_colorization.fp16 = checked
         self.settings_changed.emit()
 
-    def on_ai_img_load(self):
+    def _get_selected_path(self):
+        item = self.ai_item_list.currentItem()
+        return item.text() if item else None
+
+    def _is_folder(self, path):
+        return os.path.isdir(path)
+
+    def on_ai_load(self):
         """Load images into the list."""
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Select Images to Colorize", "",
             "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
         )
         for p in paths:
-            self.ai_img_list.addItem(p)
+            self.ai_item_list.addItem(p)
 
-    def on_ai_img_remove(self):
-        """Remove selected image from the list."""
-        item = self.ai_img_list.currentItem()
+    def on_ai_load_folder(self):
+        """Load a folder into the list."""
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder with PNG Frames")
+        if folder:
+            self.ai_item_list.addItem(folder)
+
+    def on_ai_remove(self):
+        """Remove selected item from the list."""
+        item = self.ai_item_list.currentItem()
         if item:
-            self.ai_img_list.takeItem(self.ai_img_list.row(item))
+            fp = item.text()
+            self._folder_video_map.pop(fp, None)
+            self.ai_item_list.takeItem(self.ai_item_list.row(item))
 
-    def on_ai_img_colorize(self, *args):
-        """Colorize the selected image and save to auto-created folder."""
-        import threading
-        item = self.ai_img_list.currentItem()
-        if not item:
+    def on_ai_colorize(self, *args):
+        """Colorize the selected item (image file or folder of PNGs)."""
+        import threading, os
+        path = self._get_selected_path()
+        if not path:
             return
-        path = item.text()
-        import os
+
+        if self._is_folder(path):
+            self._run_folder_colorize(path)
+        else:
+            self._run_single_colorize(path)
+
+    def _run_single_colorize(self, path):
+        """Colorize a single image file."""
+        import threading
         from pathlib import Path
         stem = Path(path).stem
         parent = Path(path).parent
@@ -1201,8 +1196,8 @@ class ColorCorrectionPanel(QWidget):
             n += 1
         out_path = out_dir / f"{stem}_{n:03d}.png"
 
-        self.ai_img_colorize_btn.setEnabled(False)
-        self.ai_img_colorize_btn.setText("Colorizing...")
+        self.ai_colorize_btn.setEnabled(False)
+        self.ai_colorize_btn.setText("Colorizing...")
 
         def run():
             try:
@@ -1212,6 +1207,7 @@ class ColorCorrectionPanel(QWidget):
                     self._cached_colorizer = ctrl._get_colorizer()
                 colorizer = self._cached_colorizer
                 if colorizer is None:
+                    self._ai_single_done.emit()
                     return
                 import cv2, numpy as np
                 gray = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
@@ -1238,225 +1234,27 @@ class ColorCorrectionPanel(QWidget):
         thread.start()
 
     def _on_colorize_single_done(self):
-        self.ai_img_colorize_btn.setEnabled(True)
-        self.ai_img_colorize_btn.setText("Colorize Selected")
+        self.ai_colorize_btn.setEnabled(True)
+        self.ai_colorize_btn.setText("Colorize")
 
-    def _enable_cancel(self, enabled):
-        self.ai_cancel_btn.setEnabled(enabled)
-        self.ai_cancel_btn.setText("Cancel" if enabled else "Cancel")
-
-    def on_ai_folder_extract(self):
-        """Extract PNG frames from a video, add the output folder to the list."""
-        import threading, os
-        from pathlib import Path
-        from PySide6.QtWidgets import QFileDialog
-
-        video_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Video to Extract Frames From", "",
-            "Video (*.mp4 *.mkv *.avi *.mov *.webm)"
-        )
-        if not video_path:
-            return
-
-        stem = Path(video_path).stem
-        parent = Path(video_path).parent
-        out_dir = parent / f"{stem}_frames"
-        out_dir.mkdir(exist_ok=True)
-
-        from controller import VideoController
-        ctrl = VideoController(self.app_state)
-        fps = ctrl.backend.get_fps(video_path)
-        if fps <= 0:
-            fps = 24000 / 1001
-
-        # Add to list immediately with video info
-        self.ai_folder_list.addItem(str(out_dir))
-        self._folder_video_map[str(out_dir)] = (video_path, fps)
-
-        self.ai_folder_extract_btn.setEnabled(False)
-        self.ai_folder_extract_btn.setText("Extracting...")
-        self.ai_folder_progress.setText("Extracting...")
-        self.ai_folder_progress.setStyleSheet("color: orange;")
-        self._enable_cancel(True)
-
-        cancel = self.app_state.ai_cancel_event
-        cancel.clear()
-
-        def run():
-            try:
-                ffmpeg = self.app_state.ffmpeg_path
-                import subprocess
-                cmd = [
-                    ffmpeg, "-y", "-i", video_path,
-                    "-pix_fmt", "gray",
-                    "-vf", f"fps={fps}",
-                    os.path.join(str(out_dir), "frame_%08d.png")
-                ]
-                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                while proc.poll() is None:
-                    if cancel.is_set():
-                        proc.terminate()
-                        break
-                    import time
-                    time.sleep(0.1)
-                proc.wait()
-                frame_count = len([f for f in os.listdir(str(out_dir)) if f.endswith('.png')])
-                if cancel.is_set():
-                    self.app_state.log(f"⏹ Extraction cancelled: {frame_count} frames in {out_dir.name}", "WARN")
-                else:
-                    self.app_state.log(f"Extracted {frame_count} frames to {out_dir}", "SUCCESS")
-            except Exception as e:
-                self.app_state.log(f"Extraction failed: {e}", "ERROR")
-                import traceback
-                traceback.print_exc()
-            finally:
-                cancel.clear()
-                self._extract_done.emit()
-
-        thread = threading.Thread(target=run)
-        thread.start()
-
-    def _on_extract_done(self):
-        self.ai_folder_extract_btn.setEnabled(True)
-        self.ai_folder_extract_btn.setText("Extract")
-        self.ai_folder_progress.setText("")
-        self.ai_folder_progress.setStyleSheet("color: gray;")
-        self._enable_cancel(False)
-
-    def on_ai_folder_recombine(self):
-        """Recombine colorized frames into video with audio."""
-        import threading, os, subprocess
-        from pathlib import Path
-        from PySide6.QtWidgets import QFileDialog
-
-        item = self.ai_folder_list.currentItem()
-        if not item:
-            return
-        folder = Path(item.text())
-        colorized_dir = folder / "ai_colorized"
-        if not colorized_dir.exists() or not any(colorized_dir.iterdir()):
-            self.app_state.log(f"No colorized frames found in {colorized_dir}", "ERROR")
-            return
-
-        # Get original video info from stored map or prompt user
-        info = self._folder_video_map.get(str(folder))
-        if info and os.path.isfile(info[0]):
-            video_path, fps = info
-        else:
-            video_path, _ = QFileDialog.getOpenFileName(
-                self, "Select Original Video for Audio", "",
-                "Video (*.mp4 *.mkv *.avi *.mov *.webm)"
-            )
-            if not video_path:
-                return
-            from controller import VideoController
-            ctrl = VideoController(self.app_state)
-            fps = ctrl.backend.get_fps(video_path)
-            if fps <= 0:
-                fps = 24000 / 1001
-
-        stem = folder.stem
-        output_path = folder.parent / f"{stem}_colorized.mp4"
-        ffmpeg = self.app_state.ffmpeg_path
-
-        self.ai_folder_recombine_btn.setEnabled(False)
-        self.ai_folder_recombine_btn.setText("Recombining...")
-        self.ai_folder_progress.setText("Recombining...")
-        self.ai_folder_progress.setStyleSheet("color: orange;")
-        self._enable_cancel(True)
-
-        cancel = self.app_state.ai_cancel_event
-        cancel.clear()
-
-        def run():
-            try:
-                input_pattern = os.path.join(str(colorized_dir), "frame_%08d.png")
-                cmd = [
-                    ffmpeg, "-y",
-                    "-framerate", str(fps),
-                    "-i", input_pattern,
-                    "-i", video_path,
-                    "-map", "0:v",
-                    "-map", "1:a?",
-                    "-c:v", "libx264",
-                    "-pix_fmt", "yuv420p",
-                    "-preset", "fast",
-                    "-crf", "18",
-                    "-c:a", "copy",
-                    "-shortest",
-                    str(output_path)
-                ]
-                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                while proc.poll() is None:
-                    if cancel.is_set():
-                        proc.terminate()
-                        break
-                    import time
-                    time.sleep(0.1)
-                proc.wait()
-                if cancel.is_set():
-                    self.app_state.log("⏹ Recombination cancelled", "WARN")
-                    if output_path.exists():
-                        output_path.unlink()
-                elif proc.returncode == 0:
-                    self.app_state.log(f"Recombined video: {output_path}", "SUCCESS")
-                else:
-                    self.app_state.log("Recombination failed", "ERROR")
-            except Exception as e:
-                self.app_state.log(f"Recombination error: {e}", "ERROR")
-                import traceback
-                traceback.print_exc()
-            finally:
-                cancel.clear()
-                self._recombine_done.emit()
-
-        thread = threading.Thread(target=run)
-        thread.start()
-
-    def _on_recombine_done(self):
-        self.ai_folder_recombine_btn.setEnabled(True)
-        self.ai_folder_recombine_btn.setText("Recombine")
-        self.ai_folder_progress.setText("")
-        self.ai_folder_progress.setStyleSheet("color: gray;")
-        self._enable_cancel(False)
-
-    def on_ai_folder_load(self):
-        """Load a folder into the batch list."""
-        from PySide6.QtWidgets import QFileDialog
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder with PNG Frames")
-        if folder:
-            self.ai_folder_list.addItem(folder)
-
-    def on_ai_folder_remove(self):
-        """Remove selected folder from the list."""
-        item = self.ai_folder_list.currentItem()
-        if item:
-            fp = item.text()
-            self._folder_video_map.pop(fp, None)
-            self.ai_folder_list.takeItem(self.ai_folder_list.row(item))
-
-    def on_ai_folder_colorize(self, *args):
-        """Colorize all PNG frames in the selected folder."""
+    def _run_folder_colorize(self, folder):
+        """Colorize all PNG frames in a folder."""
         import threading
-        item = self.ai_folder_list.currentItem()
-        if not item:
-            return
-        folder = item.text()
-        import os
         from pathlib import Path
         out_dir = Path(folder) / "ai_colorized"
         out_dir.mkdir(exist_ok=True)
 
-        self.ai_folder_colorize_btn.setEnabled(False)
-        self.ai_folder_colorize_btn.setText("Colorizing...")
-        self.ai_folder_progress.setText("Running...")
-        self.ai_folder_progress.setStyleSheet("color: orange;")
+        self.ai_colorize_btn.setEnabled(False)
+        self.ai_colorize_btn.setText("Colorizing...")
+        self.ai_item_progress.setText("Running...")
+        self.ai_item_progress.setStyleSheet("color: orange;")
         self._enable_cancel(True)
 
         cancel = self.app_state.ai_cancel_event
         cancel.clear()
 
         def run():
+            import os
             from controller import VideoController
             if self._cached_colorizer is None:
                 ctrl = VideoController(self.app_state)
@@ -1514,13 +1312,12 @@ class ColorCorrectionPanel(QWidget):
                         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
                         cv2.imwrite(str(out_path), bgr)
                     processed += len(batch_luma)
-                    batch_luma = []
                 if cancel.is_set():
-                    self.app_state.log(f"⏹ Batch colour cancelled after {processed}/{total} frames", "WARN")
+                    self.app_state.log(f"⏹ Colour cancelled after {processed}/{total} frames", "WARN")
                 else:
-                    self.app_state.log(f"Batch colour complete: {processed}/{total} frames", "SUCCESS")
+                    self.app_state.log(f"Colour complete: {processed}/{total} frames", "SUCCESS")
             except Exception as e:
-                self.app_state.log(f"Batch colour failed: {e}", "ERROR")
+                self.app_state.log(f"Colour failed: {e}", "ERROR")
                 import traceback
                 traceback.print_exc()
             finally:
@@ -1530,11 +1327,191 @@ class ColorCorrectionPanel(QWidget):
         thread = threading.Thread(target=run)
         thread.start()
 
+    def _enable_cancel(self, enabled):
+        self.ai_cancel_btn.setEnabled(enabled)
+        self.ai_cancel_btn.setText("Cancel" if enabled else "Cancel")
+
+    def on_ai_extract(self):
+        """Extract PNG frames from a video, add the output folder to the list."""
+        import threading, os
+        from pathlib import Path
+        from PySide6.QtWidgets import QFileDialog
+
+        video_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Video to Extract Frames From", "",
+            "Video (*.mp4 *.mkv *.avi *.mov *.webm)"
+        )
+        if not video_path:
+            return
+
+        stem = Path(video_path).stem
+        parent = Path(video_path).parent
+        out_dir = parent / f"{stem}_frames"
+        out_dir.mkdir(exist_ok=True)
+
+        from controller import VideoController
+        ctrl = VideoController(self.app_state)
+        fps = ctrl.backend.get_fps(video_path)
+        if fps <= 0:
+            fps = 24000 / 1001
+
+        # Add to list immediately with video info
+        self.ai_item_list.addItem(str(out_dir))
+        self._folder_video_map[str(out_dir)] = (video_path, fps)
+
+        self.ai_extract_btn.setEnabled(False)
+        self.ai_extract_btn.setText("Extracting...")
+        self.ai_item_progress.setText("Extracting...")
+        self.ai_item_progress.setStyleSheet("color: orange;")
+        self._enable_cancel(True)
+
+        cancel = self.app_state.ai_cancel_event
+        cancel.clear()
+
+        def run():
+            try:
+                ffmpeg = self.app_state.ffmpeg_path
+                import subprocess
+                cmd = [
+                    ffmpeg, "-y", "-i", video_path,
+                    "-pix_fmt", "gray",
+                    "-vf", f"fps={fps}",
+                    os.path.join(str(out_dir), "frame_%08d.png")
+                ]
+                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                while proc.poll() is None:
+                    if cancel.is_set():
+                        proc.terminate()
+                        break
+                    import time
+                    time.sleep(0.1)
+                proc.wait()
+                frame_count = len([f for f in os.listdir(str(out_dir)) if f.endswith('.png')])
+                if cancel.is_set():
+                    self.app_state.log(f"⏹ Extraction cancelled: {frame_count} frames in {out_dir.name}", "WARN")
+                else:
+                    self.app_state.log(f"Extracted {frame_count} frames to {out_dir}", "SUCCESS")
+            except Exception as e:
+                self.app_state.log(f"Extraction failed: {e}", "ERROR")
+                import traceback
+                traceback.print_exc()
+            finally:
+                cancel.clear()
+                self._extract_done.emit()
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_extract_done(self):
+        self.ai_extract_btn.setEnabled(True)
+        self.ai_extract_btn.setText("Extract")
+        self.ai_item_progress.setText("")
+        self.ai_item_progress.setStyleSheet("color: gray;")
+        self._enable_cancel(False)
+
+    def on_ai_recombine(self):
+        """Recombine colorized frames into video with audio."""
+        import threading, os, subprocess
+        from pathlib import Path
+        from PySide6.QtWidgets import QFileDialog
+
+        path = self._get_selected_path()
+        if not path or not self._is_folder(path):
+            self.app_state.log("Select a folder (must be in the list) to recombine", "WARN")
+            return
+        folder = Path(path)
+        colorized_dir = folder / "ai_colorized"
+        if not colorized_dir.exists() or not any(colorized_dir.iterdir()):
+            self.app_state.log(f"No colorized frames found in {colorized_dir}", "ERROR")
+            return
+
+        # Get original video info from stored map or prompt user
+        info = self._folder_video_map.get(str(folder))
+        if info and os.path.isfile(info[0]):
+            video_path, fps = info
+        else:
+            video_path, _ = QFileDialog.getOpenFileName(
+                self, "Select Original Video for Audio", "",
+                "Video (*.mp4 *.mkv *.avi *.mov *.webm)"
+            )
+            if not video_path:
+                return
+            from controller import VideoController
+            ctrl = VideoController(self.app_state)
+            fps = ctrl.backend.get_fps(video_path)
+            if fps <= 0:
+                fps = 24000 / 1001
+
+        stem = folder.stem
+        output_path = folder.parent / f"{stem}_colorized.mp4"
+        ffmpeg = self.app_state.ffmpeg_path
+
+        self.ai_recombine_btn.setEnabled(False)
+        self.ai_recombine_btn.setText("Recombining...")
+        self.ai_item_progress.setText("Recombining...")
+        self.ai_item_progress.setStyleSheet("color: orange;")
+        self._enable_cancel(True)
+
+        cancel = self.app_state.ai_cancel_event
+        cancel.clear()
+
+        def run():
+            try:
+                input_pattern = os.path.join(str(colorized_dir), "frame_%08d.png")
+                cmd = [
+                    ffmpeg, "-y",
+                    "-framerate", str(fps),
+                    "-i", input_pattern,
+                    "-i", video_path,
+                    "-map", "0:v",
+                    "-map", "1:a?",
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", "fast",
+                    "-crf", "18",
+                    "-c:a", "copy",
+                    "-shortest",
+                    str(output_path)
+                ]
+                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                while proc.poll() is None:
+                    if cancel.is_set():
+                        proc.terminate()
+                        break
+                    import time
+                    time.sleep(0.1)
+                proc.wait()
+                if cancel.is_set():
+                    self.app_state.log("⏹ Recombination cancelled", "WARN")
+                    if output_path.exists():
+                        output_path.unlink()
+                elif proc.returncode == 0:
+                    self.app_state.log(f"Recombined video: {output_path}", "SUCCESS")
+                else:
+                    self.app_state.log("Recombination failed", "ERROR")
+            except Exception as e:
+                self.app_state.log(f"Recombination error: {e}", "ERROR")
+                import traceback
+                traceback.print_exc()
+            finally:
+                cancel.clear()
+                self._recombine_done.emit()
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    def _on_recombine_done(self):
+        self.ai_recombine_btn.setEnabled(True)
+        self.ai_recombine_btn.setText("Recombine")
+        self.ai_item_progress.setText("")
+        self.ai_item_progress.setStyleSheet("color: gray;")
+        self._enable_cancel(False)
+
     def _on_folder_done(self):
-        self.ai_folder_colorize_btn.setEnabled(True)
-        self.ai_folder_colorize_btn.setText("Colorize All")
-        self.ai_folder_progress.setText("")
-        self.ai_folder_progress.setStyleSheet("color: gray;")
+        self.ai_colorize_btn.setEnabled(True)
+        self.ai_colorize_btn.setText("Colorize")
+        self.ai_item_progress.setText("")
+        self.ai_item_progress.setStyleSheet("color: gray;")
         self._enable_cancel(False)
 
     def on_ai_cancel(self):
@@ -1675,5 +1652,5 @@ class ColorCorrectionPanel(QWidget):
         self.ai_cc_slider['slider'].blockSignals(False)
         self.ai_cc_slider['value_label'].setText("0.50")
         # Reset pipeline status labels
-        self.ai_folder_progress.setText("")
-        self.ai_folder_progress.setStyleSheet("color: gray;")
+        self.ai_item_progress.setText("")
+        self.ai_item_progress.setStyleSheet("color: gray;")
