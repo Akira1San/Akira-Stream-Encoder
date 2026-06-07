@@ -468,7 +468,11 @@ class ColorCorrectionPanel(QWidget):
         self.ai_bigcolor_class_spin.setValue(getattr(self.app_state.ai_colorization, 'bigcolor_class_id', 0))
         self.ai_bigcolor_class_spin.setToolTip(
             "ImageNet class ID for color prior (0-999).\n"
-            "0=tench, 292=tiger, etc. Controls color style."
+            "Controls subtle color palette bias.\n"
+            "  0   = tench (fish) — generic\n"
+            "  292 = tiger — warm, natural, good default\n"
+            "  285 = Egyptian cat — neutral, good for portraits\n"
+            "  979 = volcano — vibrant, good for landscapes"
         )
         bc_cls_row.addWidget(self.ai_bigcolor_class_spin)
         bc_cls_row.addStretch()
