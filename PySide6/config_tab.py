@@ -1045,6 +1045,7 @@ class ConfigTab(QWidget):
                     self.app_state.image_sequence.folder_path,
                     len(self.app_state.image_sequence.image_files)
                 )
+                self.file_selected.emit(file_path)
                 return
             
             self.app_state.current_video_path = file_path

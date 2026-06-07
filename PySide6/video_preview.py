@@ -712,6 +712,15 @@ class VideoPreview(QWidget):
         # Split preview toggle (GIMP-style 50/50 original|processed)
         self._split_preview: bool = False
         
+        # Image sequence preview support
+        self._image_seq_files: List[str] = []
+        self._image_seq_index: int = 0
+        self._image_seq_mode: bool = False
+        self._image_seq_fps: float = 24.0
+        self._image_seq_total_images: int = 0
+        self._image_seq_timer = QTimer(self)
+        self._image_seq_timer.timeout.connect(self._on_image_seq_timer_tick)
+        
         self.setup_ui()
         
     def setup_ui(self):
@@ -973,6 +982,14 @@ class VideoPreview(QWidget):
         if self.is_playing:
             self.on_stop_clicked()
         
+        # Stop image sequence timer if active
+        if self._image_seq_mode:
+            self._image_seq_timer.stop()
+            self._image_seq_mode = False
+            self._image_seq_files = []
+            self._image_seq_index = 0
+            self._image_seq_total_images = 0
+        
         # Stop and cleanup video player
         self._video_player.cleanup()
         
@@ -1000,6 +1017,81 @@ class VideoPreview(QWidget):
         
         # Clear any pending frame loader
         self._cleanup_thread()
+    
+    def set_image_sequence(self, image_files: list, fps: float):
+        """Load an image sequence for preview and playback."""
+        self.clear_video()
+        self._image_seq_mode = True
+        self._image_seq_files = list(image_files)
+        self._image_seq_fps = max(1.0, fps)
+        self._image_seq_index = 0
+        self._image_seq_total_images = len(image_files)
+
+        if not self._image_seq_files:
+            return
+
+        # Use stacked layouts: original label for display (index 0), filter overlay for processed (index 1)
+        self.original_container.layout().setCurrentIndex(0)
+        self.processed_container.layout().setCurrentIndex(1)
+
+        # Update timeline with image-sequence-aware duration
+        total_seconds = self._image_seq_total_images / self._image_seq_fps
+        self.duration = total_seconds
+        self.timeline_slider.set_duration(self.duration)
+        self.timeline_slider.deleted_segments = []
+        self.timeline_slider.setValue(0)
+
+        self._load_image_seq_image(0)
+
+        self.app_state.log(
+            f"Image sequence loaded: {self._image_seq_total_images} images @ {fps:.2f}fps",
+            "INFO"
+        )
+
+    def _load_image_seq_image(self, index: int):
+        """Load and display image at the given index in the sequence."""
+        if not self._image_seq_files or index < 0 or index >= len(self._image_seq_files):
+            return
+
+        path = self._image_seq_files[index]
+        image = QImage(path)
+        if image.isNull():
+            self.app_state.log(f"Failed to load image: {path}", "WARN")
+            return
+
+        scaled = image.scaled(
+            self.preview_width, self.preview_height,
+            Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+
+        self._image_seq_index = index
+        self._playback_time = index / self._image_seq_fps
+        self.current_frame = scaled
+
+        # Display in original label
+        self.original_label.setPixmap(QPixmap.fromImage(scaled))
+        self.original_label.setAlignment(Qt.AlignCenter)
+
+        # Display in filter overlay (processed preview)
+        self.filter_overlay.set_original_image(scaled)
+        self.filter_overlay.set_image(scaled)
+        self.filter_overlay.update()
+
+        # Update timeline
+        self.timeline_slider.blockSignals(True)
+        slider_val = self.timeline_slider.time_to_value(self._playback_time)
+        self.timeline_slider.setValue(slider_val)
+        self.timeline_slider.blockSignals(False)
+
+        self.time_label.setText(f"Img {index + 1}/{self._image_seq_total_images}")
+
+    def _on_image_seq_timer_tick(self):
+        """Timer callback — advance to next image during playback."""
+        next_idx = self._image_seq_index + 1
+        if next_idx >= self._image_seq_total_images:
+            self.on_stop_clicked()
+            return
+        self._load_image_seq_image(next_idx)
     
     def update_deleted_segments(self, deleted_segments: list):
         """Update the deleted segments for preview playback"""
@@ -1309,6 +1401,16 @@ class VideoPreview(QWidget):
             
     def on_timeline_changed(self, value):
         """Handle timeline slider change while dragging"""
+        if self._image_seq_mode and self._image_seq_total_images > 0:
+            if self._image_seq_fps <= 0:
+                return
+            timestamp = self.timeline_slider.value_to_time(value)
+            target_idx = int(round(timestamp * self._image_seq_fps))
+            target_idx = max(0, min(target_idx, self._image_seq_total_images - 1))
+            if target_idx != self._image_seq_index:
+                self._load_image_seq_image(target_idx)
+            return
+
         if self.duration > 0:
             timestamp = self.timeline_slider.value_to_time(value)
             
@@ -1345,7 +1447,7 @@ class VideoPreview(QWidget):
     
     def on_time_input_entered(self):
         """Handle time input field entry"""
-        if self.duration <= 0:
+        if self._image_seq_mode or self.duration <= 0:
             return
             
         text = self.time_input.text().strip()
@@ -1849,7 +1951,9 @@ class VideoPreview(QWidget):
         if self.processed_container:
             self.processed_container.setMinimumSize(self.preview_width, self.preview_height)
         
-        if self.current_frame and not self.current_frame.isNull():
+        if self._image_seq_mode and self._image_seq_index < self._image_seq_total_images:
+            self._load_image_seq_image(self._image_seq_index)
+        elif self.current_frame and not self.current_frame.isNull():
             self.display_image(self.original_label, self.current_frame)
             processed = self.apply_filters(self.current_frame)
             sub_text = self._get_current_subtitle()
@@ -1858,7 +1962,19 @@ class VideoPreview(QWidget):
             self.filter_overlay.set_subtitle(sub_text)
             
     def on_play_clicked(self):
-        """Handle play button click - use QMediaPlayer for smooth playback"""
+        """Handle play button click - use QMediaPlayer or image sequence timer"""
+        if self._image_seq_mode:
+            if not self._image_seq_files or self._image_seq_total_images <= 1:
+                return
+            interval = max(1, int(1000.0 / (self._image_seq_fps * self.playback_speed)))
+            self._image_seq_timer.start(interval)
+            self.is_playing = True
+            self.play_btn.setEnabled(False)
+            self.pause_btn.setEnabled(True)
+            self.stop_btn.setEnabled(True)
+            self.app_state.log(f"Image sequence playback started at {self.playback_speed}x speed", "INFO")
+            return
+
         if not self.current_video_path or self.duration <= 0:
             return
         
@@ -1894,6 +2010,14 @@ class VideoPreview(QWidget):
         speed = float(speed_text.replace('x', ''))
         self.playback_speed = speed
         
+        if self._image_seq_mode:
+            if self.is_playing:
+                self._image_seq_timer.stop()
+                interval = max(1, int(1000.0 / (self._image_seq_fps * speed)))
+                self._image_seq_timer.start(interval)
+            self.app_state.log(f"Image sequence speed changed to {speed}x", "INFO")
+            return
+
         # Use QMediaPlayer's playback rate for smooth playback
         self._video_player.set_playback_rate(speed)
         self.app_state.log(f"Playback speed changed to {self.playback_speed}x", "INFO")
@@ -1924,6 +2048,9 @@ class VideoPreview(QWidget):
         
         self.setMinimumHeight(h + 180)
         
+        if self._image_seq_mode and self._image_seq_files:
+            self._load_image_seq_image(self._image_seq_index)
+        
     def on_split_toggled(self, checked: bool):
         """Handle split preview toggle"""
         self._split_preview = checked
@@ -1934,6 +2061,13 @@ class VideoPreview(QWidget):
     def on_pause_clicked(self):
         """Handle pause button click"""
         self.is_playing = False
+        
+        if self._image_seq_mode:
+            self._image_seq_timer.stop()
+            self.play_btn.setEnabled(True)
+            self.pause_btn.setEnabled(False)
+            self.app_state.log("Image sequence playback paused", "INFO")
+            return
         
         # Clear seeking flag
         self._is_user_seeking = False
@@ -1956,6 +2090,14 @@ class VideoPreview(QWidget):
     def on_stop_clicked(self):
         """Handle stop button click - reset to beginning"""
         self.is_playing = False
+        
+        if self._image_seq_mode:
+            self._image_seq_timer.stop()
+            self._load_image_seq_image(0)
+            self.play_btn.setEnabled(True)
+            self.pause_btn.setEnabled(False)
+            self.app_state.log("Image sequence playback stopped", "INFO")
+            return
         
         # Clear seeking flag
         self._is_user_seeking = False

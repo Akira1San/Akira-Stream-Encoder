@@ -291,6 +291,14 @@ class VideoWorkspace(QWidget):
             self.multi_track_panel.populate_subtitle_tracks([])
             return
 
+        if self.app_state.image_sequence.enabled and video_path == self.app_state.image_sequence.folder_path:
+            fps_float = self._parse_framerate(self.app_state.encoding.framerate)
+            self.preview.set_image_sequence(
+                self.app_state.image_sequence.image_files,
+                fps_float
+            )
+            return
+
         self.preview.set_video(video_path)
         self.trim_panel.detect_tracks(video_path)
 
@@ -971,6 +979,15 @@ class VideoWorkspace(QWidget):
         
     def set_video(self, video_path: str):
         """Set the current video"""
+        # Check if this is an image sequence
+        if self.app_state.image_sequence.enabled and video_path == self.app_state.image_sequence.folder_path:
+            fps_float = self._parse_framerate(self.app_state.encoding.framerate)
+            self.preview.set_image_sequence(
+                self.app_state.image_sequence.image_files,
+                fps_float
+            )
+            return
+
         self.preview.set_video(video_path)
         self.trim_panel.detect_tracks(video_path)
         
@@ -1000,3 +1017,14 @@ class VideoWorkspace(QWidget):
         else:
             self.app_state.tracks.available_subtitle_tracks = []
             self.multi_track_panel.populate_subtitle_tracks([])
+
+    @staticmethod
+    def _parse_framerate(fps_str: str) -> float:
+        """Parse framerate string like '24000/1001' or '30' to float"""
+        try:
+            if '/' in fps_str:
+                num, den = fps_str.split('/')
+                return float(num) / float(den)
+            return float(fps_str)
+        except (ValueError, ZeroDivisionError):
+            return 24.0
