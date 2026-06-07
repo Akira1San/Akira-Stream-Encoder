@@ -1,4 +1,4 @@
-"""BigColor — BigGAN-based colorization (CVPR 2022).
+"""BigColor — BigGAN-based colorization (ECCV 2022).
 
 Self-contained inference implementation of:
   BigColor: Colorization using a Generative Color Prior for Natural Images
@@ -7,7 +7,7 @@ Self-contained inference implementation of:
 Requires: timm + scikit-image (optional: for automatic class prediction)
 """
 from __future__ import annotations
-import os, re
+import os, re, functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -144,7 +144,7 @@ class _bn(nn.Module):
                             self.training, self.momentum, self.eps)
 
 class _ccbn(nn.Module):
-    """Class-conditional BatchNorm."""
+    """Class-conditional BatchNorm (conditioned gain+bias only)."""
     def __init__(self, output_size, input_size, which_linear, eps=1e-5, momentum=0.1, norm_style='bn'):
         super().__init__()
         self.gain = which_linear(input_size, output_size)
@@ -159,8 +159,19 @@ class _ccbn(nn.Module):
         gain = (1 + self.gain(y)).view(y.size(0), -1, 1, 1)
         bias = self.bias(y).view(y.size(0), -1, 1, 1)
         out = F.batch_norm(x, self.stored_mean, self.stored_var, None, None,
-                           self.training, 0.1, self.eps)
+                           self.training, self.momentum, self.eps)
         return out * gain + bias
+
+class _AdaBNExtras(nn.Module):
+    """Unconditioned per-channel scale & bias for AdaBatch."""
+    def __init__(self, ch):
+        super().__init__()
+        self.scale = P(torch.ones(ch), requires_grad=True)
+        self.bias = P(torch.zeros(ch), requires_grad=True)
+
+    def forward(self, x):
+        return x * self.scale[None, :, None, None] + self.bias[None, :, None, None]
+
 
 class _identity(nn.Module):
     def forward(self, x):
@@ -178,24 +189,25 @@ class _GBlock(nn.Module):
         self.upsample = upsample
         self.conv1 = which_conv(in_channels, out_channels)
         self.conv2 = which_conv(out_channels, out_channels)
-        self.learnable_sc = in_channels != out_channels or upsample is not None
-        if self.learnable_sc:
-            self.conv_sc = which_conv(in_channels, out_channels, kernel_size=1, padding=0)
+        self.conv_sc = which_conv(in_channels, out_channels, kernel_size=1, padding=0)
         self.bn1 = which_bn(in_channels)
         self.bn2 = which_bn(out_channels)
+        self.bn1_ada = _AdaBNExtras(in_channels)
+        self.bn2_ada = _AdaBNExtras(out_channels)
 
-    def forward(self, x, y, use_in=False):
+    def forward(self, x, y):
         h = self.bn1(x, y)
+        h = self.bn1_ada(h)
         h = self.activation(h)
         if self.upsample:
             h = self.upsample(h)
             x = self.upsample(x)
         h = self.conv1(h)
         h = self.bn2(h, y)
+        h = self.bn2_ada(h)
         h = self.activation(h)
         h = self.conv2(h)
-        if self.learnable_sc:
-            x = self.conv_sc(x)
+        x = self.conv_sc(x)
         return h + x
 
 # ---- Generator ----
@@ -317,8 +329,6 @@ class _Generator(nn.Module):
                 h = block(h, ys[idx])
         return torch.tanh(self.output_layer(h))
 
-import functools
-
 # ---------------------------------------------------------------------------
 #  Encoder  —  EncoderF_Res (dim_f=16)
 # ---------------------------------------------------------------------------
@@ -436,7 +446,7 @@ class _Colorizer(nn.Module):
     """BigColor Colorizer: Encoder -> Generator mid-layer injection."""
 
     def __init__(self, config: dict, norm_type='adabatch',
-                 id_mid_layer=2, activation='relu', use_attention=True,
+                 id_mid_layer=2, activation='relu', use_attention=False,
                  use_res=True, dim_f=16):
         super().__init__()
         self.id_mid_layer = id_mid_layer
@@ -461,7 +471,7 @@ class _Colorizer(nn.Module):
 BIGCOLOR_CONFIG = {
     'G_ch': 96, 'dim_z': 119, 'bottom_width': 4, 'resolution': 256,
     'G_attn': '64', 'n_classes': 1000, 'G_shared': True, 'shared_dim': 128,
-    'hier': False, 'norm_style': 'bn', 'num_G_SVs': 1, 'num_G_SV_itrs': 1,
+    'hier': True, 'norm_style': 'bn', 'num_G_SVs': 1, 'num_G_SV_itrs': 1,
     'SN_eps': 1e-12, 'BN_eps': 1e-5,
 }
 
@@ -497,17 +507,39 @@ class BigColorColorizer(Colorizer):
             )
         model = _Colorizer(BIGCOLOR_CONFIG, norm_type='adabatch',
                            id_mid_layer=2, activation='relu',
-                           use_attention=True, use_res=True)
+                           use_attention=False, use_res=True)
         sd = torch.load(self._weight_path, map_location='cpu', weights_only=False)
-        if 'model' in sd:
-            sd = sd['model']
+
+        if 'shadow_params' in sd:
+            shadow = sd['shadow_params']
+            model_params = list(model.parameters())
+            if len(shadow) == len(model_params):
+                with torch.no_grad():
+                    for p, s in zip(model_params, shadow):
+                        p.copy_(s)
+            else:
+                self._model = model
+                raise RuntimeError(
+                    f'shadow_params ({len(shadow)}) != model params ({len(model_params)})'
+                )
+        elif 'model' in sd:
+            errs = model.load_state_dict(sd['model'], strict=False)
+            if errs[0]:
+                print(f'BigColor missing keys ({len(errs[0])}):', list(errs[0])[:10])
+            if errs[1]:
+                print(f'BigColor unexpected keys ({len(errs[1])}):', list(errs[1])[:10])
         elif 'state_dict' in sd:
-            sd = sd['state_dict']
-        errs = model.load_state_dict(sd, strict=False)
-        if errs[0]:
-            print(f'BigColor missing keys ({len(errs[0])}):', list(errs[0])[:10])
-        if errs[1]:
-            print(f'BigColor unexpected keys ({len(errs[1])}):', list(errs[1])[:10])
+            errs = model.load_state_dict(sd['state_dict'], strict=False)
+            if errs[0]:
+                print(f'BigColor missing keys ({len(errs[0])}):', list(errs[0])[:10])
+            if errs[1]:
+                print(f'BigColor unexpected keys ({len(errs[1])}):', list(errs[1])[:10])
+        else:
+            errs = model.load_state_dict(sd, strict=False)
+            if errs[0]:
+                print(f'BigColor missing keys ({len(errs[0])}):', list(errs[0])[:10])
+            if errs[1]:
+                print(f'BigColor unexpected keys ({len(errs[1])}):', list(errs[1])[:10])
         model.eval()
         model.to(self._dev)
         if self._fp16:
@@ -539,25 +571,31 @@ class BigColorColorizer(Colorizer):
     def colorize_frame(self, l_channel: np.ndarray) -> np.ndarray:
         """Take L channel (HxW float32 0-1), return RGB (HxWx3 uint8)."""
         self._load()
-        import cv2
+        import cv2, skimage.color
         H, W = l_channel.shape
-        gray_3ch = np.stack([l_channel] * 3, axis=-1).astype(np.float32)
+        model_res = BIGCOLOR_CONFIG['resolution']
 
-        klass = self._class_id
-        h_in, w_in = gray_3ch.shape[:2]
+        h_in, w_in = l_channel.shape
         short = min(h_in, w_in)
         scale = self._input_size / short
         new_w, new_h = int(w_in * scale), int(h_in * scale)
-        gray_resized = cv2.resize(gray_3ch, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        gray_resized = cv2.resize(l_channel, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-        t = torch.from_numpy(gray_resized.transpose(2, 0, 1)).float().unsqueeze(0).to(self._dev)
+        h_mid, w_mid = gray_resized.shape
+        top = (h_mid - model_res) // 2
+        left = (w_mid - model_res) // 2
+        gray_crop = gray_resized[top:top+model_res, left:left+model_res]
+
+        t = torch.from_numpy(gray_crop).float().unsqueeze(0).unsqueeze(0).to(self._dev)
         if self._fp16:
             t = t.half()
 
+        klass = self._class_id
         c = torch.LongTensor([klass]).to(self._dev)
-        z = torch.randn(1, self._dim_z, device=self._dev) * 0.8
+        z = torch.randn(1, self._dim_z, device=self._dev) * 2.0
 
         with torch.no_grad():
+            self._model.train()
             output = self._model(t, c, z)
             output = (output + 1.0) / 2.0
 
@@ -566,9 +604,11 @@ class BigColorColorizer(Colorizer):
         out_rgb = (out_rgb * 255).astype(np.uint8)
         out_rgb = cv2.resize(out_rgb, (W, H), interpolation=cv2.INTER_LINEAR)
 
-        ab = cv2.cvtColor(out_rgb, cv2.COLOR_RGB2LAB)[:, :, 1:]
-        lab = np.concatenate([(l_channel * 100.0)[:, :, np.newaxis], ab], axis=-1)
-        result = cv2.cvtColor(lab.astype(np.float32), cv2.COLOR_LAB2RGB)
+        gray_3ch = np.stack([l_channel] * 3, axis=-1).astype(np.float32)
+        ab = skimage.color.rgb2lab(out_rgb.astype(np.float32) / 255.0)[:, :, 1:]
+        l = skimage.color.rgb2lab(gray_3ch)[:, :, :1]
+        lab = np.concatenate([l, ab], axis=-1)
+        result = skimage.color.lab2rgb(lab)
         return np.clip(result * 255, 0, 255).astype(np.uint8)
 
     def colorize_batch(self, l_batch: np.ndarray) -> np.ndarray:

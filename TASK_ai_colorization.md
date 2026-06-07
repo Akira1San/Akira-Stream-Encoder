@@ -393,3 +393,41 @@ DeOldify (modern fork, PyTorch 2.5+):
 | Python GIL limits frame pipeline | Use `multiprocessing.Queue` for parallel decode/colorize/encode |
 | Model weights copyright | Both are MIT licensed; host weights separately |
 | Temporal flickering (frame inconsistency) | Apply temporal smoothing (DeOldify video model already handles this) |
+
+---
+
+### Phase 6 — DDColor Integration
+
+**DDColor** (Tencent ARC 2023, ICCV) — ConvNeXt-L/T encoder + transformer-based color decoder. MIT license.
+
+| # | Step | Files | Details |
+|---|---|---|---|
+| 6.1 | Create `ddcolor.py` | `colorizers/ddcolor.py` | Self-contained model definition: `DDColor`, `ImageEncoder` (ConvNeXt-L/T), `DuelDecoder`, `MultiScaleColorDecoder` + inlined utilities (ConvNeXt blocks, transformer attention layers, position encoding, UNet blocks) — no `basicsr` dependency |
+| 6.2 | `DDColorColorizer` class | `colorizers/ddcolor.py` | Implements `Colorizer` ABC: `_load()` builds model + loads weights; `colorize_frame(l)` converts L→grayscale RGB→model→AB→`luma_to_rgb()`; `colorize_batch(b)` loops over batch; `supports_batch()→True` |
+| 6.3 | Export in `__init__.py` | `colorizers/__init__.py` | Add `from colorizers.ddcolor import DDColorColorizer` |
+| 6.4 | Settings model | `models.py` | Add `ddcolor_model: str = "modelscope"` (variants: "modelscope", "paper_tiny") and `ddcolor_input_size: int = 512` (256–1024) to `AIColorizationSettings` |
+| 6.5 | Controller dispatch | `controller.py` | Add `"ddcolor"` branch in `_get_colorizer()`: load variant weight, select ConvNeXt size automatically (tiny for paper_tiny, large for modelscope), pass `input_size` |
+| 6.6 | UI: engine selector | `color_correction.py` | Add `"DDColor (ConvNeXt)"` to `ai_engine_combo`; map in `on_ai_engine_changed` |
+| 6.7 | UI: variant dropdown | `color_correction.py` | DDColor-specific widgets: model variant combo (modelscope/paper_tiny), input size spinner; show/hide based on engine |
+| 6.8 | Weight URLs | `TASK_ai_colorization.md` (docs) | Document HuggingFace download URLs for both variants |
+
+**DDColor variants and sizes:**
+
+| Variant | Size | Encoder | Weight Size | HF Repo |
+|---|---|---|---|---|
+| modelscope (default) | large | ConvNeXt-L | ~700 MB | `piddnad/ddcolor_modelscope` |
+| paper_tiny | tiny | ConvNeXt-T | ~350 MB | `piddnad/ddcolor_paper_tiny` |
+
+**Key differences from existing engines:**
+- Takes grayscale **RGB** (3-channel, AB=0) instead of raw L channel
+- Internal ImageNet normalization (mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
+- Works at fixed input resolution (default 512px, user-configurable)
+- ConvNeXt decoder may be sensitive to fp16 — default FP16 off for DDColor
+
+---
+
+### Other Engines — Future Testing
+
+| Model | Year | Approach | Weight Size | Notes |
+|---|---|---|---|---|
+| **BigColor** | CVPR 2022 | BigGAN-based, gray→color + mask| ~200 MB | [github.com/KIMGEONUNG/BigColor](https://github.com/KIMGEONUNG/BigColor) — small, creative results. Low risk: only requires `timm` + `scikit-image` beyond torch/numpy/cv2 |
