@@ -401,15 +401,15 @@ DeOldify (modern fork, PyTorch 2.5+):
 **DDColor** (Tencent ARC 2023, ICCV) — ConvNeXt-L/T encoder + transformer-based color decoder. MIT license.
 
 | # | Step | Files | Details |
-|---|---|---|---|
-| 6.1 | Create `ddcolor.py` | `colorizers/ddcolor.py` | Self-contained model definition: `DDColor`, `ImageEncoder` (ConvNeXt-L/T), `DuelDecoder`, `MultiScaleColorDecoder` + inlined utilities (ConvNeXt blocks, transformer attention layers, position encoding, UNet blocks) — no `basicsr` dependency |
-| 6.2 | `DDColorColorizer` class | `colorizers/ddcolor.py` | Implements `Colorizer` ABC: `_load()` builds model + loads weights; `colorize_frame(l)` converts L→grayscale RGB→model→AB→`luma_to_rgb()`; `colorize_batch(b)` loops over batch; `supports_batch()→True` |
-| 6.3 | Export in `__init__.py` | `colorizers/__init__.py` | Add `from colorizers.ddcolor import DDColorColorizer` |
-| 6.4 | Settings model | `models.py` | Add `ddcolor_model: str = "modelscope"` (variants: "modelscope", "paper_tiny") and `ddcolor_input_size: int = 512` (256–1024) to `AIColorizationSettings` |
-| 6.5 | Controller dispatch | `controller.py` | Add `"ddcolor"` branch in `_get_colorizer()`: load variant weight, select ConvNeXt size automatically (tiny for paper_tiny, large for modelscope), pass `input_size` |
-| 6.6 | UI: engine selector | `color_correction.py` | Add `"DDColor (ConvNeXt)"` to `ai_engine_combo`; map in `on_ai_engine_changed` |
-| 6.7 | UI: variant dropdown | `color_correction.py` | DDColor-specific widgets: model variant combo (modelscope/paper_tiny), input size spinner; show/hide based on engine |
-| 6.8 | Weight URLs | `TASK_ai_colorization.md` (docs) | Document HuggingFace download URLs for both variants |
+|---|---|---|---|---|
+| 6.1 | Create `ddcolor.py` | `colorizers/ddcolor.py` | Self-contained model definition: `DDColor`, `ImageEncoder` (ConvNeXt-L/T), `DuelDecoder`, `MultiScaleColorDecoder` + inlined utilities (ConvNeXt blocks, transformer attention layers, position encoding, UNet blocks) — no `basicsr` dependency | ✅ |
+| 6.2 | `DDColorColorizer` class | `colorizers/ddcolor.py` | Implements `Colorizer` ABC: `_load()` builds model + loads weights; `colorize_frame(l)` converts L→grayscale RGB→model→AB→`luma_to_rgb()`; `colorize_batch(b)` loops over batch; `supports_batch()→True` | ✅ |
+| 6.3 | Export in `__init__.py` | `colorizers/__init__.py` | Add `from colorizers.ddcolor import DDColorColorizer` | ✅ |
+| 6.4 | Settings model | `models.py` | Add `ddcolor_model: str = "modelscope"` (variants: "modelscope", "paper_tiny") and `ddcolor_input_size: int = 512` (256–1024) to `AIColorizationSettings` | ✅ |
+| 6.5 | Controller dispatch | `controller.py` | Add `"ddcolor"` branch in `_get_colorizer()`: load variant weight, select ConvNeXt size automatically (tiny for paper_tiny, large for modelscope), pass `input_size` | ✅ |
+| 6.6 | UI: engine selector | `color_correction.py` | Add `"DDColor (ConvNeXt)"` to `ai_engine_combo`; map in `on_ai_engine_changed` | ✅ |
+| 6.7 | UI: variant dropdown | `color_correction.py` | DDColor-specific widgets: model variant combo (modelscope/paper_tiny), input size spinner; show/hide based on engine | ✅ |
+| 6.8 | Weight URLs | `TASK_ai_colorization.md` (docs) | Document HuggingFace download URLs for both variants | ✅ |
 
 **DDColor variants and sizes:**
 
