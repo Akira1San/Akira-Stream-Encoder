@@ -568,39 +568,25 @@ class BigColorColorizer(Colorizer):
         except Exception:
             return self._class_id
 
-    def _calibrate_bn(self, gray_resized: np.ndarray):
-        model = self._model
-        model.train()
-        model_res = BIGCOLOR_CONFIG['resolution']
-        h, w = gray_resized.shape
-        n_calib = 24
-        import cv2
-        with torch.no_grad():
-            for _ in range(n_calib):
-                y = np.random.randint(0, max(1, h - model_res + 1))
-                x = np.random.randint(0, max(1, w - model_res + 1))
-                crop = gray_resized[y:y+model_res, x:x+model_res].copy()
-                t = torch.from_numpy(crop).float().unsqueeze(0).unsqueeze(0).to(self._dev)
-                z = torch.randn(1, self._dim_z, device=self._dev, dtype=torch.float32)
-                c = torch.randint(0, 1000, (1,)).to(self._dev)
-                if self._fp16:
-                    t = t.half()
-                    z = z.half()
-                model(t, c, z)
-        model.eval()
-
     def colorize_frame(self, l_channel: np.ndarray) -> np.ndarray:
+        """Take L channel (HxW float32 0-1), return RGB (HxWx3 uint8)."""
         self._load()
-        import cv2
+        import cv2, skimage.color
         H, W = l_channel.shape
         model_res = BIGCOLOR_CONFIG['resolution']
 
-        gray_resized = cv2.resize(l_channel, (model_res, model_res),
-                                  interpolation=cv2.INTER_LINEAR)
+        h_in, w_in = l_channel.shape
+        short = min(h_in, w_in)
+        scale = self._input_size / short
+        new_w, new_h = int(w_in * scale), int(h_in * scale)
+        gray_resized = cv2.resize(l_channel, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-        self._calibrate_bn(gray_resized)
+        h_mid, w_mid = gray_resized.shape
+        top = (h_mid - model_res) // 2
+        left = (w_mid - model_res) // 2
+        gray_crop = gray_resized[top:top+model_res, left:left+model_res]
 
-        t = torch.from_numpy(gray_resized).float().unsqueeze(0).unsqueeze(0).to(self._dev)
+        t = torch.from_numpy(gray_crop).float().unsqueeze(0).unsqueeze(0).to(self._dev)
         if self._fp16:
             t = t.half()
 
@@ -612,6 +598,7 @@ class BigColorColorizer(Colorizer):
         z *= 2.0
 
         with torch.no_grad():
+            self._model.train()
             output = self._model(t, c, z)
             output = (output + 1.0) / 2.0
 
@@ -620,7 +607,12 @@ class BigColorColorizer(Colorizer):
         out_rgb = (out_rgb * 255).astype(np.uint8)
         out_rgb = cv2.resize(out_rgb, (W, H), interpolation=cv2.INTER_LINEAR)
 
-        return out_rgb
+        gray_3ch = np.stack([l_channel] * 3, axis=-1).astype(np.float32)
+        ab = skimage.color.rgb2lab(out_rgb.astype(np.float32) / 255.0)[:, :, 1:]
+        l = skimage.color.rgb2lab(gray_3ch)[:, :, :1]
+        lab = np.concatenate([l, ab], axis=-1)
+        result = skimage.color.lab2rgb(lab)
+        return np.clip(result * 255, 0, 255).astype(np.uint8)
 
     def colorize_batch(self, l_batch: np.ndarray) -> np.ndarray:
         return np.stack([self.colorize_frame(l_batch[i]) for i in range(l_batch.shape[0])])
