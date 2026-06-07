@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal, QTimer
 import os
 
 from models import AppState
+from ui_components import CollapsibleFrame
 
 
 class ColorCorrectionPanel(QWidget):
@@ -40,91 +41,95 @@ class ColorCorrectionPanel(QWidget):
         """Setup the UI layout"""
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
-        
+
         # === Top Controls ===
         top_layout = QHBoxLayout()
-        
+
         self.enable_check = QCheckBox("Enable Color Correction")
         self.enable_check.setChecked(self.app_state.eq.enabled)
         top_layout.addWidget(self.enable_check)
-        
+
         top_layout.addStretch()
-        
+
         reset_btn = QPushButton("Reset All")
         reset_btn.clicked.connect(self.reset_defaults)
         top_layout.addWidget(reset_btn)
-        
+
         layout.addLayout(top_layout)
-        
-        # === Sliders ===
+
+        # === 1. EQ Section (Collapsible, closed by default) ===
+        self.eq_frame = CollapsibleFrame("EQ")
+        eq_layout = self.eq_frame.content_layout()
+
         # Brightness
         self.brightness_slider = self.create_slider(
             "Brightness", self.app_state.eq.brightness,
             -0.10, 0.10, 0.00,
             "Adjusts black level. VHS tapes rarely need more than +/- 0.05."
         )
-        layout.addLayout(self.brightness_slider['layout'])
-        
+        eq_layout.addLayout(self.brightness_slider['layout'])
+
         # Contrast
         self.contrast_slider = self.create_slider(
             "Contrast", self.app_state.eq.contrast,
             0.80, 1.30, 1.00,
             "Increases separation between dark and bright areas. Too much will crush VHS shadow detail."
         )
-        layout.addLayout(self.contrast_slider['layout'])
-        
+        eq_layout.addLayout(self.contrast_slider['layout'])
+
         # Saturation
         self.saturation_slider = self.create_slider(
             "Saturation", self.app_state.eq.saturation,
             0.70, 1.10, 1.00,
             "Color intensity. High values can cause VHS color bleeding."
         )
-        layout.addLayout(self.saturation_slider['layout'])
-        
+        eq_layout.addLayout(self.saturation_slider['layout'])
+
         # Gamma
         self.gamma_slider = self.create_slider(
             "Gamma", self.app_state.eq.gamma,
             0.90, 1.10, 1.00,
             "Adjusts midtone brightness without affecting black/white points."
         )
-        layout.addLayout(self.gamma_slider['layout'])
-        
+        eq_layout.addLayout(self.gamma_slider['layout'])
+
         # === RGB Gamma Section ===
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line)
-        
+        eq_layout.addWidget(line)
+
         # Link RGB checkbox
         self.link_rgb_check = QCheckBox("Link RGB Gamma (White Balance)")
         self.link_rgb_check.setChecked(True)
-        layout.addWidget(self.link_rgb_check)
-        
+        eq_layout.addWidget(self.link_rgb_check)
+
         # RGB Sliders
         self.gamma_r_slider = self.create_slider(
             "R Gamma", self.app_state.eq.gamma_r,
             0.95, 1.05, 1.00
         )
-        layout.addLayout(self.gamma_r_slider['layout'])
-        
+        eq_layout.addLayout(self.gamma_r_slider['layout'])
+
         self.gamma_g_slider = self.create_slider(
             "G Gamma", self.app_state.eq.gamma_g,
             0.95, 1.05, 1.00
         )
-        layout.addLayout(self.gamma_g_slider['layout'])
-        
+        eq_layout.addLayout(self.gamma_g_slider['layout'])
+
         self.gamma_b_slider = self.create_slider(
             "B Gamma", self.app_state.eq.gamma_b,
             0.95, 1.05, 1.00
         )
-        layout.addLayout(self.gamma_b_slider['layout'])
-        
-        # === White Balance Section (colorbalance filter) ===
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.HLine)
-        line2.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line2)
-        
+        eq_layout.addLayout(self.gamma_b_slider['layout'])
+
+        layout.addWidget(self.eq_frame)
+        self.eq_frame.collapse()
+
+        # === 2. White Balance Section (Collapsible, closed by default) ===
+        self.wb_frame = CollapsibleFrame("White Balance")
+        wb_layout = self.wb_frame.content_layout()
+
         # White Balance enable checkbox
         self.wb_enable_check = QCheckBox("Enable White Balance")
         self.wb_enable_check.setChecked(self.app_state.eq.white_balance_enabled)
@@ -133,8 +138,8 @@ class ColorCorrectionPanel(QWidget):
             "Similar to Shotcut's White Balance filter.\n"
             "Use presets for quick adjustments or manual mode for fine control."
         )
-        layout.addWidget(self.wb_enable_check)
-        
+        wb_layout.addWidget(self.wb_enable_check)
+
         # Preset selector for white balance
         wb_preset_layout = QHBoxLayout()
         wb_preset_layout.addWidget(QLabel("Preset:"))
@@ -150,40 +155,41 @@ class ColorCorrectionPanel(QWidget):
         )
         wb_preset_layout.addWidget(self.wb_preset_combo)
         wb_preset_layout.addStretch()
-        layout.addLayout(wb_preset_layout)
-        
+        wb_layout.addLayout(wb_preset_layout)
+
         # White Balance sliders (R, G, B for current preset)
         self.wb_r_slider = self.create_slider(
             "Red", self.app_state.eq.wb_shadows_r if self.app_state.eq.white_balance_enabled else 0.0,
             -1.0, 1.0, 0.0,
             "Red balance: negative = more cyan, positive = more red"
         )
-        layout.addLayout(self.wb_r_slider['layout'])
-        
+        wb_layout.addLayout(self.wb_r_slider['layout'])
+
         self.wb_g_slider = self.create_slider(
             "Green", self.app_state.eq.wb_shadows_g if self.app_state.eq.white_balance_enabled else 0.0,
             -1.0, 1.0, 0.0,
             "Green balance: negative = more magenta, positive = more green"
         )
-        layout.addLayout(self.wb_g_slider['layout'])
-        
+        wb_layout.addLayout(self.wb_g_slider['layout'])
+
         self.wb_b_slider = self.create_slider(
             "Blue", self.app_state.eq.wb_shadows_b if self.app_state.eq.white_balance_enabled else 0.0,
             -1.0, 1.0, 0.0,
             "Blue balance: negative = more yellow, positive = more blue"
         )
-        layout.addLayout(self.wb_b_slider['layout'])
-        
+        wb_layout.addLayout(self.wb_b_slider['layout'])
+
         # Enable/disable WB sliders based on enable state
         self._set_wb_sliders_enabled(self.app_state.eq.white_balance_enabled)
 
-        # === Colorization Section (B&W → Color) ===
-        line3 = QFrame()
-        line3.setFrameShape(QFrame.HLine)
-        line3.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line3)
+        layout.addWidget(self.wb_frame)
+        self.wb_frame.collapse()
 
-        # Enable checkbox
+        # === 3. Colorization Section (Collapsible, closed by default) ===
+        self.cz_frame = CollapsibleFrame("Colorization")
+        cz_layout = self.cz_frame.content_layout()
+
+        # ---- Non-AI Colorization ----
         self.colorize_check = QCheckBox("Enable Colorization (B&W → Color)")
         self.colorize_check.setChecked(self.app_state.colorization.enabled)
         self.colorize_check.setToolTip(
@@ -192,7 +198,7 @@ class ColorCorrectionPanel(QWidget):
             "Pseudocolor: Map brightness levels to colors\n"
             "LUT: Apply a color lookup table (.cube file)"
         )
-        layout.addWidget(self.colorize_check)
+        cz_layout.addWidget(self.colorize_check)
 
         # Method selector
         method_layout = QHBoxLayout()
@@ -211,7 +217,7 @@ class ColorCorrectionPanel(QWidget):
         )
         method_layout.addWidget(self.colorize_method_combo)
         method_layout.addStretch()
-        layout.addLayout(method_layout)
+        cz_layout.addLayout(method_layout)
 
         # ---- Tint Controls ----
         self.tint_group = QGroupBox("Tint Settings")
@@ -262,7 +268,7 @@ class ColorCorrectionPanel(QWidget):
         tint_layout.addLayout(self.colorize_strength_slider['layout'])
 
         self.tint_group.setEnabled(self.app_state.colorization.enabled and c.method == "tint")
-        layout.addWidget(self.tint_group)
+        cz_layout.addWidget(self.tint_group)
 
         # ---- Pseudocolor Controls ----
         self.pseudocolor_group = QGroupBox("Pseudocolor Settings")
@@ -299,7 +305,7 @@ class ColorCorrectionPanel(QWidget):
         pc_layout.addLayout(self.pc_opacity_slider['layout'])
 
         self.pseudocolor_group.setEnabled(self.app_state.colorization.enabled and c.method == "pseudocolor")
-        layout.addWidget(self.pseudocolor_group)
+        cz_layout.addWidget(self.pseudocolor_group)
 
         # ---- LUT Controls ----
         self.lut_group = QGroupBox("LUT Settings")
@@ -335,13 +341,14 @@ class ColorCorrectionPanel(QWidget):
         lut_layout.addLayout(lut_file_row)
 
         self.lut_group.setEnabled(self.app_state.colorization.enabled and c.method == "lut")
-        layout.addWidget(self.lut_group)
+        cz_layout.addWidget(self.lut_group)
 
-        # === AI Colorization Section ===
-        line4 = QFrame()
-        line4.setFrameShape(QFrame.HLine)
-        line4.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line4)
+        layout.addWidget(self.cz_frame)
+        self.cz_frame.collapse()
+
+        # === 4. AI Colorization Section (Collapsible, closed by default) ===
+        self.ai_frame = CollapsibleFrame("AI Colorization")
+        ai_layout = self.ai_frame.content_layout()
 
         self.ai_enable_check = QCheckBox("Enable AI Colorization")
         self.ai_enable_check.setChecked(self.app_state.ai_colorization.enabled)
@@ -350,10 +357,10 @@ class ColorCorrectionPanel(QWidget):
             "ECCV16: Lightweight, runs on CPU/GPU (~15-60 fps)\n"
             "DeOldify: Premium, GPU only (~8-12 fps)"
         )
-        layout.addWidget(self.ai_enable_check)
+        ai_layout.addWidget(self.ai_enable_check)
 
         self.ai_group = QGroupBox("AI Colorization Settings")
-        ai_layout = QVBoxLayout(self.ai_group)
+        ai_group_layout = QVBoxLayout(self.ai_group)
 
         # Engine selector
         engine_row = QHBoxLayout()
@@ -373,7 +380,7 @@ class ColorCorrectionPanel(QWidget):
         )
         engine_row.addWidget(self.ai_engine_combo)
         engine_row.addStretch()
-        ai_layout.addLayout(engine_row)
+        ai_group_layout.addLayout(engine_row)
 
         # Device selector
         device_row = QHBoxLayout()
@@ -386,7 +393,7 @@ class ColorCorrectionPanel(QWidget):
         self.ai_device_combo.setToolTip("GPU: Fast inference with CUDA\nCPU: Slower but compatible")
         device_row.addWidget(self.ai_device_combo)
         device_row.addStretch()
-        ai_layout.addLayout(device_row)
+        ai_group_layout.addLayout(device_row)
 
         # DeOldify-specific: model variant + render factor
         self.ai_deoldify_widgets = []
@@ -405,7 +412,7 @@ class ColorCorrectionPanel(QWidget):
         )
         mv_row.addWidget(self.ai_deoldify_model_combo)
         mv_row.addStretch()
-        ai_layout.addLayout(mv_row)
+        ai_group_layout.addLayout(mv_row)
         self.ai_deoldify_widgets.append(self.ai_deoldify_model_combo)
 
         rf_row = QHBoxLayout()
@@ -420,7 +427,7 @@ class ColorCorrectionPanel(QWidget):
         )
         rf_row.addWidget(self.ai_render_factor_spin)
         rf_row.addStretch()
-        ai_layout.addLayout(rf_row)
+        ai_group_layout.addLayout(rf_row)
         self.ai_deoldify_widgets.append(self.ai_render_factor_spin)
 
         # Color correct strength slider (DeOldify-only)
@@ -431,7 +438,7 @@ class ColorCorrectionPanel(QWidget):
             "Reduce inherent model color cast in YUV space.\n"
             "0.0 = No correction, 0.5 = Half (default), 1.0 = Full neutralization"
         )
-        ai_layout.addLayout(self.ai_cc_slider['layout'])
+        ai_group_layout.addLayout(self.ai_cc_slider['layout'])
         self.ai_deoldify_widgets.append(self.ai_cc_slider['slider'])
 
         # Saturation slider
@@ -441,7 +448,7 @@ class ColorCorrectionPanel(QWidget):
             "Color saturation boost after AI colorization.\n"
             "1.0 = No change, 0.1 = Desaturated, 2.0 = Vibrant"
         )
-        ai_layout.addLayout(self.ai_sat_slider['layout'])
+        ai_group_layout.addLayout(self.ai_sat_slider['layout'])
 
         # Contrast slider
         self.ai_contrast_slider = self.create_slider(
@@ -450,7 +457,7 @@ class ColorCorrectionPanel(QWidget):
             "Contrast adjustment after colorization.\n"
             "1.0 = No change, 0.5 = Lower contrast, 2.0 = Higher contrast"
         )
-        ai_layout.addLayout(self.ai_contrast_slider['layout'])
+        ai_group_layout.addLayout(self.ai_contrast_slider['layout'])
 
         # Denoise slider
         self.ai_denoise_slider = self.create_slider(
@@ -459,7 +466,7 @@ class ColorCorrectionPanel(QWidget):
             "Light bilateral denoise after colorization.\n"
             "0 = Off, 1-2 = Light, 3-5 = Strong. Helps reduce artifacts."
         )
-        ai_layout.addLayout(self.ai_denoise_slider['layout'])
+        ai_group_layout.addLayout(self.ai_denoise_slider['layout'])
 
         # Batch Size and FP16 in one row
         batch_fp16_row = QHBoxLayout()
@@ -481,7 +488,7 @@ class ColorCorrectionPanel(QWidget):
             "Only applies to GPU mode."
         )
         batch_fp16_row.addWidget(self.ai_fp16_check)
-        ai_layout.addLayout(batch_fp16_row)
+        ai_group_layout.addLayout(batch_fp16_row)
 
         # Show/hide DeOldify widgets based on initial engine
         is_deoldify = self.app_state.ai_colorization.engine == "deoldify"
@@ -492,7 +499,7 @@ class ColorCorrectionPanel(QWidget):
         pipeline_line = QFrame()
         pipeline_line.setFrameShape(QFrame.HLine)
         pipeline_line.setFrameShadow(QFrame.Sunken)
-        ai_layout.addWidget(pipeline_line)
+        ai_group_layout.addWidget(pipeline_line)
 
         # Item list (single images + folders)
         item_row = QHBoxLayout()
@@ -531,10 +538,10 @@ class ColorCorrectionPanel(QWidget):
         btn_col.addWidget(self.ai_recombine_btn)
         btn_col.addStretch()
         item_row.addLayout(btn_col)
-        ai_layout.addLayout(item_row)
+        ai_group_layout.addLayout(item_row)
         self.ai_item_progress = QLabel("")
         self.ai_item_progress.setStyleSheet("color: gray;")
-        ai_layout.addWidget(self.ai_item_progress)
+        ai_group_layout.addWidget(self.ai_item_progress)
 
         # Cancel button for pipeline operations
         cancel_row = QHBoxLayout()
@@ -546,10 +553,13 @@ class ColorCorrectionPanel(QWidget):
         self.ai_cancel_btn.setToolTip("Cancel the current AI colorization operation")
         cancel_row.addStretch()
         cancel_row.addWidget(self.ai_cancel_btn)
-        ai_layout.addLayout(cancel_row)
+        ai_group_layout.addLayout(cancel_row)
 
         self.ai_group.setEnabled(self.app_state.ai_colorization.enabled)
-        layout.addWidget(self.ai_group)
+        ai_layout.addWidget(self.ai_group)
+
+        layout.addWidget(self.ai_frame)
+        self.ai_frame.collapse()
 
         layout.addStretch()
         

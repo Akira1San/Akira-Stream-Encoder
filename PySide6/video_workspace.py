@@ -119,12 +119,13 @@ class VideoWorkspace(QWidget):
         subs_collapsible.content_layout().addWidget(self.subs_panel)
         scroll_layout.addWidget(subs_collapsible)
         
-        # Geometry Settings (Collapsible)
+        # Geometry Settings (Collapsible, collapsed by default)
         geo_collapsible = CollapsibleFrame("Geometry")
         self.geo_panel = GeometryPanel(self.app_state)
         self.geo_panel.settings_changed.connect(self.on_settings_changed)
         geo_collapsible.content_layout().addWidget(self.geo_panel)
         scroll_layout.addWidget(geo_collapsible)
+        geo_collapsible.collapse()
         
         # Color Correction (Collapsible)
         color_collapsible = CollapsibleFrame("Color Correction")
