@@ -3,3 +3,4 @@ from colorizers.eccv16 import ECCV16
 from colorizers.siggraph17 import SIGGRAPH17
 from colorizers.deoldify import DeOldifyColorizer
 from colorizers.bigcolor import BigColorColorizer
+from colorizers.ddcolor import DDColorColorizer

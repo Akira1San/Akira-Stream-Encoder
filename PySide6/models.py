@@ -391,6 +391,8 @@ class AIColorizationSettings:
     color_correct_strength: float = 0.5  # 0-1, DeOldify color cast correction strength
     bigcolor_input_size: int = 512      # 256-1024, BigColor working resolution
     bigcolor_class_id: int = 0          # ImageNet class ID (0-999)
+    ddcolor_model: str = "modelscope"   # "modelscope" / "paper_tiny"
+    ddcolor_input_size: int = 512       # 256-1024, DDColor working resolution
     frames_dir: str = ""
     frames_extracted: bool = False
     frames_colorized: bool = False

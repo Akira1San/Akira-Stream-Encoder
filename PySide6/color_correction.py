@@ -366,7 +366,7 @@ class ColorCorrectionPanel(QWidget):
         engine_row = QHBoxLayout()
         engine_row.addWidget(QLabel("Engine:"))
         self.ai_engine_combo = QComboBox()
-        self.ai_engine_combo.addItems(["ECCV16 (Lightweight)", "SIGGRAPH17 (Balanced)", "DeOldify (Premium)", "BigColor (BigGAN)"])
+        self.ai_engine_combo.addItems(["ECCV16 (Lightweight)", "SIGGRAPH17 (Balanced)", "DeOldify (Premium)", "BigColor (BigGAN)", "DDColor (ConvNeXt)"])
         current_engine = self.app_state.ai_colorization.engine
         idx = self.ai_engine_combo.findText(current_engine)
         if idx >= 0:
@@ -377,7 +377,8 @@ class ColorCorrectionPanel(QWidget):
             "ECCV16: Small CNN, runs on CPU/GPU, plausible colors, washed-out\n"
             "SIGGRAPH17: Medium UNet, runs on CPU/GPU, better quality, richer colors\n"
             "DeOldify: ResNet U-Net, GPU only, vibrant colors, requires fastai\n"
-            "BigColor: BigGAN-based, creative results, GPU only, ~200 MB weights"
+            "BigColor: BigGAN-based, creative results, GPU only, ~200 MB weights\n"
+            "DDColor: ConvNeXt + Transformer, GPU only, photorealistic, ~700 MB"
         )
         engine_row.addWidget(self.ai_engine_combo)
         engine_row.addStretch()
@@ -479,6 +480,41 @@ class ColorCorrectionPanel(QWidget):
         ai_group_layout.addLayout(bc_cls_row)
         self.ai_bigcolor_widgets.append(self.ai_bigcolor_class_spin)
 
+        # DDColor-specific widgets
+        self.ai_ddcolor_widgets = []
+
+        dd_mv_row = QHBoxLayout()
+        dd_mv_row.addWidget(QLabel("DDColor Model:"))
+        self.ai_ddcolor_model_combo = QComboBox()
+        self.ai_ddcolor_model_combo.addItems(["ModelScope (ConvNeXt-L)", "Paper Tiny (ConvNeXt-T)"])
+        current_dd = getattr(self.app_state.ai_colorization, 'ddcolor_model', 'modelscope')
+        dd_idx = {"modelscope": 0, "paper_tiny": 1}.get(current_dd, 0)
+        self.ai_ddcolor_model_combo.setCurrentIndex(dd_idx)
+        self.ai_ddcolor_model_combo.setToolTip(
+            "ModelScope: ConvNeXt-Large, best quality (~700 MB)\n"
+            "Paper Tiny: ConvNeXt-Tiny, lighter (~350 MB)"
+        )
+        dd_mv_row.addWidget(self.ai_ddcolor_model_combo)
+        dd_mv_row.addStretch()
+        ai_group_layout.addLayout(dd_mv_row)
+        self.ai_ddcolor_widgets.append(self.ai_ddcolor_model_combo)
+
+        dd_size_row = QHBoxLayout()
+        dd_size_row.addWidget(QLabel("Input Size:"))
+        self.ai_ddcolor_size_spin = QSpinBox()
+        self.ai_ddcolor_size_spin.setRange(256, 1024)
+        self.ai_ddcolor_size_spin.setSingleStep(64)
+        self.ai_ddcolor_size_spin.setValue(getattr(self.app_state.ai_colorization, 'ddcolor_input_size', 512))
+        self.ai_ddcolor_size_spin.setToolTip(
+            "Working resolution for DDColor.\n"
+            "Higher = more detail but slower & more VRAM.\n"
+            "512 = default, 256 = fast, 1024 = high quality"
+        )
+        dd_size_row.addWidget(self.ai_ddcolor_size_spin)
+        dd_size_row.addStretch()
+        ai_group_layout.addLayout(dd_size_row)
+        self.ai_ddcolor_widgets.append(self.ai_ddcolor_size_spin)
+
         # Saturation slider
         self.ai_sat_slider = self.create_slider(
             "Saturation", self.app_state.ai_colorization.saturation,
@@ -528,10 +564,17 @@ class ColorCorrectionPanel(QWidget):
         batch_fp16_row.addWidget(self.ai_fp16_check)
         ai_group_layout.addLayout(batch_fp16_row)
 
-        # Show/hide DeOldify widgets based on initial engine
-        is_deoldify = self.app_state.ai_colorization.engine == "deoldify"
+        # Show/hide engine-specific widgets based on initial engine
+        engine = self.app_state.ai_colorization.engine
+        is_deoldify = engine == "deoldify"
+        is_bigcolor = engine == "bigcolor"
+        is_ddcolor = engine == "ddcolor"
         for w in self.ai_deoldify_widgets:
             w.setVisible(is_deoldify)
+        for w in self.ai_bigcolor_widgets:
+            w.setVisible(is_bigcolor)
+        for w in self.ai_ddcolor_widgets:
+            w.setVisible(is_ddcolor)
 
         # ── Pipeline Buttons ──
         pipeline_line = QFrame()
@@ -716,6 +759,8 @@ class ColorCorrectionPanel(QWidget):
         self.ai_render_factor_spin.valueChanged.connect(self.on_ai_render_factor_changed)
         self.ai_bigcolor_size_spin.valueChanged.connect(self.on_ai_bigcolor_size_changed)
         self.ai_bigcolor_class_spin.valueChanged.connect(self.on_ai_bigcolor_class_changed)
+        self.ai_ddcolor_model_combo.currentTextChanged.connect(self.on_ai_ddcolor_model_changed)
+        self.ai_ddcolor_size_spin.valueChanged.connect(self.on_ai_ddcolor_size_changed)
         self.ai_sat_slider['slider'].valueChanged.connect(
             lambda v: self.on_ai_slider_changed(v, self.ai_sat_slider, 'saturation')
         )
@@ -1146,15 +1191,19 @@ class ColorCorrectionPanel(QWidget):
             "SIGGRAPH17 (Balanced)": "siggraph17",
             "DeOldify (Premium)": "deoldify",
             "BigColor (BigGAN)": "bigcolor",
+            "DDColor (ConvNeXt)": "ddcolor",
         }
         self.app_state.ai_colorization.engine = engine_map.get(text, "eccv16")
         engine = self.app_state.ai_colorization.engine
         is_deoldify = engine == "deoldify"
         is_bigcolor = engine == "bigcolor"
+        is_ddcolor = engine == "ddcolor"
         for w in getattr(self, 'ai_deoldify_widgets', []):
             w.setVisible(is_deoldify)
         for w in getattr(self, 'ai_bigcolor_widgets', []):
             w.setVisible(is_bigcolor)
+        for w in getattr(self, 'ai_ddcolor_widgets', []):
+            w.setVisible(is_ddcolor)
         self.settings_changed.emit()
 
     def on_ai_deoldify_model_changed(self, text):
@@ -1172,6 +1221,15 @@ class ColorCorrectionPanel(QWidget):
 
     def on_ai_bigcolor_class_changed(self, value):
         self.app_state.ai_colorization.bigcolor_class_id = value
+        self.settings_changed.emit()
+
+    def on_ai_ddcolor_model_changed(self, text):
+        mv_map = {"ModelScope (ConvNeXt-L)": "modelscope", "Paper Tiny (ConvNeXt-T)": "paper_tiny"}
+        self.app_state.ai_colorization.ddcolor_model = mv_map.get(text, "modelscope")
+        self.settings_changed.emit()
+
+    def on_ai_ddcolor_size_changed(self, value):
+        self.app_state.ai_colorization.ddcolor_input_size = value
         self.settings_changed.emit()
 
     def on_ai_device_changed(self, text):
@@ -1738,6 +1796,11 @@ class ColorCorrectionPanel(QWidget):
         ai.bigcolor_class_id = 0
         self.ai_bigcolor_size_spin.setValue(512)
         self.ai_bigcolor_class_spin.setValue(0)
+        # DDColor reset
+        ai.ddcolor_model = "modelscope"
+        ai.ddcolor_input_size = 512
+        self.ai_ddcolor_model_combo.setCurrentIndex(0)
+        self.ai_ddcolor_size_spin.setValue(512)
         # Reset pipeline status labels
         self.ai_item_progress.setText("")
         self.ai_item_progress.setStyleSheet("color: gray;")

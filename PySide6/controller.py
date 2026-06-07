@@ -501,6 +501,35 @@ class VideoController:
                 class_id=getattr(ai, 'bigcolor_class_id', 0),
             )
             return colorizer
+        elif engine == "ddcolor":
+            from colorizers.ddcolor import DDColorColorizer
+            variant = getattr(ai, 'ddcolor_model', 'modelscope')
+            weight_files = {
+                'modelscope': 'ddcolor_modelscope.pth',
+                'paper_tiny': 'ddcolor_paper_tiny.pth',
+            }
+            weight_name = weight_files.get(variant, 'ddcolor_modelscope.pth')
+            weight_path = os.path.join(
+                os.path.dirname(__file__),
+                "colorizers", "models", weight_name
+            )
+            if not os.path.isfile(weight_path):
+                self.app_state.log(
+                    f"DDColor ({variant}) weights not found at: {weight_path}. "
+                    f"Download from: https://huggingface.co/piddnad/ddcolor_{variant}",
+                    "ERROR"
+                )
+                return None
+            device = ai.gpu_device if ai.gpu_device else "cuda:0"
+            ddcolor_fp16 = False  # DDColor defaults to fp16 off (ConvNeXt-sensitive)
+            colorizer = DDColorColorizer(
+                weight_path=weight_path,
+                device=device,
+                fp16=ddcolor_fp16,
+                input_size=getattr(ai, 'ddcolor_input_size', 512),
+                model_variant=variant,
+            )
+            return colorizer
         else:
             self.app_state.log(f"Unknown AI colorization engine: {engine}", "ERROR")
             return None
