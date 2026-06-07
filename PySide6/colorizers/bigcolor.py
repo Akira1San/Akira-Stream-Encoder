@@ -571,7 +571,7 @@ class BigColorColorizer(Colorizer):
     def colorize_frame(self, l_channel: np.ndarray) -> np.ndarray:
         """Take L channel (HxW float32 0-1), return RGB (HxWx3 uint8)."""
         self._load()
-        import cv2, skimage.color
+        import cv2
         H, W = l_channel.shape
         model_res = BIGCOLOR_CONFIG['resolution']
 
@@ -604,15 +604,19 @@ class BigColorColorizer(Colorizer):
 
         out_rgb = output.squeeze(0).cpu().float().numpy().transpose(1, 2, 0)
         out_rgb = np.clip(out_rgb, 0, 1)
-        out_rgb = (out_rgb * 255).astype(np.uint8)
-        out_rgb = cv2.resize(out_rgb, (W, H), interpolation=cv2.INTER_LINEAR)
 
-        gray_3ch = np.stack([l_channel] * 3, axis=-1).astype(np.float32)
-        ab = skimage.color.rgb2lab(out_rgb.astype(np.float32) / 255.0)[:, :, 1:]
-        l = skimage.color.rgb2lab(gray_3ch)[:, :, :1]
-        lab = np.concatenate([l, ab], axis=-1)
-        result = skimage.color.lab2rgb(lab)
-        return np.clip(result * 255, 0, 255).astype(np.uint8)
+        out_rgb_full = cv2.resize(out_rgb, (new_w, new_h),
+                                  interpolation=cv2.INTER_LINEAR)
+
+        gray_full = cv2.resize(l_channel, (new_w, new_h),
+                               interpolation=cv2.INTER_LINEAR)
+
+        lum = 0.299 * out_rgb_full[:,:,0] + 0.587 * out_rgb_full[:,:,1] + 0.114 * out_rgb_full[:,:,2]
+        eps = 1e-6
+        scale = gray_full / (lum + eps)
+        result = np.clip(out_rgb_full * scale[:,:,None], 0, 1)
+        result = cv2.resize(result, (W, H), interpolation=cv2.INTER_LINEAR)
+        return (result * 255).astype(np.uint8)
 
     def colorize_batch(self, l_batch: np.ndarray) -> np.ndarray:
         return np.stack([self.colorize_frame(l_batch[i]) for i in range(l_batch.shape[0])])
