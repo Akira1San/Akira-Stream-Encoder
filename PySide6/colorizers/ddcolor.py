@@ -600,7 +600,7 @@ class DDColor(nn.Module):
         num_output_channels=2,
         last_norm="Spectral",
         do_normalize=False,
-        num_queries=256,
+        num_queries=100,
         num_scales=3,
         dec_layers=9,
     ):
@@ -684,7 +684,7 @@ class DDColorColorizer(Colorizer):
         fp16: bool = False,
         input_size: int = 512,
         model_variant: str = "modelscope",
-        num_queries: int = 256,
+        num_queries: int = 100,
     ):
         self.weight_path = weight_path
         self.device = torch.device(device)
