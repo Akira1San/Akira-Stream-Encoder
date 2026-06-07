@@ -1046,6 +1046,94 @@ class FFmpegBackend(MediaBackend):
         cmd.extend(["-y", output_path])
         return cmd
 
+    def build_image_sequence_command(self, image_files: list, output_path: str) -> list:
+        """Build command to encode a folder of images into a video using concat demuxer."""
+        import tempfile
+
+        concat_file = tempfile.NamedTemporaryFile(
+            mode='w', suffix='_img_concat.txt', delete=False, dir='/tmp'
+        )
+        for img_path in image_files:
+            escaped = img_path.replace("'", "'\\''")
+            concat_file.write(f"file '{escaped}'\n")
+        concat_file.close()
+        self._image_seq_concat_file = concat_file.name
+
+        encoding = self.app_state.encoding
+        cmd = [self.app_state.ffmpeg_path]
+        cmd.extend(["-f", "concat", "-safe", "0", "-i", concat_file.name])
+
+        encoder = encoding.encoder
+        cmd.extend(["-c:v", encoder])
+
+        av1_vp9_encoders = ("libaom-av1", "libsvtav1", "libvpx-vp9", "libvpx")
+        bitrate_is_set = encoding.use_original_bitrate or (
+            encoding.target_bitrate and encoding.target_bitrate.isdigit()
+            and int(encoding.target_bitrate) > 0
+        )
+
+        if encoding.use_gpu and "nvenc" in encoder:
+            cmd.extend(["-preset", encoding.gpu_preset])
+            if not bitrate_is_set:
+                cmd.extend(["-cq", str(encoding.cq)])
+        elif encoder in av1_vp9_encoders:
+            if not bitrate_is_set:
+                cmd.extend(["-crf", str(encoding.cq)])
+            cpu_used = encoding.cpu_used if hasattr(encoding, 'cpu_used') else "2"
+            if encoder == "libaom-av1":
+                cmd.extend(["-cpu-used", cpu_used, "-row-mt", "1", "-strict", "experimental"])
+            elif encoder == "libsvtav1":
+                cmd.extend(["-preset", cpu_used])
+            elif encoder in ("libvpx-vp9", "libvpx"):
+                cmd.extend(["-cpu-used", cpu_used, "-row-mt", "1", "-deadline", "good"])
+        else:
+            if encoder == "mpeg2video":
+                if not bitrate_is_set:
+                    cmd.extend(["-b:v", "6000k"])
+            else:
+                if not bitrate_is_set:
+                    cmd.extend(["-crf", str(encoding.cq)])
+                cmd.extend(["-preset", encoding.cpu_preset])
+                if encoding.cpu_tune != "none":
+                    cmd.extend(["-tune", encoding.cpu_tune])
+
+        cmd.extend(["-r", encoding.framerate])
+
+        if encoding.resolution != "none":
+            res_value = encoding.custom_resolution if encoding.resolution == "Custom" else encoding.resolution
+            cmd.extend(["-s", res_value])
+
+        pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
+        if not (encoding.use_gpu and "nvenc" in encoder and pix_fmt == "yuv420p"):
+            cmd.extend(["-pix_fmt", pix_fmt])
+
+        cmd.extend(["-g", encoding.gop_size])
+        cmd.extend(["-bf", encoding.bframes])
+
+        if encoder in av1_vp9_encoders:
+            pass
+        elif encoder == "libx265":
+            cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
+        elif encoder == "mpeg2video":
+            cmd.extend(["-profile:v", encoding.profile])
+        else:
+            cmd.extend(["-profile:v", encoding.profile])
+            cmd.extend(["-level:v", encoding.level])
+
+        if bitrate_is_set:
+            if encoding.use_original_bitrate:
+                cmd.extend(["-b:v", "2000k"])
+            else:
+                target_br = encoding.target_bitrate
+                if target_br and target_br.isdigit():
+                    cmd.extend(["-b:v", f"{int(target_br)}k"])
+                    if encoding.use_max_bitrate:
+                        cmd.extend(["-maxrate", f"{encoding.max_bitrate}k"])
+                        cmd.extend(["-bufsize", f"{encoding.max_bitrate * 2}k"])
+
+        cmd.extend(["-an", "-y", output_path])
+        return cmd
+
     @staticmethod
     def _hsl_to_rgb(h: float, s: float, l: float) -> tuple:
         """Convert HSL (all 0.0-1.0) to RGB (0.0-1.0)"""

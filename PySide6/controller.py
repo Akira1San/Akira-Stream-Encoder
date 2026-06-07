@@ -107,6 +107,10 @@ class VideoController:
         if self.app_state.extra.generate_video:
             return self._encode_generated_video(output_path, progress_callback)
 
+        # ── Image sequence (folder of images → video) ──
+        if self.app_state.image_sequence.enabled:
+            return self._encode_image_sequence(output_path, progress_callback)
+
         # Handle extract clip mode (applies to both HandBrake and FFmpeg paths)
         if start_time is None and duration is None and self.app_state.split.extract_clip_enabled:
             start_min = self.app_state.split.extract_start_min
@@ -398,6 +402,72 @@ class VideoController:
 
         except Exception as e:
             self.app_state.log(f"❌ Generate error: {e}", "ERROR")
+            self._append_command_log(output_path, f"Result: Error - {e}")
+            return False
+        finally:
+            self.is_encoding = False
+            self.current_process = None
+
+    def _encode_image_sequence(self, output_path: str, progress_callback=None) -> bool:
+        """Encode a folder of images into a video using FFmpeg concatenation."""
+        img_seq = self.app_state.image_sequence
+        image_files = img_seq.image_files
+        folder_path = img_seq.folder_path
+
+        if not image_files:
+            self.app_state.log("No image files in sequence to encode", "ERROR")
+            return False
+
+        self.app_state.log(
+            f"Encoding image sequence: {os.path.basename(folder_path)} "
+            f"({len(image_files)} images @ {self.app_state.encoding.framerate} fps)",
+            "INFO"
+        )
+
+        try:
+            self.is_encoding = True
+            cmd = self.backend.build_image_sequence_command(image_files, output_path)
+            self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+            self._append_command_log(output_path, f"Command: {' '.join(cmd)}")
+
+            self.current_process = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                universal_newlines=True, bufsize=1
+            )
+
+            for line in self.current_process.stdout:
+                line = line.strip()
+                if line:
+                    self.app_state.log(f"Image Seq: {line}", "DEBUG")
+
+            self.current_process.wait()
+
+            # Clean up temp concat file
+            concat_file = getattr(self.backend, '_image_seq_concat_file', None)
+            if concat_file and os.path.exists(concat_file):
+                os.unlink(concat_file)
+                self.backend._image_seq_concat_file = None
+
+            if self.current_process.returncode == 0 and os.path.exists(output_path):
+                self.app_state.log(
+                    f"✅ Image sequence encoded: {os.path.basename(output_path)} "
+                    f"({len(image_files)} images)",
+                    "SUCCESS"
+                )
+                self._append_command_log(output_path, f"Result: Success (code 0)")
+                return True
+            else:
+                self.app_state.log(
+                    f"❌ Image sequence encode failed with code {self.current_process.returncode}",
+                    "ERROR"
+                )
+                self._append_command_log(
+                    output_path, f"Result: Failed (code {self.current_process.returncode})"
+                )
+                return False
+
+        except Exception as e:
+            self.app_state.log(f"❌ Image sequence encode error: {e}", "ERROR")
             self._append_command_log(output_path, f"Result: Error - {e}")
             return False
         finally:
@@ -922,10 +992,13 @@ class VideoController:
             
     def generate_output_path(self, input_path: str) -> str:
         """Generate output path based on settings"""
+        is_image_seq = self.app_state.image_sequence.enabled
         is_dvd_concat = input_path.endswith('.txt') and self.app_state.dvd.is_dvd_source
 
         if self.app_state.use_custom_filename and self.app_state.custom_filename:
             base_name = self.app_state.custom_filename
+        elif is_image_seq:
+            base_name = Path(self.app_state.image_sequence.folder_path).stem
         elif is_dvd_concat:
             base_name = f"dvd_title_{self.app_state.dvd.selected_title_number}"
         else:
@@ -935,6 +1008,8 @@ class VideoController:
 
         if self.app_state.output_folder:
             output_folder = self.app_state.output_folder
+        elif is_image_seq:
+            output_folder = os.path.dirname(self.app_state.image_sequence.folder_path)
         elif is_dvd_concat and self.app_state.dvd.dvd_folder_path:
             output_folder = os.path.dirname(self.app_state.dvd.dvd_folder_path)
         else:

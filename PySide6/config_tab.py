@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
+import models
 from models import AppState
 from video_info_panel import VideoInfoPanel
 
@@ -733,6 +734,10 @@ class ConfigTab(QWidget):
         add_folder_btn.clicked.connect(self.add_folder)
         btn_layout.addWidget(add_folder_btn)
         
+        add_image_folder_btn = QPushButton("🖼️ Add Image Folder")
+        add_image_folder_btn.clicked.connect(self.add_image_folder)
+        btn_layout.addWidget(add_image_folder_btn)
+        
         add_dvd_btn = QPushButton("📀 Open DVD")
         add_dvd_btn.clicked.connect(self.add_dvd_folder)
         btn_layout.addWidget(add_dvd_btn)
@@ -837,6 +842,52 @@ class ConfigTab(QWidget):
                     files.append(os.path.join(folder, f))
             if files:
                 self.add_files_to_list(files)
+                
+    def add_image_folder(self):
+        """Add a folder of images as an image sequence for encoding to video"""
+        folder = QFileDialog.getExistingDirectory(self, "Select Image Folder")
+        if not folder:
+            return
+
+        image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif', '.webp'}
+        image_files = []
+        for f in sorted(os.listdir(folder)):
+            if Path(f).suffix.lower() in image_extensions:
+                image_files.append(os.path.join(folder, f))
+        image_files.sort(key=self._natural_sort_key)
+
+        if not image_files:
+            QMessageBox.warning(self, "No Images", f"No image files found in:\n{folder}")
+            return
+
+        self.app_state.image_sequence.enabled = True
+        self.app_state.image_sequence.folder_path = folder
+        self.app_state.image_sequence.image_files = image_files
+
+        folder_name = os.path.basename(folder)
+        display_name = f"[Images] {folder_name} ({len(image_files)} images)"
+
+        item = QListWidgetItem(display_name)
+        item.setData(Qt.UserRole, folder)
+        item.setData(Qt.UserRole + 1, "image_seq")
+        item.setToolTip(f"Image Sequence: {folder}\n{len(image_files)} image(s)")
+        item.setForeground(Qt.darkGreen)
+
+        self.files_list.addItem(item)
+        self.app_state.add_input_file(folder)
+        self.app_state.current_video_path = folder
+        self.update_count_label()
+
+        self.video_info_panel.set_image_sequence_info(folder, len(image_files))
+        self.app_state.log(
+            f"Added image sequence: {folder_name} ({len(image_files)} images)", "SUCCESS"
+        )
+
+    @staticmethod
+    def _natural_sort_key(path: str) -> list:
+        """Natural sort helper - sorts 'img2' before 'img10'"""
+        import re
+        return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', os.path.basename(path))]
                 
     def add_dvd_folder(self):
         """Open a DVD folder (VIDEO_TS) and select title to import"""
@@ -958,6 +1009,9 @@ class ConfigTab(QWidget):
         """Remove selected files from the list"""
         selected = self.files_list.selectedItems()
         for item in selected:
+            source_type = item.data(Qt.UserRole + 1)
+            if source_type == "image_seq":
+                self.app_state.image_sequence = models.ImageSequenceSettings()
             file_path = item.data(Qt.UserRole)
             self.app_state.input_files.remove(file_path)
             self.files_list.takeItem(self.files_list.row(item))
@@ -970,6 +1024,7 @@ class ConfigTab(QWidget):
         self.update_count_label()
         self.video_info_panel.clear_info()
         self.app_state.current_video_path = None
+        self.app_state.image_sequence = models.ImageSequenceSettings()
         
     def update_count_label(self):
         """Update the file count label"""
@@ -980,7 +1035,18 @@ class ConfigTab(QWidget):
         """Handle file selection change"""
         selected = self.files_list.selectedItems()
         if selected:
-            file_path = selected[0].data(Qt.UserRole)
+            item = selected[0]
+            source_type = item.data(Qt.UserRole + 1)
+            file_path = item.data(Qt.UserRole)
+            
+            if source_type == "image_seq":
+                self.app_state.current_video_path = file_path
+                self.video_info_panel.set_image_sequence_info(
+                    self.app_state.image_sequence.folder_path,
+                    len(self.app_state.image_sequence.image_files)
+                )
+                return
+            
             self.app_state.current_video_path = file_path
             self.file_selected.emit(file_path)
             self.video_info_panel.set_info(file_path)

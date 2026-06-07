@@ -854,6 +854,17 @@ class VideoWorkspace(QWidget):
                 self.encode_btn.setVisible(True)
                 self.cancel_btn.setVisible(False)
                 return
+
+            # Handle image sequence (folder of images → video)
+            if self.app_state.image_sequence.enabled:
+                folder_path = self.app_state.image_sequence.folder_path
+                output_path = self.controller.generate_output_path(folder_path)
+                success = self.controller.encode_file(folder_path, output_path)
+                if not success:
+                    self.app_state.log("Failed to encode image sequence", "ERROR")
+                self.encode_btn.setVisible(True)
+                self.cancel_btn.setVisible(False)
+                return
             
             for input_file in self.app_state.input_files:
                 if split.enabled:

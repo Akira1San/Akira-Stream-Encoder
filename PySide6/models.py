@@ -458,6 +458,14 @@ class ExtraSettings:
 
 
 @dataclass
+class ImageSequenceSettings:
+    """Image sequence (folder of images → video) settings"""
+    enabled: bool = False
+    folder_path: str = ""
+    image_files: List[str] = field(default_factory=list)
+
+
+@dataclass
 class DVDSettings:
     """DVD (VIDEO_TS) source settings"""
     is_dvd_source: bool = False
@@ -526,6 +534,7 @@ class AppState(QObject):
         self.ai_colorization = AIColorizationSettings()
         self.ai_upscaling = AIUpscalingSettings()
         self.extra = ExtraSettings()
+        self.image_sequence = ImageSequenceSettings()
         
         # Media engine
         self._media_engine: str = "ffmpeg"

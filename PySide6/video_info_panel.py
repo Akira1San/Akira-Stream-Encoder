@@ -258,3 +258,20 @@ class VideoInfoPanel(QGroupBox):
         except Exception as e:
             self.app_state.log(f"Failed to get file info: {e}", "ERROR")
             self.clear_info()
+
+    def set_image_sequence_info(self, folder_path: str, image_count: int):
+        """Show image sequence folder information"""
+        self.clear_info()
+        self.filename_label.setText(f"📁 {os.path.basename(folder_path)}")
+        self.size_label.setText(f"{image_count} images")
+        self.container_label.setText("Image Sequence")
+        self.duration_label.setText("N/A (encode to create video)")
+        self.resolution_label.setText("Varies (resized on encode)")
+        self.video_codec_label.setText("See encoding settings")
+        self.video_bitrate_label.setText("See encoding settings")
+        self.framerate_label.setText(self.app_state.encoding.framerate)
+        self.overall_bitrate_label.setText("See encoding settings")
+        self._clear_audio_tracks()
+        self._add_no_audio()
+        self.subtitle_label.setText("N/A")
+        self.show()
