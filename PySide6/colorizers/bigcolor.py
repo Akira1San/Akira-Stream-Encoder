@@ -568,30 +568,18 @@ class BigColorColorizer(Colorizer):
         except Exception:
             return self._class_id
 
-    def _calibrate_bn(self, gray: np.ndarray):
+    def _calibrate_bn(self, gray_resized: np.ndarray):
         model = self._model
         model.train()
         model_res = BIGCOLOR_CONFIG['resolution']
-        h, w = gray.shape
+        h, w = gray_resized.shape
         n_calib = 24
         import cv2
         with torch.no_grad():
             for _ in range(n_calib):
-                if h >= model_res and w >= model_res:
-                    y = np.random.randint(0, h - model_res + 1)
-                    x = np.random.randint(0, w - model_res + 1)
-                    crop = gray[y:y+model_res, x:x+model_res].copy()
-                else:
-                    sc = model_res / min(h, w)
-                    nw, nh = max(model_res, int(w*sc)), max(model_res, int(h*sc))
-                    rs = cv2.resize(gray, (nw, nh))
-                    y = np.random.randint(0, max(1, nh - model_res + 1))
-                    x = np.random.randint(0, max(1, nw - model_res + 1))
-                    crop = rs[y:y+model_res, x:x+model_res].copy()
-                if np.random.random() > 0.5:
-                    crop = 1 - crop
-                if np.random.random() > 0.5:
-                    crop = np.ascontiguousarray(np.fliplr(crop))
+                y = np.random.randint(0, max(1, h - model_res + 1))
+                x = np.random.randint(0, max(1, w - model_res + 1))
+                crop = gray_resized[y:y+model_res, x:x+model_res].copy()
                 t = torch.from_numpy(crop).float().unsqueeze(0).unsqueeze(0).to(self._dev)
                 z = torch.randn(1, self._dim_z, device=self._dev, dtype=torch.float32)
                 c = torch.randint(0, 1000, (1,)).to(self._dev)
@@ -607,13 +595,10 @@ class BigColorColorizer(Colorizer):
         H, W = l_channel.shape
         model_res = BIGCOLOR_CONFIG['resolution']
 
-        short = min(H, W)
-        scale = model_res / short
-        kw, kh = max(model_res, int(W * scale)), max(model_res, int(H * scale))
-        gray_resized = cv2.resize(l_channel, (kw, kh),
+        gray_resized = cv2.resize(l_channel, (model_res, model_res),
                                   interpolation=cv2.INTER_LINEAR)
 
-        self._calibrate_bn(l_channel)
+        self._calibrate_bn(gray_resized)
 
         t = torch.from_numpy(gray_resized).float().unsqueeze(0).unsqueeze(0).to(self._dev)
         if self._fp16:
