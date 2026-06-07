@@ -366,7 +366,7 @@ class ColorCorrectionPanel(QWidget):
         engine_row = QHBoxLayout()
         engine_row.addWidget(QLabel("Engine:"))
         self.ai_engine_combo = QComboBox()
-        self.ai_engine_combo.addItems(["ECCV16 (Lightweight)", "SIGGRAPH17 (Balanced)", "DeOldify (Premium)"])
+        self.ai_engine_combo.addItems(["ECCV16 (Lightweight)", "SIGGRAPH17 (Balanced)", "DeOldify (Premium)", "BigColor (BigGAN)"])
         current_engine = self.app_state.ai_colorization.engine
         idx = self.ai_engine_combo.findText(current_engine)
         if idx >= 0:
@@ -376,7 +376,8 @@ class ColorCorrectionPanel(QWidget):
         self.ai_engine_combo.setToolTip(
             "ECCV16: Small CNN, runs on CPU/GPU, plausible colors, washed-out\n"
             "SIGGRAPH17: Medium UNet, runs on CPU/GPU, better quality, richer colors\n"
-            "DeOldify: ResNet U-Net, GPU only, vibrant colors, requires fastai"
+            "DeOldify: ResNet U-Net, GPU only, vibrant colors, requires fastai\n"
+            "BigColor: BigGAN-based, creative results, GPU only, ~200 MB weights"
         )
         engine_row.addWidget(self.ai_engine_combo)
         engine_row.addStretch()
@@ -440,6 +441,39 @@ class ColorCorrectionPanel(QWidget):
         )
         ai_group_layout.addLayout(self.ai_cc_slider['layout'])
         self.ai_deoldify_widgets.append(self.ai_cc_slider['slider'])
+
+        # BigColor-specific widgets
+        self.ai_bigcolor_widgets = []
+
+        bc_size_row = QHBoxLayout()
+        bc_size_row.addWidget(QLabel("Input Size:"))
+        self.ai_bigcolor_size_spin = QSpinBox()
+        self.ai_bigcolor_size_spin.setRange(256, 1024)
+        self.ai_bigcolor_size_spin.setSingleStep(64)
+        self.ai_bigcolor_size_spin.setValue(getattr(self.app_state.ai_colorization, 'bigcolor_input_size', 512))
+        self.ai_bigcolor_size_spin.setToolTip(
+            "Working resolution for BigColor.\n"
+            "Higher = more detail but slower & more VRAM.\n"
+            "512 = default, 256 = fast, 1024 = high quality"
+        )
+        bc_size_row.addWidget(self.ai_bigcolor_size_spin)
+        bc_size_row.addStretch()
+        ai_group_layout.addLayout(bc_size_row)
+        self.ai_bigcolor_widgets.append(self.ai_bigcolor_size_spin)
+
+        bc_cls_row = QHBoxLayout()
+        bc_cls_row.addWidget(QLabel("Class ID:"))
+        self.ai_bigcolor_class_spin = QSpinBox()
+        self.ai_bigcolor_class_spin.setRange(0, 999)
+        self.ai_bigcolor_class_spin.setValue(getattr(self.app_state.ai_colorization, 'bigcolor_class_id', 0))
+        self.ai_bigcolor_class_spin.setToolTip(
+            "ImageNet class ID for color prior (0-999).\n"
+            "0=tench, 292=tiger, etc. Controls color style."
+        )
+        bc_cls_row.addWidget(self.ai_bigcolor_class_spin)
+        bc_cls_row.addStretch()
+        ai_group_layout.addLayout(bc_cls_row)
+        self.ai_bigcolor_widgets.append(self.ai_bigcolor_class_spin)
 
         # Saturation slider
         self.ai_sat_slider = self.create_slider(
@@ -676,6 +710,8 @@ class ColorCorrectionPanel(QWidget):
         self.ai_device_combo.currentTextChanged.connect(self.on_ai_device_changed)
         self.ai_deoldify_model_combo.currentTextChanged.connect(self.on_ai_deoldify_model_changed)
         self.ai_render_factor_spin.valueChanged.connect(self.on_ai_render_factor_changed)
+        self.ai_bigcolor_size_spin.valueChanged.connect(self.on_ai_bigcolor_size_changed)
+        self.ai_bigcolor_class_spin.valueChanged.connect(self.on_ai_bigcolor_class_changed)
         self.ai_sat_slider['slider'].valueChanged.connect(
             lambda v: self.on_ai_slider_changed(v, self.ai_sat_slider, 'saturation')
         )
@@ -1105,11 +1141,16 @@ class ColorCorrectionPanel(QWidget):
             "ECCV16 (Lightweight)": "eccv16",
             "SIGGRAPH17 (Balanced)": "siggraph17",
             "DeOldify (Premium)": "deoldify",
+            "BigColor (BigGAN)": "bigcolor",
         }
         self.app_state.ai_colorization.engine = engine_map.get(text, "eccv16")
-        is_deoldify = self.app_state.ai_colorization.engine == "deoldify"
+        engine = self.app_state.ai_colorization.engine
+        is_deoldify = engine == "deoldify"
+        is_bigcolor = engine == "bigcolor"
         for w in getattr(self, 'ai_deoldify_widgets', []):
             w.setVisible(is_deoldify)
+        for w in getattr(self, 'ai_bigcolor_widgets', []):
+            w.setVisible(is_bigcolor)
         self.settings_changed.emit()
 
     def on_ai_deoldify_model_changed(self, text):
@@ -1119,6 +1160,14 @@ class ColorCorrectionPanel(QWidget):
 
     def on_ai_render_factor_changed(self, value):
         self.app_state.ai_colorization.render_factor = value
+        self.settings_changed.emit()
+
+    def on_ai_bigcolor_size_changed(self, value):
+        self.app_state.ai_colorization.bigcolor_input_size = value
+        self.settings_changed.emit()
+
+    def on_ai_bigcolor_class_changed(self, value):
+        self.app_state.ai_colorization.bigcolor_class_id = value
         self.settings_changed.emit()
 
     def on_ai_device_changed(self, text):
@@ -1680,6 +1729,11 @@ class ColorCorrectionPanel(QWidget):
         self.ai_cc_slider['slider'].setValue(int(0.5 * m_cc))
         self.ai_cc_slider['slider'].blockSignals(False)
         self.ai_cc_slider['value_label'].setText("0.50")
+        # BigColor reset
+        ai.bigcolor_input_size = 512
+        ai.bigcolor_class_id = 0
+        self.ai_bigcolor_size_spin.setValue(512)
+        self.ai_bigcolor_class_spin.setValue(0)
         # Reset pipeline status labels
         self.ai_item_progress.setText("")
         self.ai_item_progress.setStyleSheet("color: gray;")

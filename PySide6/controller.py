@@ -479,6 +479,28 @@ class VideoController:
                 color_correct_strength=cc_strength,
             )
             return colorizer
+        elif engine == "bigcolor":
+            from colorizers.bigcolor import BigColorColorizer
+            weight_path = os.path.join(
+                os.path.dirname(__file__),
+                "colorizers", "models", "EG_EMA_011.ckpt"
+            )
+            if not os.path.isfile(weight_path):
+                self.app_state.log(
+                    f"BigColor weights not found at: {weight_path}. "
+                    f"Download from: https://drive.google.com/drive/folders/1nLzgE5WJnxp5WF1dkpa1ts6bZ6tVwtep",
+                    "ERROR"
+                )
+                return None
+            device = ai.gpu_device if ai.gpu_device else "cuda:0"
+            colorizer = BigColorColorizer(
+                weight_path=weight_path,
+                device=device,
+                fp16=ai.fp16,
+                input_size=getattr(ai, 'bigcolor_input_size', 512),
+                class_id=getattr(ai, 'bigcolor_class_id', 0),
+            )
+            return colorizer
         else:
             self.app_state.log(f"Unknown AI colorization engine: {engine}", "ERROR")
             return None

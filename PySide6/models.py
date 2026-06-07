@@ -389,6 +389,8 @@ class AIColorizationSettings:
     deoldify_model: str = "video"       # "video" / "artistic" / "stable"
     render_factor: int = 21             # 10-45, DeOldify render resolution multiplier
     color_correct_strength: float = 0.5  # 0-1, DeOldify color cast correction strength
+    bigcolor_input_size: int = 512      # 256-1024, BigColor working resolution
+    bigcolor_class_id: int = 0          # ImageNet class ID (0-999)
     frames_dir: str = ""
     frames_extracted: bool = False
     frames_colorized: bool = False
