@@ -592,7 +592,10 @@ class BigColorColorizer(Colorizer):
 
         klass = self._class_id
         c = torch.LongTensor([klass]).to(self._dev)
-        z = torch.randn(1, self._dim_z, device=self._dev) * 2.0
+        z = torch.randn(1, self._dim_z, device=self._dev, dtype=torch.float32)
+        if self._fp16:
+            z = z.half()
+        z *= 2.0
 
         with torch.no_grad():
             self._model.train()
