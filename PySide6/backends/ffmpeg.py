@@ -1014,8 +1014,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-tune", encoding.cpu_tune])
 
         pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
-        if not (encoding.use_gpu and "nvenc" in encoder and pix_fmt == "yuv420p"):
-            cmd.extend(["-pix_fmt", pix_fmt])
+        cmd.extend(["-pix_fmt", pix_fmt])
 
         if encoder == "libx265":
             cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
@@ -1104,8 +1103,7 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-s", res_value])
 
         pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
-        if not (encoding.use_gpu and "nvenc" in encoder and pix_fmt == "yuv420p"):
-            cmd.extend(["-pix_fmt", pix_fmt])
+        cmd.extend(["-pix_fmt", pix_fmt])
 
         cmd.extend(["-g", encoding.gop_size])
         cmd.extend(["-bf", encoding.bframes])
@@ -1366,8 +1364,7 @@ class FFmpegBackend(MediaBackend):
                     res_value = encoding.custom_resolution if encoding.resolution == "Custom" else encoding.resolution
                     cmd.extend(["-s", res_value])
                 pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
-                if not (encoding.use_gpu and "nvenc" in encoder and pix_fmt == "yuv420p"):
-                    cmd.extend(["-pix_fmt", pix_fmt])
+                cmd.extend(["-pix_fmt", pix_fmt])
                 if encoder == "libx265":
                     cmd.extend(["-x265-params", "keyint=144:min-keyint=144:bframes=0:level=4.0"])
                 elif encoder in av1_vp9_encoders:
@@ -1586,8 +1583,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-g", encoding.gop_size])
                 cmd.extend(["-bf", encoding.bframes])
             pix_fmt = getattr(encoding, 'pixel_format', 'yuv420p')
-            if not (encoding.use_gpu and "nvenc" in encoder and pix_fmt == "yuv420p"):
-                cmd.extend(["-pix_fmt", pix_fmt])
+            cmd.extend(["-pix_fmt", pix_fmt])
             if encoder == "libx265":
                 cmd.extend(["-profile:v", "main"])
             elif encoder in av1_vp9_encoders:
