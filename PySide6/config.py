@@ -44,7 +44,7 @@ OUTPUT_DIR = APP_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # Settings file
-SETTINGS_FILE = APP_DIR / "settings.json"
+SETTINGS_FILE = APP_DIR.parent / "settings.json"
 
 # Last opened folder (for file dialogs)
 LAST_OPENED_FOLDER = str(Path.home())

@@ -1,0 +1,10 @@
+torch>=2.0
+torchvision>=0.15
+opencv-python-headless
+timm
+scikit-image
+scipy
+huggingface_hub
+safetensors
+gdown
+tqdm
