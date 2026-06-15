@@ -103,21 +103,22 @@ class TimelineSlider(QSlider):
         self.cut_points = []  # List of (position_seconds, cut_id)
         self.deleted_segments = []  # List of (start_time, end_time) tuples
         self.duration = 0.0
+        self.fps = 30.0
         self.hovered_cut = None  # Currently hovered cut for visual feedback
         self._slider_max = 1000  # Current slider maximum
         
         # Enable keyboard focus for navigation shortcuts
         self.setFocusPolicy(Qt.StrongFocus)
         
-    def set_duration(self, duration: float):
+    def set_duration(self, duration: float, fps: float = 30.0):
         """
         Set duration and update slider range dynamically.
-        Provides ~frame-accurate precision (30 steps per second).
+        Uses the given fps for frame-accurate precision.
         """
         self.duration = max(0.0, duration)
+        self.fps = max(1.0, fps)
         if self.duration > 0:
-            # Calculate steps: 30 per second, capped at MAX_STEPS
-            steps = min(int(self.duration * self.STEPS_PER_SECOND), self.MAX_STEPS)
+            steps = min(int(self.duration * self.fps), self.MAX_STEPS)
             self._slider_max = max(steps, 1000)  # Minimum 1000 for short videos
         else:
             self._slider_max = 1000
@@ -720,6 +721,9 @@ class VideoPreview(QWidget):
         self._image_seq_timer = QTimer(self)
         self._image_seq_timer.timeout.connect(self._on_image_seq_timer_tick)
         
+        # Frame rate for frame-number display
+        self._video_fps: float = 0.0
+        
         self.setup_ui()
         
     def setup_ui(self):
@@ -869,6 +873,15 @@ class VideoPreview(QWidget):
         self.time_label.setMinimumWidth(50)
         timeline_layout.addWidget(self.time_label)
         
+        # Frame number toggle
+        self.frame_toggle_btn = QPushButton("Time")
+        self.frame_toggle_btn.setCheckable(True)
+        self.frame_toggle_btn.setChecked(False)
+        self.frame_toggle_btn.setMaximumWidth(60)
+        self.frame_toggle_btn.setToolTip("Toggle between time and frame number display")
+        self.frame_toggle_btn.toggled.connect(self.on_frame_toggle_changed)
+        timeline_layout.addWidget(self.frame_toggle_btn)
+        
         # Time input field for direct time entry
         from PySide6.QtWidgets import QLineEdit
         self.time_input = QLineEdit()
@@ -956,6 +969,7 @@ class VideoPreview(QWidget):
         self.duration = 0.0
         self.current_frame = None
         self._playback_time = 0.0
+        self._video_fps = 0.0
         self._deleted_segments = []
         self._dvd_vob_list = []
         self._current_vob_index = 0
@@ -993,7 +1007,7 @@ class VideoPreview(QWidget):
         # Update timeline with image-sequence-aware duration
         total_seconds = self._image_seq_total_images / self._image_seq_fps
         self.duration = total_seconds
-        self.timeline_slider.set_duration(self.duration)
+        self.timeline_slider.set_duration(self.duration, self._image_seq_fps)
         self.timeline_slider.deleted_segments = []
         self.timeline_slider.setValue(0)
 
@@ -1035,7 +1049,7 @@ class VideoPreview(QWidget):
         self.timeline_slider.setValue(slider_val)
         self.timeline_slider.blockSignals(False)
 
-        self.time_label.setText(f"Img {index + 1}/{self._image_seq_total_images}")
+        self._update_time_display()
 
     def _on_image_seq_timer_tick(self):
         """Timer callback — advance to next image during playback."""
@@ -1070,7 +1084,37 @@ class VideoPreview(QWidget):
             if seg_start <= position < seg_end:
                 return seg_end
         return position
+    
+    def _update_time_display(self):
+        """Update time_label (and time_input) based on toggle state"""
+        if self._image_seq_mode:
+            self.time_label.setText(f"Img {self._image_seq_index + 1}/{self._image_seq_total_images}")
+            self.time_input.setText(f"{self._image_seq_index + 1}/{self._image_seq_total_images}")
+            return
         
+        if self.frame_toggle_btn.isChecked() and self._video_fps > 0:
+            frame = int(self._playback_time * self._video_fps) + 1
+            total_frames = int(self.duration * self._video_fps) if self.duration > 0 else 0
+            text = f"F {frame}/{total_frames}"
+            self.time_label.setText(text)
+            self.time_input.setText(str(frame))
+        else:
+            pos = self._playback_time
+            mins, secs = divmod(int(pos), 60)
+            hours = mins // 60
+            mins = mins % 60
+            if hours > 0:
+                time_str = f"{hours}:{mins:02d}:{secs:02d}"
+            else:
+                time_str = f"{mins:02d}:{secs:02d}"
+            self.time_label.setText(time_str)
+            self.time_input.setText(time_str)
+    
+    def on_frame_toggle_changed(self, checked: bool):
+        """Toggle between time and frame number display"""
+        self.frame_toggle_btn.setText("Frame" if checked else "Time")
+        self._update_time_display()
+    
     def _on_video_position_changed(self, position_sec: float):
         """Handle video player position change - update timeline and processed preview"""
         # Skip if user is manually seeking (prevents feedback loop)
@@ -1092,16 +1136,7 @@ class VideoPreview(QWidget):
         if self.duration > 0:
             slider_value = self.timeline_slider.time_to_value(position_sec)
             self.timeline_slider.setValue(slider_value)
-            
-            # Update time label
-            mins, secs = divmod(int(position_sec), 60)
-            hours = mins // 60
-            mins = mins % 60
-            if hours > 0:
-                time_str = f"{hours}:{mins:02d}:{secs:02d}"
-            else:
-                time_str = f"{mins:02d}:{secs:02d}"
-            self.time_label.setText(time_str)
+            self._update_time_display()
     
     def _video_duration_changed(self, duration_sec: float):
         """Handle video player duration change"""
@@ -1116,7 +1151,7 @@ class VideoPreview(QWidget):
         if duration_sec > 0 and duration_sec != self.duration:
             self.duration = duration_sec
             self._playable_duration = duration_sec
-            self.timeline_slider.set_duration(self.duration)
+            self.timeline_slider.set_duration(self.duration, self._video_fps or 30.0)
             self.app_state.log(f"Video duration (QMediaPlayer): {self.duration:.2f}s", "INFO")
             
             # Check if this might be an audio-only file (very short duration with certain extensions)
@@ -1336,7 +1371,15 @@ class VideoPreview(QWidget):
                 if not is_dvd_source:
                     self._playable_duration = duration
                 self.app_state.log(f"Video duration: {self.duration:.2f}s", "INFO")
-                self.timeline_slider.set_duration(self.duration)
+                # Get frame rate for frame-number display
+                try:
+                    fps_info = self.app_state.backend.get_frame_rate(video_path)
+                    if fps_info and fps_info.get('fps'):
+                        self._video_fps = float(fps_info['fps'])
+                except Exception:
+                    self._video_fps = 0.0
+                fps = self._video_fps or 30.0
+                self.timeline_slider.set_duration(self.duration, fps)
                 return
         except Exception as e:
             self.app_state.log(f"Backend duration failed: {e}", "WARN")
@@ -1345,7 +1388,8 @@ class VideoPreview(QWidget):
                 if title.title_number == self.app_state.dvd.selected_title_number:
                     self.duration = title.duration
                     self.app_state.log(f"Using DVD title duration: {self.duration:.2f}s", "INFO")
-                    self.timeline_slider.set_duration(self.duration)
+                    fps = self._video_fps or 30.0
+                    self.timeline_slider.set_duration(self.duration, fps)
                     return
         self.app_state.log("Could not determine video duration", "WARN")
         self.duration = 0.0
@@ -1375,16 +1419,8 @@ class VideoPreview(QWidget):
                 self.timeline_slider.setValue(adjusted_value)
                 self.timeline_slider.blockSignals(False)
             
-            mins, secs = divmod(int(timestamp), 60)
-            hours = mins // 60
-            mins = mins % 60
-            if hours > 0:
-                time_str = f"{hours}:{mins:02d}:{secs:02d}"
-            else:
-                time_str = f"{mins:02d}:{secs:02d}"
-            self.time_label.setText(time_str)
-            # Update input field to match
-            self.time_input.setText(time_str)
+            self._playback_time = timestamp
+            self._update_time_display()
             
             # Seek original video during drag (QMediaPlayer is fast)
             # Processed preview updates on slider release only
@@ -1395,7 +1431,6 @@ class VideoPreview(QWidget):
                     self._video_player.seek(max(0.0, self._playable_duration - 1.0))
                 else:
                     self._video_player.seek(timestamp)
-                self._playback_time = timestamp
     
     def on_time_input_entered(self):
         """Handle time input field entry"""
@@ -1407,24 +1442,30 @@ class VideoPreview(QWidget):
             return
             
         try:
-            # Try parsing as MM:SS or HH:MM:SS
-            parts = text.split(':')
-            if len(parts) == 1:
-                # Just seconds
-                seconds = float(parts[0])
-            elif len(parts) == 2:
-                # MM:SS
-                mins = int(parts[0])
-                secs = int(parts[1])
-                seconds = mins * 60 + secs
-            elif len(parts) == 3:
-                # HH:MM:SS
-                hours = int(parts[0])
-                mins = int(parts[1])
-                secs = int(parts[2])
-                seconds = hours * 3600 + mins * 60 + secs
+            if self.frame_toggle_btn.isChecked() and self._video_fps > 0:
+                # Frame number mode: parse as integer frame number
+                frame = int(text)
+                frame = max(1, frame)
+                seconds = (frame - 1) / self._video_fps
             else:
-                raise ValueError("Invalid time format")
+                # Time mode: parse as MM:SS or HH:MM:SS
+                parts = text.split(':')
+                if len(parts) == 1:
+                    # Just seconds
+                    seconds = float(parts[0])
+                elif len(parts) == 2:
+                    # MM:SS
+                    mins = int(parts[0])
+                    secs = int(parts[1])
+                    seconds = mins * 60 + secs
+                elif len(parts) == 3:
+                    # HH:MM:SS
+                    hours = int(parts[0])
+                    mins = int(parts[1])
+                    secs = int(parts[2])
+                    seconds = hours * 3600 + mins * 60 + secs
+                else:
+                    raise ValueError("Invalid format")
             
             # Clamp to valid range
             seconds = max(0, min(seconds, self.duration))
