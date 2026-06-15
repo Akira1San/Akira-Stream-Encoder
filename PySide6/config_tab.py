@@ -50,7 +50,7 @@ class DragDropListWidget(QListWidget):
                 if os.path.isfile(file_path):
                     # Check if it's a video file
                     ext = Path(file_path).suffix.lower()
-                    if ext in ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg']:
+                    if ext in ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.ts', '.mts', '.m2ts']:
                         files.append(file_path)
                         
             if files:
@@ -822,7 +822,7 @@ class ConfigTab(QWidget):
         
         files, _ = QFileDialog.getOpenFileNames(
             self, "Select Video Files", last_folder,
-            "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v *.mpg *.mpeg *.vob);;All Files (*)"
+            "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v *.mpg *.mpeg *.ts *.mts *.m2ts *.vob);;All Files (*)"
         )
         if files:
             # Remember the folder of the first file
@@ -835,7 +835,7 @@ class ConfigTab(QWidget):
         """Add all video files from a folder"""
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
-            video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.vob'}
+            video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.ts', '.mts', '.m2ts', '.vob'}
             files = []
             for f in os.listdir(folder):
                 if Path(f).suffix.lower() in video_extensions:
@@ -1096,7 +1096,7 @@ class ConfigTab(QWidget):
             file_path, _ = QFileDialog.getOpenFileName(
                 self, "Select Video File",
                 "",
-                "Video Files (*.mp4 *.mkv *.avi *.mov *.mpg *.mpeg);;All Files (*)"
+                "Video Files (*.mp4 *.mkv *.avi *.mov *.mpg *.mpeg *.ts *.mts *.m2ts);;All Files (*)"
             )
             if file_path:
                 self._extract_subs_from_video(file_path)
@@ -1230,7 +1230,7 @@ class ConfigTab(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Video File",
             "",
-            "Video Files (*.mp4 *.mkv *.avi *.mov *.mpg *.mpeg *.vob);;All Files (*)"
+            "Video Files (*.mp4 *.mkv *.avi *.mov *.mpg *.mpeg *.ts *.mts *.m2ts *.vob);;All Files (*)"
         )
         if not file_path:
             return
