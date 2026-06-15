@@ -235,6 +235,7 @@ class FiltersPanel(QWidget):
         video_layout.addLayout(crop_ar_header)
 
         self.crop_ar_container = QWidget()
+        self.crop_ar_container.setVisible(False)
         crop_ar_container_layout = QVBoxLayout(self.crop_ar_container)
         crop_ar_container_layout.setContentsMargins(0, 0, 0, 0)
         crop_ar_container_layout.setSpacing(6)
