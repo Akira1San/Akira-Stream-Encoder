@@ -818,18 +818,6 @@ class EncodingPanel(QWidget):
         audio_mode_layout.addStretch()
         advanced_layout.addLayout(audio_mode_layout)
         
-        # Multi-track audio toggle
-        multi_track_layout = QHBoxLayout()
-        self.multi_track_check = QCheckBox("Enable Multi-Track Audio")
-        self.multi_track_check.setChecked(self.app_state.tracks.multi_track_audio_enabled)
-        self.multi_track_check.setToolTip(
-            "When enabled, you can select multiple audio tracks to include in the output.\n"
-            "Each track can be independently copied or re-encoded."
-        )
-        multi_track_layout.addWidget(self.multi_track_check)
-        multi_track_layout.addStretch()
-        advanced_layout.addLayout(multi_track_layout)
-
         # Audio Track Selection
         audio_track_layout = QHBoxLayout()
         audio_track_layout.addWidget(QLabel("Audio Track:"))
@@ -1026,7 +1014,6 @@ class EncodingPanel(QWidget):
         self.tone_mapping_combo.currentTextChanged.connect(self.on_tone_mapping_changed)
         self.aspect_ratio_combo.currentTextChanged.connect(self.on_aspect_ratio_changed)
         self.audio_mode_combo.currentTextChanged.connect(self.on_audio_mode_changed)
-        self.multi_track_check.toggled.connect(self.on_multi_track_audio_toggled)
         self.audio_track_combo.currentIndexChanged.connect(self.on_audio_track_changed)
         self.audio_track_list.itemSelectionChanged.connect(self.on_audio_track_list_changed)
         self.load_audio_btn.clicked.connect(self.on_load_external_audio)
@@ -1068,25 +1055,6 @@ class EncodingPanel(QWidget):
         # Set initial preset visibility
         self.update_preset_visibility()
         
-    def on_multi_track_audio_toggled(self, checked):
-        """Handle multi-track audio toggle in encoding panel"""
-        self.app_state.tracks.multi_track_audio_enabled = checked
-        is_multi = checked
-        self.audio_track_combo.setVisible(not is_multi)
-        self.audio_track_list.setVisible(is_multi)
-        self.load_audio_btn.setVisible(is_multi)
-        self.remove_audio_btn.setVisible(is_multi)
-        has_tracks = self.audio_track_combo.count() > 0
-        self.audio_track_combo.setEnabled(not is_multi and has_tracks)
-        self.audio_track_list.setEnabled(is_multi and has_tracks)
-        if is_multi:
-            # Sync list from model state
-            selected = set(self.app_state.tracks.selected_audio_indices)
-            for i in range(self.audio_track_list.count()):
-                item = self.audio_track_list.item(i)
-                item.setSelected(i in selected)
-        self.settings_changed.emit()
-
     def on_load_external_audio(self):
         """Handle Load External Audio button click"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1207,7 +1175,6 @@ class EncodingPanel(QWidget):
         self.audio_track_combo.clear()
 
         is_multi = self.app_state.tracks.multi_track_audio_enabled
-        self.multi_track_check.setChecked(is_multi)
         self.audio_track_combo.setVisible(not is_multi)
         self.audio_track_list.setVisible(is_multi)
         self.load_audio_btn.setVisible(is_multi)
