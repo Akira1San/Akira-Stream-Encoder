@@ -120,6 +120,125 @@ class FiltersPanel(QWidget):
         deblock_layout.addStretch()
         video_layout.addLayout(deblock_layout)
 
+        # ── Audio Filters (inside Video Filters group) ──
+        audio_sep = QFrame()
+        audio_sep.setFrameShape(QFrame.HLine)
+        audio_sep.setFrameShadow(QFrame.Sunken)
+        video_layout.addWidget(audio_sep)
+
+        audio_header = QLabel("Audio Filters")
+        audio_header.setStyleSheet("font-weight: bold; font-size: 11px;")
+        video_layout.addWidget(audio_header)
+
+        # Audio Denoise
+        self.audio_denoise_check = QCheckBox("Audio Denoise (afftdn)")
+        self.audio_denoise_check.setChecked(self.app_state.filters.audio_denoise)
+        self.audio_denoise_check.setToolTip(
+            "Reduce background noise in audio using FFT-based denoising.\n"
+            "Best for removing hiss, static, or background noise.\n"
+            "Uses preset settings optimized for general use."
+        )
+        video_layout.addWidget(self.audio_denoise_check)
+
+        vol_layout = QHBoxLayout()
+        self.vol_check = QCheckBox("Enable Volume:")
+        self.vol_check.setChecked(self.app_state.filters.volume_enabled)
+        self.vol_check.setToolTip("Adjust audio volume level.")
+        vol_layout.addWidget(self.vol_check)
+
+        self.vol_edit = QLineEdit(str(self.app_state.filters.volume_db))
+        self.vol_edit.setMaximumWidth(60)
+        self.vol_edit.setEnabled(self.app_state.filters.volume_enabled)
+        self.vol_edit.setToolTip(
+            "Volume adjustment in decibels (dB):\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "+10 dB = ~3x louder\n"
+            "+6 dB = ~2x louder\n"
+            "+3 dB = ~1.4x louder\n"
+            " 0 dB = no change\n"
+            "-3 dB = ~0.7x quieter\n"
+            "-6 dB = ~0.5x quieter\n"
+            "-10 dB = ~0.3x quieter\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "Examples: 3, -5, 10, -10"
+        )
+        vol_layout.addWidget(self.vol_edit)
+
+        vol_layout.addWidget(QLabel("dB"))
+        vol_layout.addStretch()
+        video_layout.addLayout(vol_layout)
+
+        vol_info = QLabel("Examples: +3 (louder), -5 (quieter)")
+        vol_info.setStyleSheet("color: gray; font-size: 10px;")
+        video_layout.addWidget(vol_info)
+
+        self.dynnorm_check = QCheckBox("Dynamic Normalizer (dynaudnorm)")
+        self.dynnorm_check.setChecked(self.app_state.filters.audio_dynnorm)
+        self.dynnorm_check.setToolTip(
+            "Dynamically normalize audio volume.\n"
+            "Best for videos with quiet dialogue and loud music.\n"
+            "Automatically boosts quiet parts and reduces loud parts."
+        )
+        video_layout.addWidget(self.dynnorm_check)
+
+        self.compressor_check = QCheckBox("Audio Compressor (acompressor)")
+        self.compressor_check.setChecked(self.app_state.filters.audio_compressor)
+        self.compressor_check.setToolTip(
+            "Reduce dynamic range of audio.\n"
+            "Makes quiet sounds louder and loud sounds quieter.\n"
+            "Good for dialogue clarity in movies/TV shows."
+        )
+        video_layout.addWidget(self.compressor_check)
+
+        delay_layout = QHBoxLayout()
+        self.audio_delay_check = QCheckBox("Audio Delay:")
+        self.audio_delay_check.setChecked(self.app_state.filters.audio_delay_enabled)
+        self.audio_delay_check.setToolTip(
+            "Delay audio to sync with video.\n"
+            "Use when audio plays ahead of video.\n"
+            "Values: 100-500ms for minor sync, 1000ms+ for major offset."
+        )
+        delay_layout.addWidget(self.audio_delay_check)
+
+        self.audio_delay_spin = QSpinBox()
+        self.audio_delay_spin.setRange(0, 10000)
+        self.audio_delay_spin.setValue(self.app_state.filters.audio_delay_ms)
+        self.audio_delay_spin.setSuffix(" ms")
+        self.audio_delay_spin.setSingleStep(50)
+        self.audio_delay_spin.setEnabled(self.app_state.filters.audio_delay_enabled)
+        self.audio_delay_spin.setMinimumWidth(100)
+        self.audio_delay_spin.setToolTip(
+            "Delay in milliseconds (0 = no delay).\n"
+            "Common values:\n"
+            "  100ms: Very slight sync fix\n"
+            "  250ms: Minor offset\n"
+            "  500ms: Notable offset\n"
+            "  1000ms: Audio is ~1 second ahead\n"
+            "  2000ms+: Major offset"
+        )
+        delay_layout.addWidget(self.audio_delay_spin)
+        delay_layout.addStretch()
+        video_layout.addLayout(delay_layout)
+
+        # ── Crop & Aspect Ratio (collapsible) ──
+        crop_ar_header = QHBoxLayout()
+        self.crop_ar_toggle = QPushButton()
+        self.crop_ar_toggle.setFixedSize(16, 16)
+        self.crop_ar_toggle.setCheckable(True)
+        self.crop_ar_toggle.setChecked(False)
+        self.crop_ar_toggle.setFlat(True)
+        self.crop_ar_toggle.setText("▶")
+        self.crop_ar_toggle.setToolTip("Expand/Collapse Crop & Aspect Ratio settings")
+        crop_ar_header.addWidget(self.crop_ar_toggle)
+        crop_ar_header.addWidget(QLabel("<b>Crop & Aspect Ratio</b>"))
+        crop_ar_header.addStretch()
+        video_layout.addLayout(crop_ar_header)
+
+        self.crop_ar_container = QWidget()
+        crop_ar_container_layout = QVBoxLayout(self.crop_ar_container)
+        crop_ar_container_layout.setContentsMargins(0, 0, 0, 0)
+        crop_ar_container_layout.setSpacing(6)
+
         # === Smart Crop (Black Bar Removal) ===
         smart_crop_group = QGroupBox("Smart Crop (Black Bar Removal)")
         smart_crop_layout = QVBoxLayout(smart_crop_group)
@@ -202,7 +321,7 @@ class FiltersPanel(QWidget):
         self.smart_crop_preview_check.setEnabled(self.app_state.filters.smart_crop_enabled)
         smart_crop_layout.addWidget(self.smart_crop_preview_check)
 
-        video_layout.addWidget(smart_crop_group)
+        crop_ar_container_layout.addWidget(smart_crop_group)
 
 
         # === Aspect Ratio Conversion ===
@@ -247,7 +366,7 @@ class FiltersPanel(QWidget):
         method_layout.addStretch()
         ar_layout.addLayout(method_layout)
 
-        video_layout.addWidget(ar_group)
+        crop_ar_container_layout.addWidget(ar_group)
 
         # === Quick Aspect Ratio Crop ===
         ar_crop_group = QGroupBox("Quick Aspect Ratio Crop")
@@ -283,7 +402,9 @@ class FiltersPanel(QWidget):
         target_layout.addStretch()
         ar_crop_layout.addLayout(target_layout)
 
-        video_layout.addWidget(ar_crop_group)
+        crop_ar_container_layout.addWidget(ar_crop_group)
+
+        video_layout.addWidget(self.crop_ar_container)
 
         # === Video Orientation / Flip ===
         orient_group = QGroupBox("Video Orientation / Flip")
@@ -412,106 +533,6 @@ class FiltersPanel(QWidget):
         video_layout.addWidget(delogo_group)
         
         layout.addWidget(video_group)
-        
-        # === Audio Filters ===
-        audio_group = QGroupBox("Audio Filters")
-        audio_layout = QVBoxLayout(audio_group)
-        
-        # Audio Denoise
-        self.audio_denoise_check = QCheckBox("Audio Denoise (afftdn)")
-        self.audio_denoise_check.setChecked(self.app_state.filters.audio_denoise)
-        self.audio_denoise_check.setToolTip(
-            "Reduce background noise in audio using FFT-based denoising.\n"
-            "Best for removing hiss, static, or background noise.\n"
-            "Uses preset settings optimized for general use."
-        )
-        audio_layout.addWidget(self.audio_denoise_check)
-        
-        vol_layout = QHBoxLayout()
-        self.vol_check = QCheckBox("Enable Volume:")
-        self.vol_check.setChecked(self.app_state.filters.volume_enabled)
-        self.vol_check.setToolTip("Adjust audio volume level.")
-        vol_layout.addWidget(self.vol_check)
-        
-        self.vol_edit = QLineEdit(str(self.app_state.filters.volume_db))
-        self.vol_edit.setMaximumWidth(60)
-        self.vol_edit.setEnabled(self.app_state.filters.volume_enabled)
-        self.vol_edit.setToolTip(
-            "Volume adjustment in decibels (dB):\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n"
-            "+10 dB = ~3x louder\n"
-            "+6 dB = ~2x louder\n"
-            "+3 dB = ~1.4x louder\n"
-            " 0 dB = no change\n"
-            "-3 dB = ~0.7x quieter\n"
-            "-6 dB = ~0.5x quieter\n"
-            "-10 dB = ~0.3x quieter\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n"
-            "Examples: 3, -5, 10, -10"
-        )
-        vol_layout.addWidget(self.vol_edit)
-        
-        vol_layout.addWidget(QLabel("dB"))
-        vol_layout.addStretch()
-        audio_layout.addLayout(vol_layout)
-        
-        # Volume examples label
-        vol_info = QLabel("Examples: +3 (louder), -5 (quieter)")
-        vol_info.setStyleSheet("color: gray; font-size: 10px;")
-        audio_layout.addWidget(vol_info)
-        
-        # Dynamic Audio Normalizer
-        self.dynnorm_check = QCheckBox("Dynamic Normalizer (dynaudnorm)")
-        self.dynnorm_check.setChecked(self.app_state.filters.audio_dynnorm)
-        self.dynnorm_check.setToolTip(
-            "Dynamically normalize audio volume.\n"
-            "Best for videos with quiet dialogue and loud music.\n"
-            "Automatically boosts quiet parts and reduces loud parts."
-        )
-        audio_layout.addWidget(self.dynnorm_check)
-        
-        # Audio Compressor
-        self.compressor_check = QCheckBox("Audio Compressor (acompressor)")
-        self.compressor_check.setChecked(self.app_state.filters.audio_compressor)
-        self.compressor_check.setToolTip(
-            "Reduce dynamic range of audio.\n"
-            "Makes quiet sounds louder and loud sounds quieter.\n"
-            "Good for dialogue clarity in movies/TV shows."
-        )
-        audio_layout.addWidget(self.compressor_check)
-        
-        # Audio Delay / Sync
-        delay_layout = QHBoxLayout()
-        self.audio_delay_check = QCheckBox("Audio Delay:")
-        self.audio_delay_check.setChecked(self.app_state.filters.audio_delay_enabled)
-        self.audio_delay_check.setToolTip(
-            "Delay audio to sync with video.\n"
-            "Use when audio plays ahead of video.\n"
-            "Values: 100-500ms for minor sync, 1000ms+ for major offset."
-        )
-        delay_layout.addWidget(self.audio_delay_check)
-        
-        self.audio_delay_spin = QSpinBox()
-        self.audio_delay_spin.setRange(0, 10000)
-        self.audio_delay_spin.setValue(self.app_state.filters.audio_delay_ms)
-        self.audio_delay_spin.setSuffix(" ms")
-        self.audio_delay_spin.setSingleStep(50)
-        self.audio_delay_spin.setEnabled(self.app_state.filters.audio_delay_enabled)
-        self.audio_delay_spin.setMinimumWidth(100)
-        self.audio_delay_spin.setToolTip(
-            "Delay in milliseconds (0 = no delay).\n"
-            "Common values:\n"
-            "  100ms: Very slight sync fix\n"
-            "  250ms: Minor offset\n"
-            "  500ms: Notable offset\n"
-            "  1000ms: Audio is ~1 second ahead\n"
-            "  2000ms+: Major offset"
-        )
-        delay_layout.addWidget(self.audio_delay_spin)
-        delay_layout.addStretch()
-        audio_layout.addLayout(delay_layout)
-        
-        layout.addWidget(audio_group)
         
         # Reset button
         reset_layout = QHBoxLayout()
@@ -667,6 +688,12 @@ class FiltersPanel(QWidget):
         self.compressor_check.toggled.connect(self.on_compressor_changed)
         self.audio_delay_check.toggled.connect(self.on_audio_delay_changed)
         self.audio_delay_spin.valueChanged.connect(self.on_audio_delay_value_changed)
+        # Crop & Aspect Ratio toggle
+        self.crop_ar_toggle.toggled.connect(self.on_crop_ar_toggled)
+        
+    def on_crop_ar_toggled(self, checked):
+        self.crop_ar_container.setVisible(checked)
+        self.crop_ar_toggle.setText("▼" if checked else "▶")
         
     def on_deint_changed(self, checked):
         """Handle deinterlace checkbox change"""
