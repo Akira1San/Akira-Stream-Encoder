@@ -1287,12 +1287,23 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-t", duration])
                 video_filters_str, audio_filters_str = self.build_filter_string(self.app_state)
                 subs_filter = self.build_subtitle_filter(sub_path)
+                # When seeking, PTS is shifted to 0 by accurate input seeking.
+                # Restore original PTS before subtitle filter so it looks up correct subs,
+                # then reset to 0 for the output.
+                seeking_sub = float(start_time) > 0
+                if seeking_sub and subs_filter:
+                    subs_filter = (
+                        f"setpts=PTS+{float(start_time)}/TB,"
+                        f"{subs_filter}"
+                        f",setpts=PTS-STARTPTS"
+                    )
                 filter_parts = []
                 if video_filters_str:
                     filter_parts.append(video_filters_str)
                 if subs_filter:
                     filter_parts.append(subs_filter)
-                filter_parts.append("setpts=PTS-STARTPTS")
+                if not seeking_sub:
+                    filter_parts.append("setpts=PTS-STARTPTS")
                 cmd.extend(["-vf", ",".join(filter_parts)])
                 cmd.extend(["-af", "asetpts=PTS-STARTPTS"])
             else:
