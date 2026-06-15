@@ -3,7 +3,7 @@ Trim/Cut Panel (PySide6)
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGroupBox, QMessageBox, QCheckBox, QListWidget, QListWidgetItem, QFrame
+    QGroupBox, QMessageBox, QCheckBox, QListWidget, QListWidgetItem
 )
 from PySide6.QtCore import Signal, Qt
 
@@ -32,20 +32,24 @@ class TrimPanel(QGroupBox):
         """Setup the UI layout"""
         layout = QVBoxLayout(self)
         
-        # === Cuts Section ===
+        # Horizontal layout for side-by-side columns
+        columns = QHBoxLayout()
+        
+        # === Left Column: Cuts ===
+        left_column = QVBoxLayout()
+        
         cuts_header = QHBoxLayout()
         self.cuts_count_label = QLabel("Cuts: 0")
         self.cuts_count_label.setStyleSheet("font-weight: bold;")
         cuts_header.addWidget(self.cuts_count_label)
         cuts_header.addStretch()
-        layout.addLayout(cuts_header)
+        left_column.addLayout(cuts_header)
         
         # Cut Points List
         self.cuts_list = QListWidget()
-        self.cuts_list.setMaximumHeight(100)
         self.cuts_list.setToolTip("Ctrl+Click to select multiple cuts, or select 2 to delete a segment")
         self.cuts_list.setSelectionMode(QListWidget.MultiSelection)
-        layout.addWidget(self.cuts_list)
+        left_column.addWidget(self.cuts_list)
         
         # Cut Buttons
         cut_btn_layout = QHBoxLayout()
@@ -72,27 +76,23 @@ class TrimPanel(QGroupBox):
         self.clear_all_btn.clicked.connect(self.on_clear_all_clicked)
         cut_btn_layout.addWidget(self.clear_all_btn)
         
-        layout.addLayout(cut_btn_layout)
+        left_column.addLayout(cut_btn_layout)
+        columns.addLayout(left_column)
         
-        # Separator
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line)
+        # === Right Column: Parts to Export ===
+        right_column = QVBoxLayout()
         
-        # === Segments Section ===
         segments_header = QHBoxLayout()
         self.segments_count_label = QLabel("Parts to Export: 0")
         self.segments_count_label.setStyleSheet("font-weight: bold;")
         segments_header.addWidget(self.segments_count_label)
         segments_header.addStretch()
-        layout.addLayout(segments_header)
+        right_column.addLayout(segments_header)
         
         # Segment List with Checkboxes
         self.segments_list = QListWidget()
-        self.segments_list.setMaximumHeight(150)
         self.segments_list.setToolTip("Check/uncheck which parts to export")
-        layout.addWidget(self.segments_list)
+        right_column.addWidget(self.segments_list)
         
         # Segment Buttons
         segment_btn_layout = QHBoxLayout()
@@ -109,9 +109,13 @@ class TrimPanel(QGroupBox):
         segment_btn_layout.addWidget(self.deselect_all_btn)
         
         segment_btn_layout.addStretch()
-        layout.addLayout(segment_btn_layout)
+        right_column.addLayout(segment_btn_layout)
         
-        # Export Button
+        columns.addLayout(right_column)
+        
+        layout.addLayout(columns)
+        
+        # Export Button (spans full width at bottom)
         self.execute_btn = QPushButton("Export Cut Parts")
         self.execute_btn.setToolTip("Export selected parts as separate files")
         self.execute_btn.setEnabled(False)
