@@ -8,3 +8,12 @@ Thumbs.db
 .DS_Store
 # AI colorization model weights
 PySide6/colorizers/models/
+test/
+venv/
+plans/
+.kilo/
+.kiro/
+.opencode/
+.pytest_cache/
+*.md
+!INSTALL.md
