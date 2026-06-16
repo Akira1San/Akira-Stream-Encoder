@@ -17,3 +17,4 @@ plans/
 .pytest_cache/
 *.md
 !INSTALL.md
+!README.md
