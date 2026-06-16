@@ -58,88 +58,6 @@ class DragDropListWidget(QListWidget):
             event.acceptProposedAction()
 
 
-class CleanNamesDialog(QDialog):
-    """Dialog for previewing and applying filename cleaning"""
-    
-    def __init__(self, files, parent=None):
-        super().__init__(parent)
-        self.files = files
-        self.cleaned = []
-        self.applied = False
-        
-        self.setWindowTitle("Clean Filenames - Preview")
-        self.setMinimumSize(600, 400)
-        
-        layout = QVBoxLayout(self)
-        
-        layout.addWidget(QLabel("<b>Before -> After</b>"))
-        
-        # List widget showing changes
-        self.list_widget = QListWidget()
-        self.list_widget.setAlternatingRowColors(True)
-        layout.addWidget(self.list_widget)
-        
-        # Generate cleaned names
-        for f in files:
-            base = os.path.basename(f)
-            cleaned_base = self._clean_filename(base)
-            self.cleaned.append((f, cleaned_base))
-            self.list_widget.addItem(f"{base} -> {cleaned_base}")
-        
-        # Buttons
-        btn_box = QDialogButtonBox()
-        self.apply_btn = btn_box.addButton("Apply", QDialogButtonBox.AcceptRole)
-        btn_box.addButton("Cancel", QDialogButtonBox.RejectRole)
-        btn_box.accepted.connect(self.accept)
-        btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
-        
-    def _clean_filename(self, filename):
-        """Clean a filename by removing clutter and normalizing spaces."""
-        base, ext = os.path.splitext(filename)
-        # Preserve year (4 digits)
-        year_match = re.search(r'\b(19|20)\d{2}\b', base)
-        year = year_match.group(0) if year_match else None
-
-        # Remove all dots (except the one before the file extension)
-        base = base.replace('.', ' ')
-        # Remove all underscores
-        base = base.replace('_', ' ')
-        # Remove all special characters
-        base = re.sub(r'[\-_&]', ' ', base)
-        # Normalize spaces
-        base = re.sub(r'\s+', ' ', base).strip()
-
-        # Remove common clutter patterns
-        patterns = [
-            r'\bBDRip\b', r'\bx265\b', r'\bx264\b', r'\bAC3\b', r'\bAAC\b',
-            r'\bbgaudio\b', r'\bDUAL\b', r'\bAUDiO\b', r'\bBluRay\b', r'\bDVDRip\b',
-            r'\bH\b', r'\b265\b', r'\bWAR\b', r'\bSiSO\b', r'\bfmp4\b', r'\btv\b',
-            r'\bgpu\b', r'\bpart01\b', r'\bjoined\b', r'\bencoded\b', r'\bmucker\b',
-            r'\bAtany\b', r'\bStezarai\b', r'\bBG\b', r'\bAudio\b', r'\bBGAUDiO\b',
-            r'\b10\b', r'\bbit\b', r'\b1080p\b', r'\b720x404\b',
-            r'\b576p\b', r'\bWEBRip\b', r'\bHUD\b', r'\bAtany Stezarai\b', r'\bVHS\b',
-            r'\b720p\b', r'\bBluRay\b', r'\bAC3\b', r'\bAVS\b', r'\bDD5\.1\b'
-        ]
-        for pat in patterns:
-            base = re.sub(pat, '', base, flags=re.IGNORECASE)
-
-        # Reinsert year if found
-        if year:
-            base = re.sub(r'\b(19|20)\d{2}\b', year, base)
-
-        # Remove any remaining numbers that are not part of the year
-        base = re.sub(r'\b\d{1,3}\b', '', base)
-
-        # Remove any remaining words that are not part of the title
-        base = re.sub(r'\b\w{1,2}\b', '', base)
-
-        # Remove any remaining extra spaces
-        base = re.sub(r'\s+', ' ', base).strip()
-
-        return f"{base}{ext}"
-
-
 class DVDTitleDialog(QDialog):
     """Dialog for selecting DVD title to import"""
     
@@ -720,9 +638,7 @@ class ConfigTab(QWidget):
         self.join_btn.clicked.connect(self.join_files)
         btn_layout.addWidget(self.join_btn)
         
-        self.clean_btn = QPushButton("🧹 Clean Names")
-        self.clean_btn.clicked.connect(self.clean_filenames)
-        btn_layout.addWidget(self.clean_btn)
+
         
         btn_layout.addSpacing(20)
         
@@ -1446,48 +1362,4 @@ class ConfigTab(QWidget):
             pass
         return params
         
-    def clean_filenames(self):
-        """Clean filenames in the Input Files Queue."""
-        files = [f for f in self.app_state.input_files if os.path.exists(f)]
-        if not files:
-            QMessageBox.information(self, "Clean Names", "No files to clean.")
-            return
 
-        # Show preview dialog
-        dialog = CleanNamesDialog(files, self)
-        if dialog.exec() == QDialog.Accepted:
-            # Apply changes
-            errors = []
-            for orig_path, new_base in dialog.cleaned:
-                dirname = os.path.dirname(orig_path)
-                new_path = os.path.join(dirname, new_base)
-                if os.path.exists(new_path):
-                    errors.append(f"Destination exists: {new_base}")
-                    continue
-                try:
-                    os.rename(orig_path, new_path)
-                except Exception as e:
-                    errors.append(f"Failed to rename {orig_path}: {e}")
-                    break
-
-            if errors:
-                QMessageBox.critical(self, "Clean Names", "\n".join(errors))
-                return
-
-            # Update queue
-            new_files = []
-            for f in files:
-                dirname = os.path.dirname(f)
-                new_base = dialog._clean_filename(os.path.basename(f))
-                new_files.append(os.path.join(dirname, new_base))
-            
-            self.app_state.input_files = new_files
-            self.files_list.clear()
-            for f in new_files:
-                item = QListWidgetItem(os.path.basename(f))
-                item.setData(Qt.UserRole, f)
-                item.setToolTip(f)
-                self.files_list.addItem(item)
-
-            QMessageBox.information(self, "Clean Names", "Filenames cleaned successfully.")
-            self.app_state.log("Filenames cleaned successfully", "SUCCESS")
