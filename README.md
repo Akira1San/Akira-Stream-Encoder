@@ -14,7 +14,7 @@ A feature-rich video encoding application built with **PySide6 (Qt6)** and **FFm
 - **DVD subtitle burning** — HandBrake CLI fallback for bitmap subtitles
 - **Frame number timeline** — navigate by frame number
 - **Hardware encoding** — NVENC, AMF, QSV support via FFmpeg
-- **Target file size** — 2-pass encoding with size targeting
+- **Target file size** — single-pass encoding with size targeting
 - **CQ / bitrate modes** — configurable quality control
 
 ## Getting Started
