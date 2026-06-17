@@ -128,7 +128,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-i", input_path])
             cmd.extend(["-show_entries", "stream=index,codec_type,codec_name,channels,sample_rate:stream_tags=language,title"])
             cmd.extend(["-of", "json"])
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors='replace', timeout=30)
 
             if result.returncode == 0:
                 data = json.loads(result.stdout)
@@ -156,7 +156,7 @@ class FFmpegBackend(MediaBackend):
             cmd = [ffprobe_path, "-v", "error", "-i", input_path,
                    "-show_entries", "stream=index,codec_type,codec_name:stream_tags=language,title",
                    "-of", "json"]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors='replace', timeout=30)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 for stream in data.get('streams', []):
@@ -188,7 +188,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-i", input_path])
             cmd.extend(["-show_entries", "stream=index,codec_type,codec_name,width,height,r_frame_rate:stream_tags=language,title"])
             cmd.extend(["-of", "json"])
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors='replace', timeout=30)
 
             if result.returncode == 0:
                 data = json.loads(result.stdout)
@@ -450,7 +450,7 @@ class FFmpegBackend(MediaBackend):
         ffprobe_path = self._get_ffprobe_path()
         cmd = [ffprobe_path, "-v", "error", "-show_format", "-show_streams", "-of", "json", video_path]
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors='replace', timeout=15)
             if result.returncode == 0:
                 return json.loads(result.stdout)
         except Exception:
@@ -493,7 +493,7 @@ class FFmpegBackend(MediaBackend):
         info = {}
         cmd = [self.app_state.ffmpeg_path, "-i", input_path, "-f", "null", "-"]
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors='replace', timeout=10)
             stderr = result.stderr
 
             match = re.search(r"\d{3,4}x\d{3,4}", stderr)
@@ -1810,7 +1810,7 @@ class FFmpegBackend(MediaBackend):
         self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            universal_newlines=True, bufsize=1
+            universal_newlines=True, errors='replace', bufsize=1
         )
 
     def fast_cut(self, input_path: str, output_path: str,
@@ -1893,7 +1893,7 @@ class FFmpegBackend(MediaBackend):
         self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            universal_newlines=True, bufsize=1
+            universal_newlines=True, errors='replace', bufsize=1
         )
 
     def join_segments(self, input_path: str, output_path: str,
@@ -1921,7 +1921,7 @@ class FFmpegBackend(MediaBackend):
         self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            universal_newlines=True, bufsize=1
+            universal_newlines=True, errors='replace', bufsize=1
         )
 
     def align_to_keyframe(self, video_path: str, target_time: float) -> float:
@@ -2035,7 +2035,7 @@ class FFmpegBackend(MediaBackend):
             "-of", "json"
         ])
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors='replace', timeout=30)
             if result.returncode == 0:
                 return json.loads(result.stdout)
         except Exception:
