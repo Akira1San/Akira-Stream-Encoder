@@ -211,14 +211,31 @@ class SubtitlesPanel(QWidget):
 
         layout.addLayout(bg_layout)
 
-        # Shadow controls
-        shadow_header_layout = QHBoxLayout()
+        # Shadow collapsible section
+        shadow_header = QHBoxLayout()
+        self.shadow_toggle = QPushButton()
+        self.shadow_toggle.setFixedSize(16, 16)
+        self.shadow_toggle.setCheckable(True)
+        self.shadow_toggle.setChecked(False)
+        self.shadow_toggle.setFlat(True)
+        self.shadow_toggle.setText("▶")
+        self.shadow_toggle.setToolTip("Expand/Collapse Shadow settings")
+        shadow_header.addWidget(self.shadow_toggle)
+        shadow_header.addWidget(QLabel("<b>Shadow</b>"))
+        shadow_header.addStretch()
+        layout.addLayout(shadow_header)
+
+        self.shadow_container = QWidget()
+        self.shadow_container.setVisible(False)
+        shadow_container_layout = QVBoxLayout(self.shadow_container)
+        shadow_container_layout.setContentsMargins(0, 0, 0, 0)
+        shadow_container_layout.setSpacing(6)
+
+        # Enable shadow checkbox
         self.shadow_check = QCheckBox("Enable Shadow")
         self.shadow_check.setChecked(self.app_state.subtitles.shadow_enabled)
         self.shadow_check.setToolTip("Add shadow effect to subtitles")
-        shadow_header_layout.addWidget(self.shadow_check)
-        shadow_header_layout.addStretch()
-        layout.addLayout(shadow_header_layout)
+        shadow_container_layout.addWidget(self.shadow_check)
 
         # Shadow color
         shadow_color_layout = QHBoxLayout()
@@ -227,7 +244,7 @@ class SubtitlesPanel(QWidget):
         self.shadow_color_btn.setStyleSheet(f"background-color: {self.app_state.subtitles.shadow_color}")
         shadow_color_layout.addWidget(self.shadow_color_btn)
         shadow_color_layout.addStretch()
-        layout.addLayout(shadow_color_layout)
+        shadow_container_layout.addLayout(shadow_color_layout)
 
         # Shadow offset X
         shadow_offset_x_layout = QHBoxLayout()
@@ -241,7 +258,7 @@ class SubtitlesPanel(QWidget):
         self.shadow_x_label.setMinimumWidth(20)
         shadow_offset_x_layout.addWidget(self.shadow_x_label)
         shadow_offset_x_layout.addStretch()
-        layout.addLayout(shadow_offset_x_layout)
+        shadow_container_layout.addLayout(shadow_offset_x_layout)
 
         # Shadow offset Y
         shadow_offset_y_layout = QHBoxLayout()
@@ -255,7 +272,7 @@ class SubtitlesPanel(QWidget):
         self.shadow_y_label.setMinimumWidth(20)
         shadow_offset_y_layout.addWidget(self.shadow_y_label)
         shadow_offset_y_layout.addStretch()
-        layout.addLayout(shadow_offset_y_layout)
+        shadow_container_layout.addLayout(shadow_offset_y_layout)
 
         # Shadow opacity
         shadow_op_layout = QHBoxLayout()
@@ -268,7 +285,9 @@ class SubtitlesPanel(QWidget):
         self.shadow_op_label.setMinimumWidth(30)
         shadow_op_layout.addWidget(self.shadow_op_label)
         shadow_op_layout.addStretch()
-        layout.addLayout(shadow_op_layout)
+        shadow_container_layout.addLayout(shadow_op_layout)
+
+        layout.addWidget(self.shadow_container)
 
         layout.addStretch()
 
@@ -291,6 +310,7 @@ class SubtitlesPanel(QWidget):
         self.on_handbrake_available_changed(self.app_state.handbrake_available)
 
         # Shadow controls
+        self.shadow_toggle.toggled.connect(self.on_shadow_toggled)
         self.shadow_check.toggled.connect(self.on_shadow_changed)
         self.shadow_color_btn.clicked.connect(self.on_shadow_color_clicked)
         self.shadow_x_slider.valueChanged.connect(self.on_shadow_offset_x_changed)
@@ -512,6 +532,11 @@ class SubtitlesPanel(QWidget):
         self.app_state.subtitles.bg_opacity = opacity
         self.bg_op_label.setText(f"{opacity:.1f}")
         self.settings_changed.emit()
+
+    def on_shadow_toggled(self, checked):
+        """Handle shadow section toggle"""
+        self.shadow_container.setVisible(checked)
+        self.shadow_toggle.setText("▼" if checked else "▶")
 
     def on_shadow_changed(self, checked):
         """Handle shadow enable checkbox change"""
