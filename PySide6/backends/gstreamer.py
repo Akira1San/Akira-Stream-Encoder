@@ -804,7 +804,8 @@ class GStreamerBackend(MediaBackend):
             elif text_subs:
                 sub_path = self.find_subtitle_file(input_path)
                 subs = self.app_state.subtitles
-                font_desc = f"{subs.font} {subs.size}"
+                bold_str = " Bold" if subs.bold else ""
+                font_desc = f"{subs.font}{bold_str} {subs.size}"
 
                 pipeline += [f"demux.{vid_pad}", "!", "queue", "!", "decodebin", "!",
                              "videoconvert", "!", "queue", "!",

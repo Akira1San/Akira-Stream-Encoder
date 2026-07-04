@@ -522,6 +522,7 @@ class FilterOverlay(QWidget):
         
         # Set up font with scaled pixel size
         font = QFont(subs.font)
+        font.setBold(subs.bold)
         scaled_size = max(int(subs.size * font_scale), 12)
         font.setPixelSize(scaled_size)
         painter.setFont(font)
@@ -1314,6 +1315,8 @@ class VideoPreview(QWidget):
         if subs.font != "Arial":
             style.append(f"Fontname={subs.font}")
         style.append(f"Fontsize={subs.size}")
+        if subs.bold:
+            style.append("Bold=-1")
         if subs.color != "#FFFFFF":
             style.append(f"PrimaryColour={self._hex_to_ass(subs.color)}")
         if subs.outline_color != "#000000":
@@ -1851,6 +1854,7 @@ class VideoPreview(QWidget):
         
         # Set up font (use pixel size to match FFmpeg)
         font = QFont(subs.font)
+        font.setBold(subs.bold)
         font.setPixelSize(subs.size)
         painter.setFont(font)
         

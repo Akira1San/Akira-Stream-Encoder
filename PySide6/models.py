@@ -67,6 +67,7 @@ class SubtitleSettings:
     bg_color: str = "#000000"
     outline_width: int = 2
     bg_opacity: float = 0.5
+    bold: bool = False
     # Shadow settings
     shadow_enabled: bool = False
     shadow_color: str = "#000000"

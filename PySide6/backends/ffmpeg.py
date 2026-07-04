@@ -1187,6 +1187,8 @@ class FFmpegBackend(MediaBackend):
         if subs.font != "Arial":
             style.append(f"Fontname={subs.font}")
         style.append(f"Fontsize={subs.size}")
+        if subs.bold:
+            style.append("Bold=-1")
         if subs.color != "#FFFFFF":
             style.append(f"PrimaryColour={self.hex_to_ass(subs.color)}")
         if subs.outline_color != "#000000":

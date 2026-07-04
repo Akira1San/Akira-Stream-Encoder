@@ -211,6 +211,14 @@ class SubtitlesPanel(QWidget):
 
         layout.addLayout(bg_layout)
 
+        # Bold checkbox
+        bold_layout = QHBoxLayout()
+        self.bold_checkbox = QCheckBox("Bold")
+        self.bold_checkbox.setChecked(self.app_state.subtitles.bold)
+        bold_layout.addWidget(self.bold_checkbox)
+        bold_layout.addStretch()
+        layout.addLayout(bold_layout)
+
         # Shadow collapsible section
         shadow_header = QHBoxLayout()
         self.shadow_toggle = QPushButton()
@@ -308,6 +316,9 @@ class SubtitlesPanel(QWidget):
         # HandBrake availability
         self.app_state.handbrake_available_changed.connect(self.on_handbrake_available_changed)
         self.on_handbrake_available_changed(self.app_state.handbrake_available)
+
+        # Bold
+        self.bold_checkbox.toggled.connect(self.on_bold_changed)
 
         # Shadow controls
         self.shadow_toggle.toggled.connect(self.on_shadow_toggled)
@@ -572,4 +583,9 @@ class SubtitlesPanel(QWidget):
         opacity = value / 10.0
         self.app_state.subtitles.shadow_opacity = opacity
         self.shadow_op_label.setText(f"{opacity:.1f}")
+        self.settings_changed.emit()
+
+    def on_bold_changed(self, checked):
+        """Handle bold checkbox change"""
+        self.app_state.subtitles.bold = checked
         self.settings_changed.emit()
