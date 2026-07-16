@@ -2,9 +2,12 @@
 Video Preview Component - Handles real-time preview functionality (PySide6)
 Uses native Qt (QImage, QPixmap) instead of PIL/Pillow
 """
+import hashlib
 import io
 import os
 import re
+import subprocess
+import tempfile
 from typing import Optional
 
 from PySide6 import QtWidgets
@@ -725,6 +728,10 @@ class VideoPreview(QWidget):
         # Frame rate for frame-number display
         self._video_fps: float = 0.0
         
+        # External audio preview support
+        self._using_temp_audio: bool = False
+        self._preview_temp_path: Optional[str] = None
+        
         self.setup_ui()
         
     def setup_ui(self):
@@ -987,9 +994,81 @@ class VideoPreview(QWidget):
         self._preview_stack.setCurrentIndex(0)
         self.filter_overlay.clear()
         
+        # Clean up external audio temp file
+        self._using_temp_audio = False
+        if self._preview_temp_path:
+            try:
+                os.remove(self._preview_temp_path)
+            except OSError:
+                pass
+            self._preview_temp_path = None
+        
         # Clear any pending frame loader
         self._cleanup_thread()
-    
+
+    def _get_preview_file_with_external_audio(self, video_path: str) -> str:
+        tracks = self.app_state.tracks
+        filters = self.app_state.filters
+
+        ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
+        ext_audio_path = getattr(tracks, 'external_audio_path', '')
+        if not (ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path)):
+            self._preview_temp_path = None
+            return video_path
+
+        ctx = hashlib.md5()
+        ctx.update(video_path.encode())
+        ctx.update(str(os.path.getmtime(video_path)).encode())
+        ctx.update(ext_audio_path.encode())
+        ctx.update(str(os.path.getmtime(ext_audio_path)).encode())
+        ctx.update(str(getattr(filters, 'audio_delay_enabled', False)).encode())
+        ctx.update(str(getattr(filters, 'audio_delay_ms', 0)).encode())
+        cache_key = ctx.hexdigest()
+
+        temp_dir = os.path.join(tempfile.gettempdir(), "myencoder_preview")
+        os.makedirs(temp_dir, exist_ok=True)
+        container = getattr(self.app_state.encoding, 'container', 'mp4') or 'mp4'
+        temp_path = os.path.join(temp_dir, f"preview_{cache_key}.{container}")
+
+        if os.path.exists(temp_path):
+            self._preview_temp_path = temp_path
+            self.app_state.log("Using cached external audio preview", "INFO")
+            return temp_path
+
+        self.app_state.log("Generating external audio preview...", "INFO")
+
+        ffmpeg = self.app_state.ffmpeg_path
+        cmd = [ffmpeg, "-y", "-i", video_path, "-i", ext_audio_path]
+        cmd.extend(["-map", "0:v:0", "-c:v", "copy"])
+        cmd.extend(["-map", "1:a"])
+
+        if getattr(filters, 'audio_delay_enabled', False) and filters.audio_delay_ms > 0:
+            delay_ms = filters.audio_delay_ms
+            cmd.extend(["-af", f"adelay={delay_ms}|{delay_ms}"])
+
+        ext = os.path.splitext(ext_audio_path)[1].lower()
+        if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
+            cmd.extend(["-c:a", "copy"])
+        else:
+            cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+
+        cmd.extend(["-movflags", "+faststart", temp_path])
+
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if proc.returncode != 0:
+                self.app_state.log(f"Failed to generate preview: {proc.stderr.strip()}", "ERROR")
+                self._preview_temp_path = None
+                return video_path
+        except subprocess.TimeoutExpired:
+            self.app_state.log("Preview generation timed out", "ERROR")
+            self._preview_temp_path = None
+            return video_path
+
+        self._preview_temp_path = temp_path
+        self.app_state.log("External audio preview ready", "INFO")
+        return temp_path
+
     def set_image_sequence(self, image_files: list, fps: float):
         """Load an image sequence for preview and playback."""
         self.clear_video()
@@ -1962,6 +2041,14 @@ class VideoPreview(QWidget):
         # Show QVideoWidget (index 1) during playback
         self._preview_stack.setCurrentIndex(1)
         
+        # Load external audio preview if enabled (skip for DVD VOB mode)
+        if not self._dvd_vob_list:
+            preview_path = self._get_preview_file_with_external_audio(self.current_video_path)
+            if preview_path != self._video_player.get_current_source():
+                self._video_player.load_file(preview_path)
+                self._video_player.set_volume(self._audio_volume)
+                self._using_temp_audio = preview_path != self.current_video_path
+        
         # Seek to current position first (switch VOBs for DVD)
         value = self.timeline_slider.value()
         position = self.timeline_slider.value_to_time(value)
@@ -2084,6 +2171,11 @@ class VideoPreview(QWidget):
         
         # Use QMediaPlayer for smooth playback
         self._video_player.stop()
+        # Restore original file if we were using a temp external audio preview
+        if self._using_temp_audio and self.current_video_path:
+            self._video_player.load_file(self.current_video_path)
+            self._video_player.set_volume(self._audio_volume)
+            self._using_temp_audio = False
         # Show FilterOverlay (index 2) to display processed frame
         self._preview_stack.setCurrentIndex(2)
         
