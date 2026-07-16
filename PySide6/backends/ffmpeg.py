@@ -1466,7 +1466,8 @@ class FFmpegBackend(MediaBackend):
 
             if getattr(self, '_external_audio', False):
                 cmd.extend(["-map", "1:a"])
-                if tracks.audio_copy_mode:
+                has_audio_filters = bool(audio_filters_str)
+                if tracks.audio_copy_mode and not has_audio_filters:
                     ext_path = tracks.external_audio_path
                     ext = os.path.splitext(ext_path)[1].lower()
                     if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
@@ -1475,6 +1476,8 @@ class FFmpegBackend(MediaBackend):
                         cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", *self._audio_channels_args()])
                 else:
                     cmd.extend(["-c:a", self._audio_codec(), "-b:a", "128k", *self._audio_channels_args()])
+                if has_audio_filters:
+                    cmd.extend(["-af", audio_filters_str])
                 cmd.extend(["-shortest"])
             elif multi_track_audio:
                 pass  # Per-track codecs already set above

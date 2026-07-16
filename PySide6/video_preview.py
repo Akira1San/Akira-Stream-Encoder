@@ -1042,12 +1042,15 @@ class VideoPreview(QWidget):
         cmd.extend(["-map", "0:v:0", "-c:v", "copy"])
         cmd.extend(["-map", "1:a"])
 
-        if getattr(filters, 'audio_delay_enabled', False) and filters.audio_delay_ms > 0:
+        has_audio_delay = getattr(filters, 'audio_delay_enabled', False) and filters.audio_delay_ms > 0
+        if has_audio_delay:
             delay_ms = filters.audio_delay_ms
             cmd.extend(["-af", f"adelay={delay_ms}|{delay_ms}"])
 
         ext = os.path.splitext(ext_audio_path)[1].lower()
-        if ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
+        if has_audio_delay:
+            cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+        elif ext in ['.mp3', '.aac', '.ac3', '.m4a', '.flac', '.ogg', '.wav']:
             cmd.extend(["-c:a", "copy"])
         else:
             cmd.extend(["-c:a", "aac", "-b:a", "128k"])
