@@ -1273,6 +1273,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-i", dvd_concat_input if dvd_concat_input else input_path])
                 for ext_track in tracks.external_audio_tracks:
                     if ext_track.file_path and os.path.exists(ext_track.file_path):
+                        cmd.extend(["-ss", start_time])
                         cmd.extend(["-i", ext_track.file_path])
                         self._multi_track_ext_audio_paths.append(ext_track.file_path)
                 for ext_track in tracks.external_subtitle_tracks:
@@ -1282,6 +1283,7 @@ class FFmpegBackend(MediaBackend):
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
                 if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
+                    cmd.extend(["-ss", start_time])
                     cmd.extend(["-i", ext_audio_path])
                     self._external_audio = True
                 else:
@@ -1313,6 +1315,7 @@ class FFmpegBackend(MediaBackend):
                 cmd.extend(["-i", dvd_concat_input if dvd_concat_input else input_path])
                 for ext_track in tracks.external_audio_tracks:
                     if ext_track.file_path and os.path.exists(ext_track.file_path):
+                        cmd.extend(["-ss", start_time])
                         cmd.extend(["-i", ext_track.file_path])
                         self._multi_track_ext_audio_paths.append(ext_track.file_path)
                 for ext_track in tracks.external_subtitle_tracks:
@@ -1322,6 +1325,7 @@ class FFmpegBackend(MediaBackend):
                 ext_audio_enabled = getattr(tracks, 'external_audio_enabled', False)
                 ext_audio_path = getattr(tracks, 'external_audio_path', '')
                 if ext_audio_enabled and ext_audio_path and os.path.exists(ext_audio_path):
+                    cmd.extend(["-ss", start_time])
                     cmd.extend(["-i", ext_audio_path])
                     self._external_audio = True
                 else:
@@ -1437,7 +1441,7 @@ class FFmpegBackend(MediaBackend):
                         cmd.extend([f"-c:a:{audio_output_idx}", self._audio_codec(),
                                     "-b:a", "128k", *self._audio_channels_args()])
                     audio_output_idx += 1
-            elif tracks.audio_selected:
+            elif tracks.audio_selected and not getattr(self, '_external_audio', False):
                 audio_stream_idx = tracks.audio_stream_index
                 if audio_stream_idx is None or audio_stream_idx < 0:
                     audio_stream_idx = 0
