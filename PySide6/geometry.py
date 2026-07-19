@@ -3,7 +3,7 @@ Geometry and Aspect Ratio Panel (PySide6)
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QSlider, QSpinBox, QGroupBox, QFrame, QComboBox
+    QSlider, QSpinBox, QGroupBox, QFrame, QComboBox, QPushButton
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -14,6 +14,7 @@ class GeometryPanel(QWidget):
     """Panel for geometry and aspect ratio settings"""
     
     settings_changed = Signal()
+    extract_frames_requested = Signal(int, str)  # count, format
     
     def __init__(self, app_state: AppState, parent=None):
         super().__init__(parent)
@@ -144,6 +145,47 @@ class GeometryPanel(QWidget):
         
         layout.addWidget(extract_group)
         
+        # === Frame Extraction Section ===
+        line4 = QFrame()
+        line4.setFrameShape(QFrame.HLine)
+        line4.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line4)
+        
+        frame_group = QGroupBox("Frame Extraction")
+        frame_layout = QVBoxLayout(frame_group)
+        
+        # Number of frames
+        count_layout = QHBoxLayout()
+        count_layout.addWidget(QLabel("Frames to capture:"))
+        
+        self.frame_count_spin = QSpinBox()
+        self.frame_count_spin.setRange(1, 100)
+        self.frame_count_spin.setValue(self.app_state.frame_extraction.count)
+        self.frame_count_spin.setToolTip("Number of consecutive frames to extract from the timeline position")
+        count_layout.addWidget(self.frame_count_spin)
+        
+        count_layout.addStretch()
+        frame_layout.addLayout(count_layout)
+        
+        # Output format
+        fmt_layout = QHBoxLayout()
+        fmt_layout.addWidget(QLabel("Output format:"))
+        
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["PNG", "JPEG"])
+        self.format_combo.setCurrentText(self.app_state.frame_extraction.output_format.upper())
+        fmt_layout.addWidget(self.format_combo)
+        
+        fmt_layout.addStretch()
+        frame_layout.addLayout(fmt_layout)
+        
+        # Extract button
+        self.extract_frames_btn = QPushButton("📷 Extract Frames")
+        self.extract_frames_btn.setToolTip("Extract frames starting from the current timeline position")
+        frame_layout.addWidget(self.extract_frames_btn)
+        
+        layout.addWidget(frame_group)
+        
         layout.addStretch()
         
     def connect_signals(self):
@@ -156,6 +198,9 @@ class GeometryPanel(QWidget):
         self.extract_check.toggled.connect(self.on_extract_toggled)
         self.extract_start_spin.valueChanged.connect(self.on_extract_start_changed)
         self.extract_duration_spin.valueChanged.connect(self.on_extract_duration_changed)
+        self.frame_count_spin.valueChanged.connect(self.on_frame_count_changed)
+        self.format_combo.currentTextChanged.connect(self.on_format_changed)
+        self.extract_frames_btn.clicked.connect(self.on_extract_frames_clicked)
         
     def on_split_toggled(self, checked):
         """Handle split checkbox toggle"""
@@ -214,3 +259,18 @@ class GeometryPanel(QWidget):
             f"{start}:00 to {start + value}:00"
         )
         self.settings_changed.emit()
+
+    def on_frame_count_changed(self, value):
+        """Handle frame count change"""
+        self.app_state.frame_extraction.count = value
+
+    def on_format_changed(self, text):
+        """Handle format combo change"""
+        fmt = text.lower()
+        self.app_state.frame_extraction.output_format = fmt
+
+    def on_extract_frames_clicked(self):
+        """Emit signal for video workspace to handle extraction"""
+        count = self.frame_count_spin.value()
+        fmt = self.format_combo.currentText().lower()
+        self.extract_frames_requested.emit(count, fmt)

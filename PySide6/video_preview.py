@@ -1648,7 +1648,11 @@ class VideoPreview(QWidget):
         """Seek to specific timestamp and update preview"""
         if not self.current_video_path and not self.app_state.extra.generate_video:
             return
-            
+
+        # Cap to valid range (a few ms before end to avoid seeking past last frame)
+        if self.duration > 0 and timestamp >= self.duration:
+            timestamp = max(0.0, self.duration - 0.04)
+
         # Cancel any pending load and clean up previous thread
         self._cleanup_thread()
         

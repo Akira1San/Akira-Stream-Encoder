@@ -467,6 +467,13 @@ class ImageSequenceSettings:
 
 
 @dataclass
+class FrameExtractionSettings:
+    """Frame extraction from current timeline position"""
+    count: int = 1
+    output_format: str = "png"  # "png" or "jpeg"
+
+
+@dataclass
 class DVDSettings:
     """DVD (VIDEO_TS) source settings"""
     is_dvd_source: bool = False
@@ -531,6 +538,7 @@ class AppState(QObject):
         self.tracks = TrackSettings()
         self.cut = CutSettings()
         self.dvd = DVDSettings()
+        self.frame_extraction = FrameExtractionSettings()
         self.colorization = ColorizationSettings()
         self.ai_colorization = AIColorizationSettings()
         self.ai_upscaling = AIUpscalingSettings()

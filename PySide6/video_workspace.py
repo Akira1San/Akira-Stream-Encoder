@@ -5,7 +5,8 @@ import os
 import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QTabWidget, QScrollArea, QFrame, QLabel, QPushButton, QTextEdit
+    QTabWidget, QScrollArea, QFrame, QLabel, QPushButton,
+    QTextEdit, QFileDialog, QMessageBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -270,6 +271,7 @@ class VideoWorkspace(QWidget):
         """Connect signals"""
         self.app_state.current_video_changed.connect(self.on_video_changed)
         self.enc_panel.upscaling_active.connect(self.on_upscaling_active)
+        self.geo_panel.extract_frames_requested.connect(self.on_extract_frames_requested)
         
     def clear_log(self):
         """Clear the log widget"""
@@ -977,6 +979,33 @@ class VideoWorkspace(QWidget):
         
         self.subs_panel.set_subtitle_files(sub_files)
         
+    def on_extract_frames_requested(self, count: int, fmt: str):
+        """Handle frame extraction request from GeometryPanel"""
+        video_path = self.app_state.current_video_path
+        if not video_path or not os.path.exists(video_path):
+            QMessageBox.warning(self, "No Video", "No video file loaded.")
+            return
+
+        timestamp = self.preview.get_current_timestamp()
+        if self.app_state.dvd.is_dvd_source and video_path.endswith('.txt'):
+            video_path = self.app_state.dvd.dvd_folder_path
+            if not video_path:
+                QMessageBox.warning(self, "No Video", "DVD source not available.")
+                return
+
+        output_dir = os.path.dirname(os.path.abspath(video_path))
+
+        saved = self.app_state.backend.extract_frames_at_timestamp(
+            video_path, timestamp, count, output_dir, fmt
+        )
+
+        if saved:
+            self.app_state.log(
+                f"Extracted {len(saved)} frame(s) at {timestamp:.2f}s → {output_dir}", "SUCCESS")
+        else:
+            self.app_state.log(
+                f"Frame extraction failed at {timestamp:.2f}s — check ffmpeg path and video file", "ERROR")
+
     def set_video(self, video_path: str):
         """Set the current video"""
         # Check if this is an image sequence

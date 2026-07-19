@@ -402,6 +402,42 @@ class FFmpegBackend(MediaBackend):
             pass
         return None
 
+    def extract_frames_at_timestamp(self, video_path: str, timestamp: float, count: int,
+                                    output_dir: str, fmt: str = "png") -> List[str]:
+        """Extract N consecutive frames starting from timestamp.
+
+        Args:
+            video_path: Path to video file
+            timestamp: Start time in seconds
+            count: Number of frames to extract
+            output_dir: Directory to save frames
+            fmt: Output format ("png" or "jpeg")
+
+        Returns:
+            List of saved file paths (empty on failure)
+        """
+        ffmpeg_path = self.app_state.ffmpeg_path
+        basename = os.path.splitext(os.path.basename(video_path))[0]
+        ext = "jpg" if fmt == "jpeg" else "png"
+        output_pattern = os.path.join(output_dir, f"{basename}_frame_%03d.{ext}")
+
+        cmd = [ffmpeg_path, "-ss", str(timestamp), "-i", video_path,
+               "-vframes", str(count), "-q:v", "2",
+               "-y", output_pattern]
+
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+            if result.returncode == 0:
+                saved = []
+                for i in range(1, count + 1):
+                    fname = os.path.join(output_dir, f"{basename}_frame_{i:03d}.{ext}")
+                    if os.path.exists(fname):
+                        saved.append(fname)
+                return saved
+        except Exception:
+            pass
+        return []
+
     def apply_video_filter(self, image_bytes: bytes, filter_str: str) -> Optional[bytes]:
         cmd = [
             self.app_state.ffmpeg_path,
