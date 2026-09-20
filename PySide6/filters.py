@@ -1,0 +1,1277 @@
+"""
+Video and Audio Filters Panel (PySide6)
+"""
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
+    QLineEdit, QGroupBox, QFrame, QSpinBox, QDoubleSpinBox,
+    QComboBox, QSlider, QPushButton
+)
+from PySide6.QtCore import Signal, Qt, QTimer
+
+from models import AppState
+
+
+class FiltersPanel(QWidget):
+    """Panel for video and audio filters"""
+    
+    settings_changed = Signal()
+    
+    def __init__(self, app_state: AppState, parent=None):
+        super().__init__(parent)
+        self.app_state = app_state
+        
+        self.setup_ui()
+        self.connect_signals()
+        
+        # Re-apply when media engine changes
+        self.app_state.media_engine_changed.connect(self.update_engine_state)
+        
+        # Defer initial call to let Qt finish widget initialization first
+        QTimer.singleShot(0, self.update_engine_state)
+        
+    def setup_ui(self):
+        """Setup the UI layout"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        
+        # === Video Filters ===
+        video_group = QGroupBox("Video Filters")
+        video_layout = QVBoxLayout(video_group)
+        
+        self.deint_check = QCheckBox("Deinterlace (Yadif)")
+        self.deint_check.setChecked(self.app_state.filters.deinterlace)
+        self.deint_check.setToolTip("Remove interlacing artifacts from video.\nUse for interlaced sources (e.g., old DVDs, TV captures).\nOutput will be progressive.")
+        video_layout.addWidget(self.deint_check)
+        
+        self.denoise_check = QCheckBox("Denoise (HQDN3D)")
+        self.denoise_check.setChecked(self.app_state.filters.denoise)
+        self.denoise_check.setToolTip("Reduce video noise/grain using HQDN3D filter.\nGood for grainy or noisy sources.\nMay slightly soften the image.")
+        video_layout.addWidget(self.denoise_check)
+
+        # Sharpen filter
+        self.sharpen_check = QCheckBox("Sharpen (Unsharp)")
+        self.sharpen_check.setChecked(self.app_state.filters.sharpen)
+        self.sharpen_check.setToolTip(
+            "Sharpen video using unsharp mask filter.\n"
+            "Adds contrast to edges for increased clarity.\n"
+            "Useful for blurry or soft video sources."
+        )
+        video_layout.addWidget(self.sharpen_check)
+
+        sharpen_layout = QHBoxLayout()
+        sharpen_layout.addWidget(QLabel("  Strength:"))
+        self.sharpen_amount_slider = QSlider(Qt.Horizontal)
+        self.sharpen_amount_slider.setRange(30, 200)
+        self.sharpen_amount_slider.setValue(int(self.app_state.filters.sharpen_amount * 100))
+        self.sharpen_amount_slider.setMaximumWidth(120)
+        self.sharpen_amount_slider.setEnabled(self.app_state.filters.sharpen)
+        self.sharpen_amount_slider.setToolTip("Sharpen strength: 0.3 = light, 1.0 = normal, 2.0 = strong")
+        sharpen_layout.addWidget(self.sharpen_amount_slider)
+        self.sharpen_amount_input = QDoubleSpinBox()
+        self.sharpen_amount_input.setRange(0.3, 2.0)
+        self.sharpen_amount_input.setSingleStep(0.1)
+        self.sharpen_amount_input.setDecimals(1)
+        self.sharpen_amount_input.setValue(self.app_state.filters.sharpen_amount)
+        self.sharpen_amount_input.setMaximumWidth(70)
+        self.sharpen_amount_input.setEnabled(self.app_state.filters.sharpen)
+        self.sharpen_amount_input.setToolTip("Sharpen strength: 0.3 = light, 1.0 = normal, 2.0 = strong")
+        sharpen_layout.addWidget(self.sharpen_amount_input)
+        sharpen_layout.addStretch()
+        video_layout.addLayout(sharpen_layout)
+
+        # CAS filter (Contrast Adaptive Sharpen)
+        self.cas_check = QCheckBox("CAS (Contrast Adaptive Sharpen)")
+        self.cas_check.setChecked(self.app_state.filters.cas_enabled)
+        self.cas_check.setToolTip(
+            "CAS is an edge-aware sharpening filter.\n"
+            "Better than unsharp - no halos around edges.\n"
+            "Useful for improving video clarity."
+        )
+        video_layout.addWidget(self.cas_check)
+
+        cas_layout = QHBoxLayout()
+        cas_layout.addWidget(QLabel("  Strength:"))
+        self.cas_strength_slider = QSlider(Qt.Horizontal)
+        self.cas_strength_slider.setRange(0, 100)
+        self.cas_strength_slider.setValue(int(self.app_state.filters.cas_strength * 100))
+        self.cas_strength_slider.setMaximumWidth(120)
+        self.cas_strength_slider.setEnabled(self.app_state.filters.cas_enabled)
+        self.cas_strength_slider.setToolTip("CAS strength: 0.0 = off, 1.0 = normal, 2.0+ = strong")
+        cas_layout.addWidget(self.cas_strength_slider)
+        self.cas_strength_input = QDoubleSpinBox()
+        self.cas_strength_input.setRange(0.0, 1.0)
+        self.cas_strength_input.setSingleStep(0.01)
+        self.cas_strength_input.setDecimals(2)
+        self.cas_strength_input.setValue(self.app_state.filters.cas_strength)
+        self.cas_strength_input.setMaximumWidth(70)
+        self.cas_strength_input.setEnabled(self.app_state.filters.cas_enabled)
+        self.cas_strength_input.setToolTip("CAS strength: 0.0 = off, 1.0 = normal, 2.0+ = strong")
+        cas_layout.addWidget(self.cas_strength_input)
+        cas_layout.addStretch()
+        video_layout.addLayout(cas_layout)
+
+        # Deblock filter
+        self.deblock_check = QCheckBox("Deblock")
+        self.deblock_check.setChecked(self.app_state.filters.deblock)
+        self.deblock_check.setToolTip(
+            "Reduce block artifacts from compression.\n"
+            "Good for low-quality or highly compressed video.\n"
+            "Uses FFmpeg's deblock filter."
+        )
+        video_layout.addWidget(self.deblock_check)
+
+        deblock_layout = QHBoxLayout()
+        deblock_layout.addWidget(QLabel("  Strength:"))
+        self.deblock_strength_slider = QSlider(Qt.Horizontal)
+        self.deblock_strength_slider.setRange(10, 100)
+        self.deblock_strength_slider.setValue(int(self.app_state.filters.deblock_strength * 100))
+        self.deblock_strength_slider.setMaximumWidth(120)
+        self.deblock_strength_slider.setEnabled(self.app_state.filters.deblock)
+        self.deblock_strength_slider.setToolTip("Deblock strength: 0.1 = light, 0.5 = normal, 1.0 = strong")
+        deblock_layout.addWidget(self.deblock_strength_slider)
+        self.deblock_strength_input = QDoubleSpinBox()
+        self.deblock_strength_input.setRange(0.1, 1.0)
+        self.deblock_strength_input.setSingleStep(0.01)
+        self.deblock_strength_input.setDecimals(2)
+        self.deblock_strength_input.setValue(self.app_state.filters.deblock_strength)
+        self.deblock_strength_input.setMaximumWidth(70)
+        self.deblock_strength_input.setEnabled(self.app_state.filters.deblock)
+        self.deblock_strength_input.setToolTip("Deblock strength: 0.1 = light, 0.5 = normal, 1.0 = strong")
+        deblock_layout.addWidget(self.deblock_strength_input)
+        deblock_layout.addStretch()
+        video_layout.addLayout(deblock_layout)
+
+        # ── Audio Filters (inside Video Filters group) ──
+        audio_sep = QFrame()
+        audio_sep.setFrameShape(QFrame.HLine)
+        audio_sep.setFrameShadow(QFrame.Sunken)
+        video_layout.addWidget(audio_sep)
+
+        audio_header = QLabel("Audio Filters")
+        audio_header.setStyleSheet("font-weight: bold; font-size: 11px;")
+        video_layout.addWidget(audio_header)
+
+        # Audio Denoise
+        self.audio_denoise_check = QCheckBox("Audio Denoise")
+        self.audio_denoise_check.setChecked(self.app_state.filters.audio_denoise)
+        self.audio_denoise_check.setToolTip(
+            "Reduce background noise in audio.\n"
+            "afftdn: FFT-based with noise tracking, best for hiss/hum.\n"
+            "anlmdn: Non-Local Means, smoother on speech/music but slower."
+        )
+        video_layout.addWidget(self.audio_denoise_check)
+
+        denoise_method_layout = QHBoxLayout()
+        denoise_method_layout.addWidget(QLabel("  Method:"))
+        self.denoise_method_combo = QComboBox()
+        self.denoise_method_combo.addItem("FFT (afftdn)", "afftdn")
+        self.denoise_method_combo.addItem("Non-Local Means (anlmdn)", "anlmdn")
+        method_idx = self.denoise_method_combo.findData(
+            getattr(self.app_state.filters, 'audio_denoise_method', 'afftdn'))
+        if method_idx >= 0:
+            self.denoise_method_combo.setCurrentIndex(method_idx)
+        self.denoise_method_combo.setMaximumWidth(220)
+        self.denoise_method_combo.setEnabled(self.app_state.filters.audio_denoise)
+        self.denoise_method_combo.setToolTip("Denoising algorithm to use.")
+        denoise_method_layout.addWidget(self.denoise_method_combo)
+        denoise_method_layout.addStretch()
+        video_layout.addLayout(denoise_method_layout)
+
+        denoise_strength_layout = QHBoxLayout()
+        denoise_strength_layout.addWidget(QLabel("  Strength:"))
+        self.denoise_strength_slider = QSlider(Qt.Horizontal)
+        self.denoise_strength_slider.setRange(0, 100)
+        self.denoise_strength_slider.setValue(int(getattr(self.app_state.filters, 'audio_denoise_strength', 0.5) * 100))
+        self.denoise_strength_slider.setMaximumWidth(120)
+        self.denoise_strength_slider.setEnabled(self.app_state.filters.audio_denoise)
+        self.denoise_strength_slider.setToolTip("Denoise strength: 0.2 = light, 0.5 = medium, 1.0 = strong")
+        denoise_strength_layout.addWidget(self.denoise_strength_slider)
+        self.denoise_strength_input = QDoubleSpinBox()
+        self.denoise_strength_input.setRange(0.0, 1.0)
+        self.denoise_strength_input.setSingleStep(0.05)
+        self.denoise_strength_input.setDecimals(2)
+        self.denoise_strength_input.setValue(getattr(self.app_state.filters, 'audio_denoise_strength', 0.5))
+        self.denoise_strength_input.setMaximumWidth(70)
+        self.denoise_strength_input.setEnabled(self.app_state.filters.audio_denoise)
+        self.denoise_strength_input.setToolTip("Denoise strength: 0.2 = light, 0.5 = medium, 1.0 = strong")
+        denoise_strength_layout.addWidget(self.denoise_strength_input)
+        denoise_strength_layout.addStretch()
+        video_layout.addLayout(denoise_strength_layout)
+
+        vol_layout = QHBoxLayout()
+        self.vol_check = QCheckBox("Enable Volume:")
+        self.vol_check.setChecked(self.app_state.filters.volume_enabled)
+        self.vol_check.setToolTip("Adjust audio volume level.")
+        vol_layout.addWidget(self.vol_check)
+
+        self.vol_edit = QLineEdit(str(self.app_state.filters.volume_db))
+        self.vol_edit.setMaximumWidth(60)
+        self.vol_edit.setEnabled(self.app_state.filters.volume_enabled)
+        self.vol_edit.setToolTip(
+            "Volume adjustment in decibels (dB):\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "+10 dB = ~3x louder\n"
+            "+6 dB = ~2x louder\n"
+            "+3 dB = ~1.4x louder\n"
+            " 0 dB = no change\n"
+            "-3 dB = ~0.7x quieter\n"
+            "-6 dB = ~0.5x quieter\n"
+            "-10 dB = ~0.3x quieter\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "Examples: 3, -5, 10, -10"
+        )
+        vol_layout.addWidget(self.vol_edit)
+
+        vol_layout.addWidget(QLabel("dB"))
+        vol_layout.addStretch()
+        video_layout.addLayout(vol_layout)
+
+        vol_info = QLabel("Examples: +3 (louder), -5 (quieter)")
+        vol_info.setStyleSheet("color: gray; font-size: 10px;")
+        video_layout.addWidget(vol_info)
+
+        self.dynnorm_check = QCheckBox("Dynamic Normalizer (dynaudnorm)")
+        self.dynnorm_check.setChecked(self.app_state.filters.audio_dynnorm)
+        self.dynnorm_check.setToolTip(
+            "Dynamically normalize audio volume.\n"
+            "Best for videos with quiet dialogue and loud music.\n"
+            "Automatically boosts quiet parts and reduces loud parts."
+        )
+        video_layout.addWidget(self.dynnorm_check)
+
+        self.compressor_check = QCheckBox("Audio Compressor (acompressor)")
+        self.compressor_check.setChecked(self.app_state.filters.audio_compressor)
+        self.compressor_check.setToolTip(
+            "Reduce dynamic range of audio.\n"
+            "Makes quiet sounds louder and loud sounds quieter.\n"
+            "Good for dialogue clarity in movies/TV shows."
+        )
+        video_layout.addWidget(self.compressor_check)
+
+        # Room Sound Reduction
+        self.room_fix_check = QCheckBox("Room Sound Reduction (Reverb / Mud / Echo)")
+        self.room_fix_check.setChecked(self.app_state.filters.audio_room_fix)
+        self.room_fix_check.setToolTip(
+            "Reduce the 'recorded in a room' sound (boxy reverb, mud, boom).\n"
+            "Removes low rumble, cuts the muddy 250Hz band, and boosts clarity.\n"
+            "Good for recordings made with a built-in mic in a room.\n"
+            "FFmpeg only (highpass + equalizer)."
+        )
+        video_layout.addWidget(self.room_fix_check)
+
+        room_fix_layout = QHBoxLayout()
+        room_fix_layout.addWidget(QLabel("  Strength:"))
+        self.room_fix_strength_slider = QSlider(Qt.Horizontal)
+        self.room_fix_strength_slider.setRange(0, 100)
+        self.room_fix_strength_slider.setValue(int(self.app_state.filters.audio_room_fix_strength * 100))
+        self.room_fix_strength_slider.setMaximumWidth(120)
+        self.room_fix_strength_slider.setEnabled(self.app_state.filters.audio_room_fix)
+        self.room_fix_strength_slider.setToolTip("Room fix strength: 0 = light, 50 = medium, 100 = strong")
+        room_fix_layout.addWidget(self.room_fix_strength_slider)
+        self.room_fix_strength_input = QDoubleSpinBox()
+        self.room_fix_strength_input.setRange(0.0, 1.0)
+        self.room_fix_strength_input.setSingleStep(0.05)
+        self.room_fix_strength_input.setDecimals(2)
+        self.room_fix_strength_input.setValue(self.app_state.filters.audio_room_fix_strength)
+        self.room_fix_strength_input.setMaximumWidth(70)
+        self.room_fix_strength_input.setEnabled(self.app_state.filters.audio_room_fix)
+        self.room_fix_strength_input.setToolTip("Room fix strength: 0.3 = light, 0.6 = medium, 1.0 = strong")
+        room_fix_layout.addWidget(self.room_fix_strength_input)
+        room_fix_layout.addStretch()
+        video_layout.addLayout(room_fix_layout)
+
+        delay_layout = QHBoxLayout()
+        self.audio_delay_check = QCheckBox("Audio Delay:")
+        self.audio_delay_check.setChecked(self.app_state.filters.audio_delay_enabled)
+        self.audio_delay_check.setToolTip(
+            "Delay audio to sync with video.\n"
+            "Use when audio plays ahead of video.\n"
+            "Values: 100-500ms for minor sync, 1000ms+ for major offset."
+        )
+        delay_layout.addWidget(self.audio_delay_check)
+
+        self.audio_delay_spin = QSpinBox()
+        self.audio_delay_spin.setRange(0, 10000)
+        self.audio_delay_spin.setValue(self.app_state.filters.audio_delay_ms)
+        self.audio_delay_spin.setSuffix(" ms")
+        self.audio_delay_spin.setSingleStep(50)
+        self.audio_delay_spin.setEnabled(self.app_state.filters.audio_delay_enabled)
+        self.audio_delay_spin.setMinimumWidth(100)
+        self.audio_delay_spin.setToolTip(
+            "Delay in milliseconds (0 = no delay).\n"
+            "Common values:\n"
+            "  100ms: Very slight sync fix\n"
+            "  250ms: Minor offset\n"
+            "  500ms: Notable offset\n"
+            "  1000ms: Audio is ~1 second ahead\n"
+            "  2000ms+: Major offset"
+        )
+        delay_layout.addWidget(self.audio_delay_spin)
+        delay_layout.addStretch()
+        video_layout.addLayout(delay_layout)
+
+        # ── Crop & Aspect Ratio (collapsible) ──
+        crop_ar_header = QHBoxLayout()
+        self.crop_ar_toggle = QPushButton()
+        self.crop_ar_toggle.setFixedSize(16, 16)
+        self.crop_ar_toggle.setCheckable(True)
+        self.crop_ar_toggle.setChecked(False)
+        self.crop_ar_toggle.setFlat(True)
+        self.crop_ar_toggle.setText("▶")
+        self.crop_ar_toggle.setToolTip("Expand/Collapse Crop & Aspect Ratio settings")
+        crop_ar_header.addWidget(self.crop_ar_toggle)
+        crop_ar_header.addWidget(QLabel("<b>Crop & Aspect Ratio</b>"))
+        crop_ar_header.addStretch()
+        video_layout.addLayout(crop_ar_header)
+
+        self.crop_ar_container = QWidget()
+        self.crop_ar_container.setVisible(False)
+        crop_ar_container_layout = QVBoxLayout(self.crop_ar_container)
+        crop_ar_container_layout.setContentsMargins(0, 0, 0, 0)
+        crop_ar_container_layout.setSpacing(6)
+
+        # === Smart Crop (Black Bar Removal) ===
+        smart_crop_group = QGroupBox("Smart Crop (Black Bar Removal)")
+        smart_crop_layout = QVBoxLayout(smart_crop_group)
+
+        self.smart_crop_check = QCheckBox("Enable Smart Crop")
+        self.smart_crop_check.setChecked(self.app_state.filters.smart_crop_enabled)
+        self.smart_crop_check.setToolTip(
+            "Automatically detect and remove black bars from video edges.\n"
+            "Uses FFmpeg's cropdetect filter to find black borders.\n"
+            "Perfect for removing letterbox/pillarbox bars from videos."
+        )
+        smart_crop_layout.addWidget(self.smart_crop_check)
+
+        # Mode selection
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("Mode:"))
+        self.smart_crop_mode_combo = QComboBox()
+        self.smart_crop_mode_combo.addItems(["Auto Detect", "Manual"])
+        self.smart_crop_mode_combo.setCurrentText("Auto Detect" if self.app_state.filters.smart_crop_mode == "auto" else "Manual")
+        self.smart_crop_mode_combo.setEnabled(self.app_state.filters.smart_crop_enabled)
+        self.smart_crop_mode_combo.setToolTip(
+            "Auto Detect: Uses preset crop values (adjustable below)\n"
+            "Manual: Use exact crop values with custom X/Y offsets"
+        )
+        mode_layout.addWidget(self.smart_crop_mode_combo)
+        mode_layout.addStretch()
+        smart_crop_layout.addLayout(mode_layout)
+
+        # Manual crop dimensions
+        manual_layout = QHBoxLayout()
+        manual_layout.addWidget(QLabel("Width:"))
+        self.smart_crop_w_spin = QSpinBox()
+        self.smart_crop_w_spin.setRange(16, 9999)  # Min 16 for codec compatibility
+        self.smart_crop_w_spin.setValue(self.app_state.filters.smart_crop_w or 640)
+        self.smart_crop_w_spin.setMaximumWidth(70)
+        self.smart_crop_w_spin.setToolTip("Crop width (min: 16)")
+        self.smart_crop_w_spin.setEnabled(self.app_state.filters.smart_crop_enabled)
+        manual_layout.addWidget(self.smart_crop_w_spin)
+
+        manual_layout.addWidget(QLabel("Height:"))
+        self.smart_crop_h_spin = QSpinBox()
+        self.smart_crop_h_spin.setRange(16, 9999)  # Min 16 for codec compatibility
+        self.smart_crop_h_spin.setValue(self.app_state.filters.smart_crop_h or 480)
+        self.smart_crop_h_spin.setMaximumWidth(70)
+        self.smart_crop_h_spin.setToolTip("Crop height (min: 16)")
+        self.smart_crop_h_spin.setEnabled(self.app_state.filters.smart_crop_enabled)
+        manual_layout.addWidget(self.smart_crop_h_spin)
+        manual_layout.addStretch()
+        smart_crop_layout.addLayout(manual_layout)
+
+        # Crop offset
+        offset_layout = QHBoxLayout()
+        offset_layout.addWidget(QLabel("X Offset:"))
+        self.smart_crop_x_spin = QSpinBox()
+        self.smart_crop_x_spin.setRange(0, 9999)
+        self.smart_crop_x_spin.setValue(self.app_state.filters.smart_crop_x)
+        self.smart_crop_x_spin.setMaximumWidth(70)
+        self.smart_crop_x_spin.setToolTip("Horizontal offset for crop (usually 0 for centered)")
+        self.smart_crop_x_spin.setEnabled(self.app_state.filters.smart_crop_enabled and self.app_state.filters.smart_crop_mode == "manual")
+        offset_layout.addWidget(self.smart_crop_x_spin)
+
+        offset_layout.addWidget(QLabel("Y Offset:"))
+        self.smart_crop_y_spin = QSpinBox()
+        self.smart_crop_y_spin.setRange(0, 9999)
+        self.smart_crop_y_spin.setValue(self.app_state.filters.smart_crop_y)
+        self.smart_crop_y_spin.setMaximumWidth(70)
+        self.smart_crop_y_spin.setToolTip("Vertical offset for crop (usually 0 for centered)")
+        self.smart_crop_y_spin.setEnabled(self.app_state.filters.smart_crop_enabled and self.app_state.filters.smart_crop_mode == "manual")
+        offset_layout.addWidget(self.smart_crop_y_spin)
+        offset_layout.addStretch()
+        smart_crop_layout.addLayout(offset_layout)
+
+        # Show preview
+        self.smart_crop_preview_check = QCheckBox("Show Crop Preview (Green Border)")
+        self.smart_crop_preview_check.setChecked(self.app_state.filters.smart_crop_show_preview)
+        self.smart_crop_preview_check.setToolTip(
+            "Show a green rectangle indicating the crop area.\n"
+            "Useful for verifying the crop region before encoding."
+        )
+        self.smart_crop_preview_check.setEnabled(self.app_state.filters.smart_crop_enabled)
+        smart_crop_layout.addWidget(self.smart_crop_preview_check)
+
+        crop_ar_container_layout.addWidget(smart_crop_group)
+
+
+        # === Aspect Ratio Conversion ===
+        ar_group = QGroupBox("Aspect Ratio Converter")
+        ar_layout = QVBoxLayout(ar_group)
+
+        self.ar_check = QCheckBox("Enable AR Conversion")
+        self.ar_check.setChecked(self.app_state.filters.ar_convert_enabled)
+        self.ar_check.setToolTip(
+            "Convert video to a different aspect ratio.\n"
+            "Useful for converting 4:3 to 16:9 or vice versa."
+        )
+        ar_layout.addWidget(self.ar_check)
+
+        # Target AR
+        target_layout = QHBoxLayout()
+        target_layout.addWidget(QLabel("Target Aspect Ratio:"))
+        self.ar_target_combo = QComboBox()
+        self.ar_target_combo.addItems(["16:9 (Widescreen)", "4:3 (Standard)", "1:1 (Square)", "2.35:1 (Cinemascope)"])
+        self.ar_target_combo.setCurrentText(self.app_state.filters.ar_target.replace(":", ":") + " (Widescreen)" if self.app_state.filters.ar_target == "16:9" else 
+                                        self.app_state.filters.ar_target.replace(":", ":") + " (Standard)" if self.app_state.filters.ar_target == "4:3" else
+                                        self.app_state.filters.ar_target.replace(":", ":") + " (Square)" if self.app_state.filters.ar_target == "1:1" else
+                                        self.app_state.filters.ar_target.replace(":", ":") + " (Cinemascope)")
+        self.ar_target_combo.setEnabled(self.app_state.filters.ar_convert_enabled)
+        target_layout.addWidget(self.ar_target_combo)
+        target_layout.addStretch()
+        ar_layout.addLayout(target_layout)
+
+        # Method
+        method_layout = QHBoxLayout()
+        method_layout.addWidget(QLabel("Method:"))
+        self.ar_method_combo = QComboBox()
+        self.ar_method_combo.addItems(["Crop (cut edges)", "Pad (black bars)", "Stretch (distort)", "Scale (2-step)"])
+        self.ar_method_combo.setCurrentText(self.app_state.filters.ar_method.replace("crop", "Crop (cut edges)").replace("pad", "Pad (black bars)").replace("stretch", "Stretch (distort)").replace("scale_2step", "Scale (2-step)"))
+        self.ar_method_combo.setEnabled(self.app_state.filters.ar_convert_enabled)
+        self.ar_method_combo.setToolTip(
+            "Crop: Cut edges to fit target AR (may lose video content)\n"
+            "Pad: Add black bars to reach target AR\n"
+            "Stretch: Stretch to fit (may distort image)"
+        )
+        method_layout.addWidget(self.ar_method_combo)
+        method_layout.addStretch()
+        ar_layout.addLayout(method_layout)
+
+        crop_ar_container_layout.addWidget(ar_group)
+
+        # === Quick Aspect Ratio Crop ===
+        ar_crop_group = QGroupBox("Quick Aspect Ratio Crop")
+        ar_crop_layout = QVBoxLayout(ar_crop_group)
+
+        self.ar_crop_check = QCheckBox("Enable Auto Aspect Ratio Crop")
+        self.ar_crop_check.setChecked(self.app_state.filters.ar_crop_enabled)
+        self.ar_crop_check.setToolTip(
+            "Automatically detect and crop black bars to match a target aspect ratio.\n"
+            "Unlike Smart Crop, this auto-detects the crop region.\n"
+            "GStreamer: uses aspectratiocrop element\n"
+            "FFmpeg: uses crop filter"
+        )
+        ar_crop_layout.addWidget(self.ar_crop_check)
+
+        target_layout = QHBoxLayout()
+        target_layout.addWidget(QLabel("Target Aspect Ratio:"))
+        self.ar_crop_target_combo = QComboBox()
+        self.ar_crop_target_combo.addItems(
+            ["16:9 (Widescreen)", "4:3 (Standard)", "1:1 (Square)", "2.35:1 (Cinemascope)"]
+        )
+        ar_target = self.app_state.filters.ar_crop_target
+        label_map = {"16:9": "16:9 (Widescreen)", "4:3": "4:3 (Standard)",
+                     "1:1": "1:1 (Square)", "2.35:1": "2.35:1 (Cinemascope)"}
+        self.ar_crop_target_combo.setCurrentText(label_map.get(ar_target, "16:9 (Widescreen)"))
+        self.ar_crop_target_combo.setEnabled(self.app_state.filters.ar_crop_enabled)
+        self.ar_crop_target_combo.setToolTip(
+            "Target aspect ratio to crop to.\n"
+            "Black bars will be auto-detected and removed.\n"
+            "16:9: Widescreen / 4:3: Standard / 1:1: Square / 2.35:1: Cinemascope"
+        )
+        target_layout.addWidget(self.ar_crop_target_combo)
+        target_layout.addStretch()
+        ar_crop_layout.addLayout(target_layout)
+
+        crop_ar_container_layout.addWidget(ar_crop_group)
+
+        video_layout.addWidget(self.crop_ar_container)
+
+        # === Video Orientation / Flip ===
+        orient_group = QGroupBox("Video Orientation / Flip")
+        orient_layout = QVBoxLayout(orient_group)
+
+        self.orient_combo = QComboBox()
+        self.orient_combo.addItems([
+            "None",
+            "Rotate 90° CW",
+            "Rotate 180°",
+            "Rotate 90° CCW",
+            "Horizontal Flip",
+            "Vertical Flip",
+        ])
+        orient_map = {"none": "None", "90r": "Rotate 90° CW", "180": "Rotate 180°",
+                      "90l": "Rotate 90° CCW", "horiz": "Horizontal Flip", "vert": "Vertical Flip"}
+        self.orient_combo.setCurrentText(orient_map.get(self.app_state.filters.video_rotate, "None"))
+        self.orient_combo.setToolTip(
+            "Rotate or flip the video.\n"
+            "Useful for correcting phone videos recorded in wrong orientation.\n"
+            "GStreamer: uses videoflip element\n"
+            "FFmpeg: uses transpose/hflip/vflip filters"
+        )
+        orient_layout.addWidget(self.orient_combo)
+
+        orient_note = QLabel("Correct phone videos recorded in portrait or upside-down")
+        orient_note.setStyleSheet("color: gray; font-size: 10px;")
+        orient_note.setWordWrap(True)
+        orient_layout.addWidget(orient_note)
+
+        video_layout.addWidget(orient_group)
+
+        # === Delogo (Logo Removal) ===
+        delogo_group = QGroupBox("Logo / Watermark Removal")
+        delogo_layout = QVBoxLayout(delogo_group)
+        
+        self.delogo_check = QCheckBox("Enable Delogo Filter")
+        self.delogo_check.setChecked(self.app_state.filters.delogo_enabled)
+        self.delogo_check.setToolTip(
+            "Apply delogo filter to remove TV channel logos, watermarks, or static overlays.\n"
+            "Uses FFmpeg's delogo filter to blur a specified rectangular area.\n\n"
+            "Tip: Use a small 'band' value for sharp logo edges, higher for soft edges."
+        )
+        delogo_layout.addWidget(self.delogo_check)
+        
+        # Position controls
+        pos_layout = QHBoxLayout()
+        pos_layout.addWidget(QLabel("Position:"))
+        
+        pos_layout.addWidget(QLabel("X:"))
+        self.delogo_x_spin = QSpinBox()
+        self.delogo_x_spin.setRange(0, 9999)
+        self.delogo_x_spin.setValue(self.app_state.filters.delogo_x)
+        self.delogo_x_spin.setMaximumWidth(70)
+        self.delogo_x_spin.setToolTip("X coordinate of the logo area (top-left corner)")
+        self.delogo_x_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        pos_layout.addWidget(self.delogo_x_spin)
+        
+        pos_layout.addWidget(QLabel("Y:"))
+        self.delogo_y_spin = QSpinBox()
+        self.delogo_y_spin.setRange(0, 9999)
+        self.delogo_y_spin.setValue(self.app_state.filters.delogo_y)
+        self.delogo_y_spin.setMaximumWidth(70)
+        self.delogo_y_spin.setToolTip("Y coordinate of the logo area (top-left corner)")
+        self.delogo_y_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        pos_layout.addWidget(self.delogo_y_spin)
+        
+        pos_layout.addStretch()
+        delogo_layout.addLayout(pos_layout)
+        
+        # Size controls
+        size_layout = QHBoxLayout()
+        size_layout.addWidget(QLabel("Size:"))
+        
+        size_layout.addWidget(QLabel("W:"))
+        self.delogo_w_spin = QSpinBox()
+        self.delogo_w_spin.setRange(1, 9999)
+        self.delogo_w_spin.setValue(self.app_state.filters.delogo_w)
+        self.delogo_w_spin.setMaximumWidth(70)
+        self.delogo_w_spin.setToolTip("Width of the logo area")
+        self.delogo_w_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        size_layout.addWidget(self.delogo_w_spin)
+        
+        size_layout.addWidget(QLabel("H:"))
+        self.delogo_h_spin = QSpinBox()
+        self.delogo_h_spin.setRange(1, 9999)
+        self.delogo_h_spin.setValue(self.app_state.filters.delogo_h)
+        self.delogo_h_spin.setMaximumWidth(70)
+        self.delogo_h_spin.setToolTip("Height of the logo area")
+        self.delogo_h_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        size_layout.addWidget(self.delogo_h_spin)
+        
+        size_layout.addStretch()
+        delogo_layout.addLayout(size_layout)
+        
+        # Band (edge softness)
+        band_layout = QHBoxLayout()
+        band_layout.addWidget(QLabel("Band (softness):"))
+        self.delogo_band_spin = QSpinBox()
+        self.delogo_band_spin.setRange(0, 20)
+        self.delogo_band_spin.setValue(self.app_state.filters.delogo_band)
+        self.delogo_band_spin.setMaximumWidth(60)
+        self.delogo_band_spin.setToolTip(
+            "Band size for edge smoothing.\n"
+            "0 = sharp edges\n"
+            "1-5 = slight blur\n"
+            "10+ = heavy blur\n\n"
+            "Use lower values for sharp logo edges."
+        )
+        self.delogo_band_spin.setEnabled(self.app_state.filters.delogo_enabled)
+        band_layout.addWidget(self.delogo_band_spin)
+        
+        band_layout.addStretch()
+        delogo_layout.addLayout(band_layout)
+        
+        # Show preview rectangle
+        self.delogo_show_check = QCheckBox("Show Preview Rectangle")
+        self.delogo_show_check.setChecked(getattr(self.app_state.filters, 'delogo_show', False))
+        self.delogo_show_check.setToolTip(
+            "Show a red rectangle outline on the video\nto help position the delogo area correctly.\n\n"
+            "The rectangle will appear during encoding."
+        )
+        self.delogo_show_check.setEnabled(self.app_state.filters.delogo_enabled)
+        delogo_layout.addWidget(self.delogo_show_check)
+        
+        video_layout.addWidget(delogo_group)
+        
+        layout.addWidget(video_group)
+        
+        # Reset button
+        reset_layout = QHBoxLayout()
+        reset_layout.addStretch()
+        self.reset_btn = QPushButton("Reset All Filters")
+        self.reset_btn.clicked.connect(self.reset_filters)
+        self.reset_btn.setToolTip("Reset all video and audio filters to default values")
+        reset_layout.addWidget(self.reset_btn)
+        reset_layout.addStretch()
+        layout.addLayout(reset_layout)
+        
+        layout.addStretch()
+        
+    def update_engine_state(self):
+        """Disable/enable UI controls based on current backend's supported_filters()."""
+        try:
+            support = self.app_state.backend.supported_filters()
+        except Exception:
+            support = {}
+        engine = self.app_state.media_engine
+        is_gst = engine == "gstreamer"
+
+        # Video filters
+        self._set_enabled_with_tip(self.deint_check, support.get('deinterlace', True),
+                                   "Deinterlace" if is_gst else "")
+        self._set_enabled_with_tip(self.denoise_check, support.get('denoise', True),
+                                   "Denoise (gaussianblur)" if is_gst else "")
+        self._set_enabled_with_tip(self.sharpen_check, support.get('sharpen', True),
+                                   "Sharpen (unsharp)" if is_gst else "")
+        self.sharpen_amount_slider.setEnabled(
+            support.get('sharpen', True) and self.app_state.filters.sharpen
+        )
+        self.sharpen_amount_input.setEnabled(
+            support.get('sharpen', True) and self.app_state.filters.sharpen
+        )
+        self._set_enabled_with_tip(self.cas_check, support.get('cas', True),
+                                   "CAS (Contrast Adaptive Sharpen)" if is_gst else "")
+        self.cas_strength_slider.setEnabled(
+            support.get('cas', True) and self.app_state.filters.cas_enabled
+        )
+        self.cas_strength_input.setEnabled(
+            support.get('cas', True) and self.app_state.filters.cas_enabled
+        )
+        self._set_enabled_with_tip(self.deblock_check, support.get('deblock', True),
+                                   "Deblock" if is_gst else "")
+        self.deblock_strength_slider.setEnabled(
+            support.get('deblock', True) and self.app_state.filters.deblock
+        )
+        self.deblock_strength_input.setEnabled(
+            support.get('deblock', True) and self.app_state.filters.deblock
+        )
+
+        # Smart crop
+        crop_supported = support.get('smart_crop', True)
+        self._set_enabled_with_tip(self.smart_crop_check, crop_supported,
+                                   "Smart Crop (videocrop)" if is_gst else "")
+        en = crop_supported and self.smart_crop_check.isChecked()
+        self.smart_crop_mode_combo.setEnabled(en)
+        self.smart_crop_preview_check.setEnabled(en)
+        is_manual = self.smart_crop_mode_combo.currentText() == "Manual"
+        self.smart_crop_w_spin.setEnabled(en)
+        self.smart_crop_h_spin.setEnabled(en)
+        self.smart_crop_x_spin.setEnabled(en and is_manual)
+        self.smart_crop_y_spin.setEnabled(en and is_manual)
+
+        # AR conversion
+        self._set_enabled_with_tip(self.ar_check, support.get('ar_convert', True),
+                                   "Aspect Ratio Conversion" if is_gst else "")
+        ar_en = support.get('ar_convert', True) and self.ar_check.isChecked()
+        self.ar_target_combo.setEnabled(ar_en)
+        self.ar_method_combo.setEnabled(ar_en)
+
+        # Quick AR Crop
+        self._set_enabled_with_tip(self.ar_crop_check, support.get('ar_crop', True),
+                                   "Quick Aspect Ratio Crop (aspectratiocrop)" if is_gst else "")
+        ac_en = support.get('ar_crop', True) and self.ar_crop_check.isChecked()
+        self.ar_crop_target_combo.setEnabled(ac_en)
+
+        # Orientation / Flip
+        self._set_enabled_with_tip(self.orient_combo, support.get('video_rotate', True),
+                                   "Video Orientation (videoflip)" if is_gst else "")
+
+        # Delogo
+        self._set_enabled_with_tip(self.delogo_check, support.get('delogo', True),
+                                   "Delogo (logo removal)" if is_gst else "")
+        dl_en = support.get('delogo', True) and self.delogo_check.isChecked()
+        self.delogo_x_spin.setEnabled(dl_en)
+        self.delogo_y_spin.setEnabled(dl_en)
+        self.delogo_w_spin.setEnabled(dl_en)
+        self.delogo_h_spin.setEnabled(dl_en)
+        self.delogo_band_spin.setEnabled(dl_en)
+        self.delogo_show_check.setEnabled(dl_en)
+
+        # Audio filters
+        denoise_supported = support.get('audio_denoise', True)
+        self._set_enabled_with_tip(self.audio_denoise_check, denoise_supported,
+                                   "Audio Denoise" if is_gst else "")
+        denoise_en = denoise_supported and self.audio_denoise_check.isChecked()
+        self.denoise_method_combo.setEnabled(denoise_en)
+        self.denoise_strength_slider.setEnabled(denoise_en)
+        self.denoise_strength_input.setEnabled(denoise_en)
+        self._set_enabled_with_tip(self.vol_check, support.get('volume', True),
+                                   "Volume" if is_gst else "")
+        self.vol_edit.setEnabled(
+            support.get('volume', True) and self.vol_check.isChecked()
+        )
+        self._set_enabled_with_tip(self.dynnorm_check, support.get('audio_dynnorm', True),
+                                   "Dynamic Normalizer (dynaudnorm)" if is_gst else "")
+        self._set_enabled_with_tip(self.compressor_check, support.get('audio_compressor', True),
+                                   "Audio Compressor (acompressor)" if is_gst else "")
+        self._set_enabled_with_tip(self.room_fix_check, support.get('audio_room_fix', True),
+                                   "Room Sound Reduction" if is_gst else "")
+        room_en = support.get('audio_room_fix', True) and self.room_fix_check.isChecked()
+        self.room_fix_strength_slider.setEnabled(room_en)
+        self.room_fix_strength_input.setEnabled(room_en)
+        self._set_enabled_with_tip(self.audio_delay_check, support.get('audio_delay', True),
+                                   "Audio Delay" if is_gst else "")
+        self.audio_delay_spin.setEnabled(
+            support.get('audio_delay', True) and self.audio_delay_check.isChecked()
+        )
+
+    def _set_enabled_with_tip(self, widget, supported, feature_name):
+        """Set a widget's enabled state; if not supported, append note to tooltip."""
+        widget.setEnabled(supported)
+        if supported:
+            return
+        note = f"\n\n⚠ Not supported by {self.app_state.media_engine.upper()} engine. Switch to FFmpeg."
+        current = widget.toolTip()
+        if note not in current:
+            widget.setToolTip(current + note)
+        
+    def connect_signals(self):
+        """Connect UI signals to handlers"""
+        self.deint_check.toggled.connect(self.on_deint_changed)
+        self.denoise_check.toggled.connect(self.on_denoise_changed)
+        self.sharpen_check.toggled.connect(self.on_sharpen_changed)
+        self.sharpen_amount_slider.valueChanged.connect(self.on_sharpen_amount_changed)
+        self.sharpen_amount_input.valueChanged.connect(self.on_sharpen_amount_input_changed)
+        self.cas_check.toggled.connect(self.on_cas_changed)
+        self.cas_strength_slider.valueChanged.connect(self.on_cas_strength_changed)
+        self.cas_strength_input.valueChanged.connect(self.on_cas_strength_input_changed)
+        self.deblock_check.toggled.connect(self.on_deblock_changed)
+        self.deblock_strength_slider.valueChanged.connect(self.on_deblock_strength_changed)
+        self.deblock_strength_input.valueChanged.connect(self.on_deblock_strength_input_changed)
+        # Smart Crop signals
+        self.smart_crop_check.toggled.connect(self.on_smart_crop_changed)
+        self.smart_crop_mode_combo.currentTextChanged.connect(self.on_smart_crop_mode_changed)
+        self.smart_crop_w_spin.valueChanged.connect(self.on_smart_crop_w_changed)
+        self.smart_crop_h_spin.valueChanged.connect(self.on_smart_crop_h_changed)
+        self.smart_crop_x_spin.valueChanged.connect(self.on_smart_crop_x_changed)
+        self.smart_crop_y_spin.valueChanged.connect(self.on_smart_crop_y_changed)
+        self.smart_crop_preview_check.toggled.connect(self.on_smart_crop_preview_changed)
+        # Aspect ratio signals
+        self.ar_check.toggled.connect(self.on_ar_changed)
+        self.ar_target_combo.currentTextChanged.connect(self.on_ar_target_changed)
+        self.ar_method_combo.currentTextChanged.connect(self.on_ar_method_changed)
+        # Quick AR Crop signals
+        self.ar_crop_check.toggled.connect(self.on_ar_crop_changed)
+        self.ar_crop_target_combo.currentTextChanged.connect(self.on_ar_crop_target_changed)
+        # Orientation / Flip signals
+        self.orient_combo.currentTextChanged.connect(self.on_orient_changed)
+        # Delogo signals
+        self.delogo_check.toggled.connect(self.on_delogo_changed)
+        self.delogo_x_spin.valueChanged.connect(self.on_delogo_x_changed)
+        self.delogo_y_spin.valueChanged.connect(self.on_delogo_y_changed)
+        self.delogo_w_spin.valueChanged.connect(self.on_delogo_w_changed)
+        self.delogo_h_spin.valueChanged.connect(self.on_delogo_h_changed)
+        self.delogo_band_spin.valueChanged.connect(self.on_delogo_band_changed)
+        self.delogo_show_check.toggled.connect(self.on_delogo_show_changed)
+        # Audio signals
+        self.audio_denoise_check.toggled.connect(self.on_audio_denoise_changed)
+        self.denoise_method_combo.currentIndexChanged.connect(self.on_denoise_method_changed)
+        self.denoise_strength_slider.valueChanged.connect(self.on_denoise_strength_changed)
+        self.denoise_strength_input.valueChanged.connect(self.on_denoise_strength_input_changed)
+        self.vol_check.toggled.connect(self.on_vol_enabled_changed)
+        self.vol_edit.textChanged.connect(self.on_vol_changed)
+        self.dynnorm_check.toggled.connect(self.on_dynnorm_changed)
+        self.compressor_check.toggled.connect(self.on_compressor_changed)
+        self.room_fix_check.toggled.connect(self.on_room_fix_changed)
+        self.room_fix_strength_slider.valueChanged.connect(self.on_room_fix_strength_changed)
+        self.room_fix_strength_input.valueChanged.connect(self.on_room_fix_strength_input_changed)
+        self.audio_delay_check.toggled.connect(self.on_audio_delay_changed)
+        self.audio_delay_spin.valueChanged.connect(self.on_audio_delay_value_changed)
+        # Crop & Aspect Ratio toggle
+        self.crop_ar_toggle.toggled.connect(self.on_crop_ar_toggled)
+        
+    def on_crop_ar_toggled(self, checked):
+        self.crop_ar_container.setVisible(checked)
+        self.crop_ar_toggle.setText("▼" if checked else "▶")
+        
+    def on_deint_changed(self, checked):
+        """Handle deinterlace checkbox change"""
+        self.app_state.filters.deinterlace = checked
+        self.settings_changed.emit()
+        
+    def on_denoise_changed(self, checked):
+        """Handle denoise checkbox change"""
+        self.app_state.filters.denoise = checked
+        self.settings_changed.emit()
+
+    def on_sharpen_changed(self, checked):
+        """Handle sharpen checkbox change"""
+        self.app_state.filters.sharpen = checked
+        self.sharpen_amount_slider.setEnabled(checked)
+        self.sharpen_amount_input.setEnabled(checked)
+        if checked:
+            self.cas_check.setChecked(False)
+            self.app_state.filters.cas_enabled = False
+            self.cas_strength_slider.setEnabled(False)
+            self.cas_strength_input.setEnabled(False)
+        self.settings_changed.emit()
+
+    def on_sharpen_amount_changed(self, value):
+        """Handle sharpen amount slider change"""
+        float_val = value / 100.0
+        self.app_state.filters.sharpen_amount = float_val
+        self.sharpen_amount_input.blockSignals(True)
+        self.sharpen_amount_input.setValue(float_val)
+        self.sharpen_amount_input.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_cas_changed(self, checked):
+        """Handle CAS checkbox change"""
+        self.app_state.filters.cas_enabled = checked
+        self.cas_strength_slider.setEnabled(checked)
+        self.cas_strength_input.setEnabled(checked)
+        if checked:
+            self.sharpen_check.setChecked(False)
+            self.app_state.filters.sharpen = False
+            self.sharpen_amount_slider.setEnabled(False)
+            self.sharpen_amount_input.setEnabled(False)
+        self.settings_changed.emit()
+
+    def on_cas_strength_changed(self, value):
+        """Handle CAS strength slider change"""
+        float_val = value / 100.0
+        self.app_state.filters.cas_strength = float_val
+        self.cas_strength_input.blockSignals(True)
+        self.cas_strength_input.setValue(float_val)
+        self.cas_strength_input.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_deblock_changed(self, checked):
+        """Handle deblock checkbox change"""
+        self.app_state.filters.deblock = checked
+        self.deblock_strength_slider.setEnabled(checked)
+        self.deblock_strength_input.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_deblock_strength_changed(self, value):
+        """Handle deblock strength slider change"""
+        float_val = value / 100.0
+        self.app_state.filters.deblock_strength = float_val
+        self.deblock_strength_input.blockSignals(True)
+        self.deblock_strength_input.setValue(float_val)
+        self.deblock_strength_input.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_sharpen_amount_input_changed(self, value):
+        """Handle sharpen amount spinbox change"""
+        self.app_state.filters.sharpen_amount = value
+        self.sharpen_amount_slider.blockSignals(True)
+        self.sharpen_amount_slider.setValue(int(value * 100))
+        self.sharpen_amount_slider.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_cas_strength_input_changed(self, value):
+        """Handle CAS strength spinbox change"""
+        self.app_state.filters.cas_strength = value
+        self.cas_strength_slider.blockSignals(True)
+        self.cas_strength_slider.setValue(int(value * 100))
+        self.cas_strength_slider.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_deblock_strength_input_changed(self, value):
+        """Handle deblock strength spinbox change"""
+        self.app_state.filters.deblock_strength = value
+        self.deblock_strength_slider.blockSignals(True)
+        self.deblock_strength_slider.setValue(int(value * 100))
+        self.deblock_strength_slider.blockSignals(False)
+        self.settings_changed.emit()
+
+    # Smart Crop handlers
+    def on_smart_crop_changed(self, checked):
+        """Handle smart crop checkbox change"""
+        self.app_state.filters.smart_crop_enabled = checked
+        # Enable/disable controls
+        self.smart_crop_mode_combo.setEnabled(checked)
+        self.smart_crop_preview_check.setEnabled(checked)
+        is_manual = self.smart_crop_mode_combo.currentText() == "Manual"
+        # Width/height always editable (preset in auto, exact in manual)
+        self.smart_crop_w_spin.setEnabled(checked)
+        self.smart_crop_h_spin.setEnabled(checked)
+        # X/Y offset only in manual mode (auto centers automatically)
+        self.smart_crop_x_spin.setEnabled(checked and is_manual)
+        self.smart_crop_y_spin.setEnabled(checked and is_manual)
+        self.settings_changed.emit()
+
+    def on_smart_crop_mode_changed(self, text):
+        """Handle smart crop mode change"""
+        self.app_state.filters.smart_crop_mode = "auto" if text == "Auto Detect" else "manual"
+        is_manual = text == "Manual"
+        is_enabled = self.smart_crop_check.isChecked()
+        # Width/height always editable, X/Y only in manual mode
+        self.smart_crop_x_spin.setEnabled(is_enabled and is_manual)
+        self.smart_crop_y_spin.setEnabled(is_enabled and is_manual)
+        self.settings_changed.emit()
+
+    def on_smart_crop_w_changed(self, value):
+        """Handle smart crop width change"""
+        self.app_state.filters.smart_crop_w = value
+        self.settings_changed.emit()
+
+    def on_smart_crop_h_changed(self, value):
+        """Handle smart crop height change"""
+        self.app_state.filters.smart_crop_h = value
+        self.settings_changed.emit()
+
+    def on_smart_crop_x_changed(self, value):
+        """Handle smart crop x offset change"""
+        self.app_state.filters.smart_crop_x = value
+        self.settings_changed.emit()
+
+    def on_smart_crop_y_changed(self, value):
+        """Handle smart crop y offset change"""
+        self.app_state.filters.smart_crop_y = value
+        self.settings_changed.emit()
+
+    def on_smart_crop_preview_changed(self, checked):
+        """Handle smart crop preview checkbox change"""
+        self.app_state.filters.smart_crop_show_preview = checked
+        self.settings_changed.emit()
+
+    # Aspect Ratio conversion handlers
+    def on_ar_changed(self, checked):
+        """Handle AR conversion checkbox change"""
+        self.app_state.filters.ar_convert_enabled = checked
+        # Enable/disable controls
+        self.ar_target_combo.setEnabled(checked)
+        self.ar_method_combo.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_ar_target_changed(self, text):
+        """Handle AR target change"""
+        # Extract just the AR part (e.g., "16:9" from "16:9 (Widescreen)")
+        ar = text.split()[0] if text else "16:9"
+        self.app_state.filters.ar_target = ar
+        self.settings_changed.emit()
+
+    def on_ar_method_changed(self, text):
+        """Handle AR method change"""
+        # Extract method from text
+        if "Crop" in text:
+            method = "crop"
+        elif "Pad" in text:
+            method = "pad"
+        elif "Scale" in text:
+            method = "scale_2step"
+        else:
+            method = "stretch"
+        self.app_state.filters.ar_method = method
+        self.settings_changed.emit()
+
+    # Quick Aspect Ratio Crop handlers
+    def on_ar_crop_changed(self, checked):
+        """Handle AR crop checkbox change"""
+        self.app_state.filters.ar_crop_enabled = checked
+        self.ar_crop_target_combo.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_ar_crop_target_changed(self, text):
+        """Handle AR crop target change"""
+        ar = text.split()[0] if text else "16:9"
+        self.app_state.filters.ar_crop_target = ar
+        self.settings_changed.emit()
+
+    # Video Orientation handlers
+    def on_orient_changed(self, text):
+        orient_map = {"None": "none", "Rotate 90° CW": "90r", "Rotate 180°": "180",
+                      "Rotate 90° CCW": "90l", "Horizontal Flip": "horiz", "Vertical Flip": "vert"}
+        self.app_state.filters.video_rotate = orient_map.get(text, "none")
+        self.settings_changed.emit()
+
+    def on_delogo_changed(self, checked):
+        """Handle delogo checkbox change"""
+        self.app_state.filters.delogo_enabled = checked
+        # Enable/disable spin boxes
+        self.delogo_x_spin.setEnabled(checked)
+        self.delogo_y_spin.setEnabled(checked)
+        self.delogo_w_spin.setEnabled(checked)
+        self.delogo_h_spin.setEnabled(checked)
+        self.delogo_band_spin.setEnabled(checked)
+        self.delogo_show_check.setEnabled(checked)
+        self.settings_changed.emit()
+        
+    def on_delogo_x_changed(self, value):
+        """Handle delogo X position change"""
+        self.app_state.filters.delogo_x = value
+        self.settings_changed.emit()
+        
+    def on_delogo_y_changed(self, value):
+        """Handle delogo Y position change"""
+        self.app_state.filters.delogo_y = value
+        self.settings_changed.emit()
+        
+    def on_delogo_w_changed(self, value):
+        """Handle delogo width change"""
+        self.app_state.filters.delogo_w = value
+        self.settings_changed.emit()
+        
+    def on_delogo_h_changed(self, value):
+        """Handle delogo height change"""
+        self.app_state.filters.delogo_h = value
+        self.settings_changed.emit()
+        
+    def on_delogo_band_changed(self, value):
+        """Handle delogo band (edge softness) change"""
+        self.app_state.filters.delogo_band = value
+        self.settings_changed.emit()
+        
+    def on_delogo_show_changed(self, checked):
+        """Handle delogo show preview rectangle change"""
+        self.app_state.filters.delogo_show = checked
+        self.settings_changed.emit()
+        
+    def on_audio_denoise_changed(self, checked):
+        """Handle audio denoise checkbox change"""
+        self.app_state.filters.audio_denoise = checked
+        self.denoise_method_combo.setEnabled(checked)
+        self.denoise_strength_slider.setEnabled(checked)
+        self.denoise_strength_input.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_denoise_method_changed(self, index):
+        """Handle audio denoise method combo change"""
+        data = self.denoise_method_combo.itemData(index)
+        if data:
+            self.app_state.filters.audio_denoise_method = data
+        self.settings_changed.emit()
+
+    def on_denoise_strength_changed(self, value):
+        """Handle audio denoise strength slider change"""
+        float_val = value / 100.0
+        self.app_state.filters.audio_denoise_strength = float_val
+        self.denoise_strength_input.blockSignals(True)
+        self.denoise_strength_input.setValue(float_val)
+        self.denoise_strength_input.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_denoise_strength_input_changed(self, value):
+        """Handle audio denoise strength spinbox change"""
+        self.app_state.filters.audio_denoise_strength = value
+        self.denoise_strength_slider.blockSignals(True)
+        self.denoise_strength_slider.setValue(int(value * 100))
+        self.denoise_strength_slider.blockSignals(False)
+        self.settings_changed.emit()
+        
+    def on_vol_enabled_changed(self, checked):
+        """Handle volume enabled checkbox change"""
+        self.app_state.filters.volume_enabled = checked
+        self.vol_edit.setEnabled(checked)
+        self.settings_changed.emit()
+        
+    def on_vol_changed(self, text):
+        """Handle volume value change"""
+        try:
+            self.app_state.filters.volume_db = float(text)
+        except ValueError:
+            pass
+        self.settings_changed.emit()
+    
+    def on_dynnorm_changed(self, checked):
+        """Handle dynamic normalizer checkbox change"""
+        self.app_state.filters.audio_dynnorm = checked
+        self.settings_changed.emit()
+    
+    def on_compressor_changed(self, checked):
+        """Handle audio compressor checkbox change"""
+        self.app_state.filters.audio_compressor = checked
+        self.settings_changed.emit()
+
+    def on_room_fix_changed(self, checked):
+        """Handle room sound reduction checkbox change"""
+        self.app_state.filters.audio_room_fix = checked
+        self.room_fix_strength_slider.setEnabled(checked)
+        self.room_fix_strength_input.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_room_fix_strength_changed(self, value):
+        """Handle room fix strength slider change"""
+        float_val = value / 100.0
+        self.app_state.filters.audio_room_fix_strength = float_val
+        self.room_fix_strength_input.blockSignals(True)
+        self.room_fix_strength_input.setValue(float_val)
+        self.room_fix_strength_input.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_room_fix_strength_input_changed(self, value):
+        """Handle room fix strength spinbox change"""
+        self.app_state.filters.audio_room_fix_strength = value
+        self.room_fix_strength_slider.blockSignals(True)
+        self.room_fix_strength_slider.setValue(int(value * 100))
+        self.room_fix_strength_slider.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_audio_delay_changed(self, checked):
+        self.app_state.filters.audio_delay_enabled = checked
+        self.audio_delay_spin.setEnabled(checked)
+        self.settings_changed.emit()
+    
+    def on_audio_delay_value_changed(self, value):
+        self.app_state.filters.audio_delay_ms = value
+        self.settings_changed.emit()
+        
+    def reset_filters(self):
+        """Reset all filter settings to defaults"""
+        # Video filters
+        self.app_state.filters.deinterlace = False
+        self.app_state.filters.denoise = False
+        self.app_state.filters.sharpen = False
+        self.app_state.filters.sharpen_amount = 1.0
+        self.app_state.filters.cas_enabled = False
+        self.app_state.filters.cas_strength = 0.0
+        self.app_state.filters.deblock = False
+        self.app_state.filters.deblock_strength = 0.5
+        
+        # Smart Crop
+        self.app_state.filters.smart_crop_enabled = False
+        self.app_state.filters.smart_crop_mode = "auto"
+        self.app_state.filters.smart_crop_w = 640
+        self.app_state.filters.smart_crop_h = 480
+        self.app_state.filters.smart_crop_x = 0
+        self.app_state.filters.smart_crop_y = 0
+        self.app_state.filters.smart_crop_show_preview = False
+        
+        # Aspect Ratio
+        self.app_state.filters.ar_convert_enabled = False
+        self.app_state.filters.ar_target = "16:9"
+        self.app_state.filters.ar_method = "crop"
+
+        # Quick AR Crop
+        self.app_state.filters.ar_crop_enabled = False
+        self.app_state.filters.ar_crop_target = "16:9"
+
+        # Video Orientation
+        self.app_state.filters.video_rotate = "none"
+
+        # Delogo
+        self.app_state.filters.delogo_enabled = False
+        self.app_state.filters.delogo_x = 0
+        self.app_state.filters.delogo_y = 0
+        self.app_state.filters.delogo_w = 100
+        self.app_state.filters.delogo_h = 30
+        self.app_state.filters.delogo_band = 1
+        self.app_state.filters.delogo_show = False
+        
+        # Audio filters
+        self.app_state.filters.audio_denoise = False
+        self.app_state.filters.audio_denoise_method = "afftdn"
+        self.app_state.filters.audio_denoise_strength = 0.5
+        self.app_state.filters.volume_enabled = False
+        self.app_state.filters.volume_db = 0.0
+        self.app_state.filters.audio_dynnorm = False
+        self.app_state.filters.audio_compressor = False
+        self.app_state.filters.audio_room_fix = False
+        self.app_state.filters.audio_room_fix_strength = 0.5
+        self.app_state.filters.audio_delay_enabled = False
+        self.app_state.filters.audio_delay_ms = 0
+        
+        # Update UI controls
+        self.deint_check.setChecked(False)
+        self.denoise_check.setChecked(False)
+        self.sharpen_check.setChecked(False)
+        self.sharpen_amount_slider.setValue(100)
+        self.sharpen_amount_input.setValue(1.0)
+        self.sharpen_amount_slider.setEnabled(False)
+        self.sharpen_amount_input.setEnabled(False)
+        self.cas_check.setChecked(False)
+        self.cas_strength_slider.setValue(0)
+        self.cas_strength_input.setValue(0.0)
+        self.cas_strength_slider.setEnabled(False)
+        self.cas_strength_input.setEnabled(False)
+        self.deblock_check.setChecked(False)
+        self.deblock_strength_slider.setValue(50)
+        self.deblock_strength_input.setValue(0.5)
+        self.deblock_strength_slider.setEnabled(False)
+        self.deblock_strength_input.setEnabled(False)
+        
+        self.smart_crop_check.setChecked(False)
+        self.smart_crop_mode_combo.setCurrentText("Auto Detect")
+        self.smart_crop_w_spin.setValue(640)
+        self.smart_crop_h_spin.setValue(480)
+        self.smart_crop_x_spin.setValue(0)
+        self.smart_crop_y_spin.setValue(0)
+        self.smart_crop_preview_check.setChecked(False)
+        self.smart_crop_mode_combo.setEnabled(False)
+        self.smart_crop_w_spin.setEnabled(False)
+        self.smart_crop_h_spin.setEnabled(False)
+        self.smart_crop_x_spin.setEnabled(False)
+        self.smart_crop_y_spin.setEnabled(False)
+        self.smart_crop_preview_check.setEnabled(False)
+        
+        self.ar_check.setChecked(False)
+        self.ar_target_combo.setCurrentText("16:9 (Widescreen)")
+        self.ar_method_combo.setCurrentText("Crop (cut edges)")
+        self.ar_target_combo.setEnabled(False)
+        self.ar_method_combo.setEnabled(False)
+
+        self.ar_crop_check.setChecked(False)
+        self.ar_crop_target_combo.setCurrentText("16:9 (Widescreen)")
+        self.ar_crop_target_combo.setEnabled(False)
+
+        self.orient_combo.setCurrentText("None")
+
+        self.delogo_check.setChecked(False)
+        self.delogo_x_spin.setValue(0)
+        self.delogo_y_spin.setValue(0)
+        self.delogo_w_spin.setValue(100)
+        self.delogo_h_spin.setValue(30)
+        self.delogo_band_spin.setValue(1)
+        self.delogo_show_check.setChecked(False)
+        self.delogo_x_spin.setEnabled(False)
+        self.delogo_y_spin.setEnabled(False)
+        self.delogo_w_spin.setEnabled(False)
+        self.delogo_h_spin.setEnabled(False)
+        self.delogo_band_spin.setEnabled(False)
+        self.delogo_show_check.setEnabled(False)
+        
+        self.audio_denoise_check.setChecked(False)
+        self.denoise_method_combo.setCurrentIndex(0)
+        self.denoise_strength_slider.setValue(50)
+        self.denoise_strength_input.setValue(0.5)
+        self.vol_check.setChecked(False)
+        self.vol_edit.setText("0.0")
+        self.vol_edit.setEnabled(False)
+        self.dynnorm_check.setChecked(False)
+        self.compressor_check.setChecked(False)
+        self.room_fix_check.setChecked(False)
+        self.room_fix_strength_slider.setValue(50)
+        self.room_fix_strength_input.setValue(0.5)
+        self.room_fix_strength_slider.setEnabled(False)
+        self.room_fix_strength_input.setEnabled(False)
+        self.audio_delay_check.setChecked(False)
+        self.audio_delay_spin.setValue(0)
+        self.audio_delay_spin.setEnabled(False)
+        
+        # Re-apply engine-level enable/disable
+        self.update_engine_state()
+        
+        self.app_state.log("Filters reset to defaults", "INFO")
+        self.settings_changed.emit()

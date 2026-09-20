@@ -1,0 +1,1405 @@
+"""
+Configuration Tab - System Paths and Input File Management (PySide6)
+"""
+import os
+import re
+import subprocess
+import threading
+import json
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QLineEdit, QListWidget, QListWidgetItem, QFileDialog,
+    QGroupBox, QCheckBox, QMessageBox, QAbstractItemView,
+    QDialog, QDialogButtonBox, QScrollArea, QFrame, QComboBox,
+    QSpinBox, QGridLayout
+)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
+
+import models
+from models import AppState
+from video_info_panel import VideoInfoPanel
+
+
+class DragDropListWidget(QListWidget):
+    """List widget that accepts file drops"""
+    
+    files_dropped = Signal(list)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setAlternatingRowColors(True)
+        
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            
+    def dropEvent(self, event: QDropEvent):
+        if event.mimeData().hasUrls():
+            files = []
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if os.path.isfile(file_path):
+                    # Check if it's a video file
+                    ext = Path(file_path).suffix.lower()
+                    if ext in ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.ts', '.mts', '.m2ts']:
+                        files.append(file_path)
+                        
+            if files:
+                self.files_dropped.emit(files)
+            event.acceptProposedAction()
+
+
+class DVDTitleDialog(QDialog):
+    """Dialog for selecting DVD title to import"""
+    
+    def __init__(self, titles, dvd_folder, parent=None):
+        super().__init__(parent)
+        self.titles = titles
+        self.dvd_folder = dvd_folder
+        self.selected_title = None
+        
+        self.setWindowTitle("Select DVD Title")
+        self.setMinimumSize(500, 400)
+        
+        layout = QVBoxLayout(self)
+        
+        # Info label
+        layout.addWidget(QLabel(f"<b>DVD Folder:</b> {dvd_folder}"))
+        layout.addWidget(QLabel(f"<b>Titles Found:</b> {len(titles)}"))
+        layout.addWidget(QLabel(""))
+        
+        # Title list
+        layout.addWidget(QLabel("<b>Select a title to import:</b>"))
+        
+        self.title_list = QListWidget()
+        self.title_list.setAlternatingRowColors(True)
+        self.title_list.itemDoubleClicked.connect(self.accept)
+        
+        for title in titles:
+            main_marker = " [MAIN]" if title.is_main else ""
+            item_text = f"Title {title.title_number}{main_marker} - {title.duration_display} ({title.size_display})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, title)
+            if title.is_main:
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+            self.title_list.addItem(item)
+        
+        # Select main title by default
+        for i in range(self.title_list.count()):
+            item = self.title_list.item(i)
+            title = item.data(Qt.UserRole)
+            if title.is_main:
+                self.title_list.setCurrentItem(item)
+                break
+        
+        layout.addWidget(self.title_list)
+        
+        # Track info
+        self.track_info_label = QLabel("")
+        from theme import is_dark, muted_color
+        self.track_info_label.setStyleSheet(
+            f"color: {muted_color(is_dark(self))}; font-size: 9pt;"
+        )
+        self.track_info_label.setWordWrap(True)
+        layout.addWidget(self.track_info_label)
+        
+        self.title_list.currentItemChanged.connect(self.on_title_changed)
+        
+        # Update info for initial selection
+        if self.title_list.currentItem():
+            self.on_title_changed(self.title_list.currentItem())
+        
+        # Buttons
+        btn_box = QDialogButtonBox()
+        btn_box.addButton("Import Title", QDialogButtonBox.AcceptRole)
+        btn_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+    
+    def on_title_changed(self, current):
+        """Update track info when selection changes"""
+        if current:
+            title = current.data(Qt.UserRole)
+            
+            info_parts = []
+            
+            # Audio info
+            if title.audio_tracks:
+                audio_info = [f"{t['codec'].upper()} {t['channels']}ch" for t in title.audio_tracks[:3]]
+                if len(title.audio_tracks) > 3:
+                    audio_info.append(f"+{len(title.audio_tracks) - 3} more")
+                info_parts.append(f"Audio: {', '.join(audio_info)}")
+            else:
+                info_parts.append("Audio: No track info")
+            
+            # Subtitle info
+            if title.subtitles:
+                sub_langs = [sub.get('language', '?') for sub in title.subtitles]
+                info_parts.append(f"Subtitles: {len(title.subtitles)} track(s) - {', '.join(sub_langs[:5])}")
+            else:
+                info_parts.append("Subtitles: None detected")
+            
+            self.track_info_label.setText(" | ".join(info_parts))
+    
+    def get_selected_title(self):
+        """Return the selected DVDTitle object"""
+        current = self.title_list.currentItem()
+        if current:
+            return current.data(Qt.UserRole)
+        return None
+
+
+class TrackSelectionDialog(QDialog):
+    """Dialog for selecting a video or audio track to extract"""
+    
+    def __init__(self, video_tracks, audio_tracks, parent=None):
+        super().__init__(parent)
+        self.video_tracks = video_tracks
+        self.audio_tracks = audio_tracks
+        self.selected_track = None  # {'type': 'video'|'audio', 'index': int, 'info': str}
+        
+        self.setWindowTitle("Select Track to Extract")
+        self.setMinimumSize(500, 400)
+        
+        layout = QVBoxLayout(self)
+        
+        # Video tracks section
+        if video_tracks:
+            layout.addWidget(QLabel("<b>Video Tracks:</b>"))
+            self.video_list = QListWidget()
+            self.video_list.setAlternatingRowColors(True)
+            self.video_list.setSelectionMode(QAbstractItemView.SingleSelection)
+            
+            for track in video_tracks:
+                item_text = f"Track {track['index']}: {track['codec']} {track.get('resolution', '')}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, {'type': 'video', 'index': track['index'], 'video_index': track['video_index'], 'info': item_text})
+                self.video_list.addItem(item)
+            
+            layout.addWidget(self.video_list)
+        else:
+            layout.addWidget(QLabel("<b>Video Tracks:</b> None found"))
+            self.video_list = None
+        
+        layout.addSpacing(10)
+        
+        # Audio tracks section
+        if audio_tracks:
+            layout.addWidget(QLabel("<b>Audio Tracks:</b>"))
+            self.audio_list = QListWidget()
+            self.audio_list.setAlternatingRowColors(True)
+            self.audio_list.setSelectionMode(QAbstractItemView.SingleSelection)
+            
+            for track in audio_tracks:
+                lang = track.get('language', 'unknown')
+                item_text = f"Track {track['index']}: {track['codec']} - {track['channels']}ch ({lang})"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, {'type': 'audio', 'index': track['index'], 'audio_index': track['audio_index'], 'info': item_text})
+                self.audio_list.addItem(item)
+            
+            layout.addWidget(self.audio_list)
+        else:
+            layout.addWidget(QLabel("<b>Audio Tracks:</b> None found"))
+            self.audio_list = None
+        
+        layout.addSpacing(10)
+        
+        # Buttons
+        btn_box = QDialogButtonBox()
+        self.extract_btn = btn_box.addButton("Extract", QDialogButtonBox.AcceptRole)
+        self.extract_btn.setEnabled(False)
+        btn_box.addButton("Cancel", QDialogButtonBox.RejectRole)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+        
+        # Connect selection signals
+        if self.video_list:
+            self.video_list.itemSelectionChanged.connect(self._on_selection_changed)
+        if self.audio_list:
+            self.audio_list.itemSelectionChanged.connect(self._on_selection_changed)
+    
+    def _on_selection_changed(self):
+        """Handle selection change"""
+        self.selected_track = None
+        
+        if self.video_list and self.video_list.selectedItems():
+            item = self.video_list.selectedItems()[0]
+            self.selected_track = item.data(Qt.UserRole)
+            if self.audio_list:
+                self.audio_list.clearSelection()
+        elif self.audio_list and self.audio_list.selectedItems():
+            item = self.audio_list.selectedItems()[0]
+            self.selected_track = item.data(Qt.UserRole)
+            if self.video_list:
+                self.video_list.clearSelection()
+        
+        self.extract_btn.setEnabled(self.selected_track is not None)
+    
+    def get_selected_track(self):
+        """Return the selected track info"""
+        return self.selected_track
+
+
+class SettingsDialog(QDialog):
+    """Dialog for all system paths and output settings"""
+
+    def __init__(self, app_state, parent=None):
+        super().__init__(parent)
+        self.app_state = app_state
+        self.setWindowTitle("Settings")
+        self.setMinimumSize(700, 500)
+        self.setup_ui()
+        self.connect_signals()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(15)
+
+        engine_group = QGroupBox("Media Engine")
+        engine_layout = QVBoxLayout(engine_group)
+
+        engine_selector = QHBoxLayout()
+        engine_selector.addWidget(QLabel("Engine:"))
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItems(["FFmpeg", "GStreamer"])
+        self.engine_combo.setCurrentText("FFmpeg" if self.app_state.media_engine == "ffmpeg" else "GStreamer")
+        engine_selector.addWidget(self.engine_combo)
+
+        self.engine_status_label = QLabel("")
+        engine_selector.addWidget(self.engine_status_label)
+        engine_selector.addStretch()
+        engine_layout.addLayout(engine_selector)
+
+        engine_path_layout = QHBoxLayout()
+        self.engine_path_label = QLabel("FFmpeg Path:")
+        engine_path_layout.addWidget(self.engine_path_label)
+
+        self.engine_path_edit = QLineEdit(self.app_state.ffmpeg_path)
+        engine_path_layout.addWidget(self.engine_path_edit)
+
+        self.engine_browse_btn = QPushButton("Browse...")
+        self.engine_browse_btn.clicked.connect(self._browse_engine_path)
+        engine_path_layout.addWidget(self.engine_browse_btn)
+
+        self.engine_auto_btn = QPushButton("Auto Detect")
+        self.engine_auto_btn.clicked.connect(self._auto_detect_engine)
+        engine_path_layout.addWidget(self.engine_auto_btn)
+
+        self.engine_version_btn = QPushButton("Check Version")
+        self.engine_version_btn.clicked.connect(self._check_engine_version)
+        engine_path_layout.addWidget(self.engine_version_btn)
+
+        engine_layout.addLayout(engine_path_layout)
+        container_layout.addWidget(engine_group)
+
+        ffmpeg_layout = QHBoxLayout()
+        ffmpeg_layout.addWidget(QLabel("FFprobe Path:"))
+        self.ffprobe_edit = QLineEdit(self.app_state.ffprobe_path)
+        ffmpeg_layout.addWidget(self.ffprobe_edit)
+        browse_ffprobe_btn = QPushButton("Browse...")
+        browse_ffprobe_btn.clicked.connect(self.browse_ffprobe)
+        ffmpeg_layout.addWidget(browse_ffprobe_btn)
+        container_layout.addLayout(ffmpeg_layout)
+
+        hb_layout = QHBoxLayout()
+        hb_layout.addWidget(QLabel("HandBrake Path:"))
+        self.handbrake_edit = QLineEdit(self.app_state.handbrake_path)
+        hb_layout.addWidget(self.handbrake_edit)
+        browse_hb_btn = QPushButton("Browse...")
+        browse_hb_btn.clicked.connect(self.browse_handbrake)
+        hb_layout.addWidget(browse_hb_btn)
+        auto_hb_btn = QPushButton("Auto Detect")
+        auto_hb_btn.clicked.connect(self.auto_detect_handbrake)
+        hb_layout.addWidget(auto_hb_btn)
+        self.hb_status_label = QLabel("")
+        hb_layout.addWidget(self.hb_status_label)
+        container_layout.addLayout(hb_layout)
+
+        ai_paths_group = QGroupBox("AI Upscaling")
+        ai_paths_layout = QVBoxLayout(ai_paths_group)
+
+        realesrgan_layout = QHBoxLayout()
+        realesrgan_layout.addWidget(QLabel("Real-ESRGAN:"))
+        self.realesrgan_edit = QLineEdit(self.app_state.realesrgan_path)
+        self.realesrgan_edit.setPlaceholderText("Default: backends/realesrgan-ncnn-vulkan/")
+        realesrgan_layout.addWidget(self.realesrgan_edit)
+        browse_realesrgan_btn = QPushButton("Browse...")
+        browse_realesrgan_btn.clicked.connect(self.browse_realesrgan)
+        realesrgan_layout.addWidget(browse_realesrgan_btn)
+        auto_realesrgan_btn = QPushButton("Auto Detect")
+        auto_realesrgan_btn.clicked.connect(self.auto_detect_realesrgan)
+        realesrgan_layout.addWidget(auto_realesrgan_btn)
+        ai_paths_layout.addLayout(realesrgan_layout)
+
+        anime4k_layout = QHBoxLayout()
+        anime4k_layout.addWidget(QLabel("Anime4K:"))
+        self.anime4k_edit = QLineEdit(self.app_state.anime4k_path)
+        self.anime4k_edit.setPlaceholderText("Default: backends/anime4k-ncnn-vulkan/")
+        anime4k_layout.addWidget(self.anime4k_edit)
+        browse_anime4k_btn = QPushButton("Browse...")
+        browse_anime4k_btn.clicked.connect(self.browse_anime4k)
+        anime4k_layout.addWidget(browse_anime4k_btn)
+        auto_anime4k_btn = QPushButton("Auto Detect")
+        auto_anime4k_btn.clicked.connect(self.auto_detect_anime4k)
+        anime4k_layout.addWidget(auto_anime4k_btn)
+        ai_paths_layout.addLayout(anime4k_layout)
+
+        container_layout.addWidget(ai_paths_group)
+
+        output_group = QGroupBox("Output Settings")
+        output_layout = QVBoxLayout(output_group)
+
+        folder_layout = QHBoxLayout()
+        folder_layout.addWidget(QLabel("Output Folder:"))
+        self.output_edit = QLineEdit(self.app_state.output_folder)
+        self.output_edit.setPlaceholderText("Same folder as source video (default)")
+        folder_layout.addWidget(self.output_edit)
+        browse_output_btn = QPushButton("Browse...")
+        browse_output_btn.clicked.connect(self.browse_output_folder)
+        folder_layout.addWidget(browse_output_btn)
+        clear_output_btn = QPushButton("✕ Clear")
+        clear_output_btn.setMaximumWidth(80)
+        clear_output_btn.clicked.connect(self.clear_output_folder)
+        folder_layout.addWidget(clear_output_btn)
+        output_layout.addLayout(folder_layout)
+
+        custom_layout = QHBoxLayout()
+        self.custom_name_check = QCheckBox("Use Custom Filename:")
+        self.custom_name_check.setChecked(self.app_state.use_custom_filename)
+        custom_layout.addWidget(self.custom_name_check)
+        self.custom_name_edit = QLineEdit(self.app_state.custom_filename)
+        self.custom_name_edit.setEnabled(self.app_state.use_custom_filename)
+        custom_layout.addWidget(self.custom_name_edit)
+        output_layout.addLayout(custom_layout)
+
+        container_layout.addWidget(output_group)
+        container_layout.addStretch()
+
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def connect_signals(self):
+        self.engine_combo.currentTextChanged.connect(self.on_engine_changed)
+        self.engine_path_edit.textChanged.connect(self.on_engine_path_changed)
+        self.ffprobe_edit.textChanged.connect(self.on_ffprobe_changed)
+        self.output_edit.textChanged.connect(self.on_output_changed)
+        self.custom_name_check.toggled.connect(self.on_custom_name_toggled)
+        self.custom_name_edit.textChanged.connect(self.on_custom_name_changed)
+        self.handbrake_edit.textChanged.connect(self.on_handbrake_changed)
+        self.realesrgan_edit.textChanged.connect(self.on_realesrgan_changed)
+        self.anime4k_edit.textChanged.connect(self.on_anime4k_changed)
+
+    def on_engine_changed(self, text):
+        engine = "gstreamer" if text == "GStreamer" else "ffmpeg"
+        self.app_state.media_engine = engine
+        is_gst = engine == "gstreamer"
+        self.engine_path_label.setText("GStreamer Path:" if is_gst else "FFmpeg Path:")
+        self.engine_path_edit.setText(
+            self.app_state.gstreamer_path if is_gst else self.app_state.ffmpeg_path
+        )
+
+    def on_engine_path_changed(self, text):
+        if self.engine_combo.currentText() == "GStreamer":
+            self.app_state.gstreamer_path = text
+        else:
+            self.app_state.ffmpeg_path = text
+
+    def _browse_engine_path(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.engine_path_edit.setText(file_path)
+
+    def _auto_detect_engine(self):
+        import shutil
+        if self.engine_combo.currentText() == "GStreamer":
+            path = shutil.which("gst-launch-1.0")
+            if path:
+                self.engine_path_edit.setText(path)
+                self.app_state.log(f"Auto-detected GStreamer: {path}", "INFO")
+            else:
+                QMessageBox.warning(self, "Not Found", "gst-launch-1.0 not found on PATH.")
+        else:
+            path = shutil.which("ffmpeg")
+            if path:
+                self.engine_path_edit.setText(path)
+            else:
+                QMessageBox.warning(self, "Not Found", "ffmpeg not found on PATH.")
+
+    def _check_engine_version(self):
+        path = self.engine_path_edit.text()
+        if not path:
+            QMessageBox.warning(self, "No Path", "Please set the executable path first.")
+            return
+        try:
+            result = subprocess.run([path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            output = result.stdout.strip() or result.stderr.strip()
+            self.app_state.log(f"Version: {output[:200]}", "INFO")
+            QMessageBox.information(self, "Version Info", output[:500])
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to check version: {e}")
+
+    def on_ffprobe_changed(self, text):
+        self.app_state.ffprobe_path = text
+
+    def on_output_changed(self, text):
+        self.app_state.output_folder = text
+
+    def on_custom_name_toggled(self, checked):
+        self.app_state.use_custom_filename = checked
+        self.custom_name_edit.setEnabled(checked)
+
+    def on_custom_name_changed(self, text):
+        self.app_state.custom_filename = text
+
+    def browse_ffprobe(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select FFprobe Executable", "",
+            "Executables (*.exe);;All Files (*)"
+        )
+        if file_path:
+            self.ffprobe_edit.setText(file_path)
+
+    def browse_handbrake(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select HandBrakeCLI Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.handbrake_edit.setText(file_path)
+
+    def auto_detect_handbrake(self):
+        import shutil
+        path = shutil.which("HandBrakeCLI")
+        if path:
+            self.handbrake_edit.setText(path)
+        else:
+            QMessageBox.warning(self, "Not Found", "HandBrakeCLI not found on PATH.")
+
+    def on_handbrake_changed(self, text):
+        self.app_state.handbrake_path = text
+
+    def browse_realesrgan(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Real-ESRGAN-ncnn-vulkan Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.realesrgan_edit.setText(file_path)
+
+    def auto_detect_realesrgan(self):
+        from config import REALESRGAN_NCNN
+        if os.path.isfile(REALESRGAN_NCNN):
+            self.realesrgan_edit.setText(REALESRGAN_NCNN)
+            self.app_state.log(f"Auto-detected Real-ESRGAN: {REALESRGAN_NCNN}", "INFO")
+        else:
+            QMessageBox.warning(self, "Not Found",
+                "Default Real-ESRGAN binary not found at:\n"
+                f"{REALESRGAN_NCNN}\n\n"
+                "Please browse to the executable manually.")
+
+    def browse_anime4k(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Anime4K-ncnn-vulkan Executable", "",
+            "Executables (*);;All Files (*)"
+        )
+        if file_path:
+            self.anime4k_edit.setText(file_path)
+
+    def auto_detect_anime4k(self):
+        from config import ANIME4K_NCNN
+        if os.path.isfile(ANIME4K_NCNN):
+            self.anime4k_edit.setText(ANIME4K_NCNN)
+            self.app_state.log(f"Auto-detected Anime4K: {ANIME4K_NCNN}", "INFO")
+        else:
+            QMessageBox.warning(self, "Not Found",
+                "Default Anime4K binary not found at:\n"
+                f"{ANIME4K_NCNN}\n\n"
+                "Please browse to the executable manually.")
+
+    def on_realesrgan_changed(self, text):
+        self.app_state.realesrgan_path = text
+
+    def on_anime4k_changed(self, text):
+        self.app_state.anime4k_path = text
+
+    def browse_output_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Output Folder", self.app_state.output_folder or ""
+        )
+        if folder:
+            self.output_edit.setText(folder)
+
+    def clear_output_folder(self):
+        self.output_edit.clear()
+        self.app_state.output_folder = ""
+
+
+class ConfigTab(QWidget):
+    """Configuration tab for system paths and file management"""
+    
+    file_selected = Signal(str)  # Emitted when a file is selected
+    dvd_imported = Signal()  # Emitted when a DVD is imported
+    
+    def __init__(self, app_state: AppState, parent=None):
+        super().__init__(parent)
+        self.app_state = app_state
+        
+        self.setup_ui()
+        self.connect_signals()
+        
+    def setup_ui(self):
+        """Setup the UI layout"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        
+        settings_btn = QPushButton("Settings")
+        settings_btn.clicked.connect(self._open_settings_dialog)
+        layout.addWidget(settings_btn)
+
+        layout.addSpacing(10)
+
+        output_group = QGroupBox("Output Settings")
+        output_layout = QVBoxLayout(output_group)
+
+        folder_layout = QHBoxLayout()
+        folder_layout.addWidget(QLabel("Output Folder:"))
+        self.output_edit = QLineEdit(self.app_state.output_folder)
+        self.output_edit.setPlaceholderText("Same folder as source video (default)")
+        folder_layout.addWidget(self.output_edit)
+        browse_output_btn = QPushButton("Browse...")
+        browse_output_btn.clicked.connect(self.browse_output_folder)
+        folder_layout.addWidget(browse_output_btn)
+        clear_output_btn = QPushButton("✕ Clear")
+        clear_output_btn.setMaximumWidth(80)
+        clear_output_btn.clicked.connect(self.clear_output_folder)
+        folder_layout.addWidget(clear_output_btn)
+        output_layout.addLayout(folder_layout)
+
+        custom_layout = QHBoxLayout()
+        self.custom_name_check = QCheckBox("Use Custom Filename:")
+        self.custom_name_check.setChecked(self.app_state.use_custom_filename)
+        custom_layout.addWidget(self.custom_name_check)
+        self.custom_name_edit = QLineEdit(self.app_state.custom_filename)
+        self.custom_name_edit.setEnabled(self.app_state.use_custom_filename)
+        custom_layout.addWidget(self.custom_name_edit)
+        output_layout.addLayout(custom_layout)
+
+        layout.addWidget(output_group)
+
+        # === Appearance Group (dark / light theme) ===
+        appearance_group = QGroupBox("Appearance")
+        appearance_layout = QHBoxLayout(appearance_group)
+        appearance_layout.addWidget(QLabel("Theme:"))
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Dark", "Light"])
+        self.theme_combo.setCurrentText(
+            "Dark" if getattr(self.app_state, "theme", "dark") == "dark" else "Light"
+        )
+        self.theme_combo.setToolTip("Dark is the default. Switches instantly.")
+        appearance_layout.addWidget(self.theme_combo)
+        appearance_layout.addStretch()
+        layout.addWidget(appearance_group)
+
+        layout.addSpacing(10)
+
+        settings_btn = QPushButton("Settings")
+        settings_btn.clicked.connect(self._open_settings_dialog)
+        layout.addWidget(settings_btn)
+
+        layout.addSpacing(10)
+
+        # === Input Files Group ===
+        files_group = QGroupBox("Input Files Queue")
+        files_layout = QVBoxLayout(files_group)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        
+        # Left side: Action buttons
+        self.validate_btn = QPushButton("✓ Validate Video")
+        self.validate_btn.clicked.connect(self.validate_video_file)
+        btn_layout.addWidget(self.validate_btn)
+        
+        btn_layout.addStretch()
+        
+        # Right side: File management buttons
+        self.join_btn = QPushButton("🔗 Join")
+        self.join_btn.clicked.connect(self.join_files)
+        btn_layout.addWidget(self.join_btn)
+        
+
+        
+        btn_layout.addSpacing(20)
+        
+        add_files_btn = QPushButton("➕ Add Files")
+        add_files_btn.clicked.connect(self.add_files)
+        btn_layout.addWidget(add_files_btn)
+        
+        add_folder_btn = QPushButton("📁 Add Folder")
+        add_folder_btn.clicked.connect(self.add_folder)
+        btn_layout.addWidget(add_folder_btn)
+        
+        add_image_folder_btn = QPushButton("🖼️ Add Image Folder")
+        add_image_folder_btn.clicked.connect(self.add_image_folder)
+        btn_layout.addWidget(add_image_folder_btn)
+        
+        add_dvd_btn = QPushButton("📀 Open DVD")
+        add_dvd_btn.clicked.connect(self.add_dvd_folder)
+        btn_layout.addWidget(add_dvd_btn)
+        
+        extract_subs_btn = QPushButton("📝 Extract Subs")
+        extract_subs_btn.setToolTip("Extract all subtitles from video or DVD folder")
+        extract_subs_btn.clicked.connect(self.extract_subtitles)
+        btn_layout.addWidget(extract_subs_btn)
+        
+        extract_track_btn = QPushButton("📦 Extract Track")
+        extract_track_btn.setToolTip("Extract video or audio track from video file")
+        extract_track_btn.clicked.connect(self.extract_track)
+        btn_layout.addWidget(extract_track_btn)
+        
+        clear_btn = QPushButton("🗑️ Clear All")
+        clear_btn.clicked.connect(self.clear_files)
+        btn_layout.addWidget(clear_btn)
+        
+        files_layout.addLayout(btn_layout)
+        
+        # File list with drag-drop support
+        self.files_list = DragDropListWidget()
+        self.files_list.setMinimumHeight(200)
+        self.files_list.files_dropped.connect(self.on_files_dropped)
+        self.files_list.itemSelectionChanged.connect(self.on_selection_changed)
+        files_layout.addWidget(self.files_list)
+        
+        # Video information panel
+        self.video_info_panel = VideoInfoPanel(self.app_state)
+        files_layout.addWidget(self.video_info_panel)
+        
+        # File count label
+        self.count_label = QLabel("0 files selected")
+        files_layout.addWidget(self.count_label)
+        
+        layout.addWidget(files_group)
+        
+        # Add stretch at the bottom
+        layout.addStretch()
+        
+    def connect_signals(self):
+        """Connect UI signals to handlers"""
+        self.output_edit.textChanged.connect(self.on_output_changed)
+        self.custom_name_check.toggled.connect(self.on_custom_name_toggled)
+        self.custom_name_edit.textChanged.connect(self.on_custom_name_changed)
+        self.theme_combo.currentTextChanged.connect(self.on_theme_changed)
+
+    def _open_settings_dialog(self):
+        dlg = SettingsDialog(self.app_state, self)
+        dlg.exec()
+        
+    def on_output_changed(self, text):
+        """Handle output folder change"""
+        self.app_state.output_folder = text
+        
+    def on_custom_name_toggled(self, checked):
+        """Handle custom filename checkbox"""
+        self.app_state.use_custom_filename = checked
+        self.custom_name_edit.setEnabled(checked)
+        
+    def on_custom_name_changed(self, text):
+        """Handle custom filename change"""
+        self.app_state.custom_filename = text
+
+    def on_theme_changed(self, text):
+        """Apply dark/light theme instantly and persist on close."""
+        from PySide6.QtWidgets import QApplication
+        from theme import apply_theme, is_dark, list_item_color
+
+        theme = "dark" if text.strip().lower() == "dark" else "light"
+        self.app_state.theme = theme
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, theme)
+        # Recolor special file-list entries for the new theme
+        dark = is_dark(app) if app is not None else theme == "dark"
+        for i in range(self.files_list.count()):
+            item = self.files_list.item(i)
+            kind = item.data(Qt.UserRole + 1)
+            color = list_item_color(kind, dark) if kind else None
+            if color is not None:
+                item.setForeground(color)
+        self.app_state.log(f"Theme switched to {theme}", "INFO")
+        
+    def browse_output_folder(self):
+        """Browse for output folder"""
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Output Folder", self.app_state.output_folder or ""
+        )
+        if folder:
+            self.output_edit.setText(folder)
+            
+    def clear_output_folder(self):
+        """Clear the output folder to use default (same folder as source video)"""
+        self.output_edit.clear()
+        self.app_state.output_folder = ""
+        self.app_state.log("Output folder cleared — will use source video folder by default", "INFO")
+            
+    def add_files(self):
+        """Add video files to the queue"""
+        import config
+        last_folder = config.load_last_folder()
+        
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select Video Files", last_folder,
+            "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v *.mpg *.mpeg *.ts *.mts *.m2ts *.vob);;All Files (*)"
+        )
+        if files:
+            # Remember the folder of the first file
+            first_file_dir = os.path.dirname(files[0])
+            config.save_last_folder(first_file_dir)
+            
+            self.add_files_to_list(files)
+            
+    def add_folder(self):
+        """Add all video files from a folder"""
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        if folder:
+            video_extensions = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.ts', '.mts', '.m2ts', '.vob'}
+            files = []
+            for f in os.listdir(folder):
+                if Path(f).suffix.lower() in video_extensions:
+                    files.append(os.path.join(folder, f))
+            if files:
+                self.add_files_to_list(files)
+                
+    def add_image_folder(self):
+        """Add a folder of images as an image sequence for encoding to video"""
+        folder = QFileDialog.getExistingDirectory(self, "Select Image Folder")
+        if not folder:
+            return
+
+        image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif', '.webp'}
+        image_files = []
+        for f in sorted(os.listdir(folder)):
+            if Path(f).suffix.lower() in image_extensions:
+                image_files.append(os.path.join(folder, f))
+        image_files.sort(key=self._natural_sort_key)
+
+        if not image_files:
+            QMessageBox.warning(self, "No Images", f"No image files found in:\n{folder}")
+            return
+
+        self.app_state.image_sequence.enabled = True
+        self.app_state.image_sequence.folder_path = folder
+        self.app_state.image_sequence.image_files = image_files
+
+        folder_name = os.path.basename(folder)
+        display_name = f"[Images] {folder_name} ({len(image_files)} images)"
+
+        item = QListWidgetItem(display_name)
+        item.setData(Qt.UserRole, folder)
+        item.setData(Qt.UserRole + 1, "image_seq")
+        item.setToolTip(f"Image Sequence: {folder}\n{len(image_files)} image(s)")
+        from theme import is_dark, list_item_color
+        item.setForeground(list_item_color("image_seq", is_dark(self)))
+
+        self.files_list.addItem(item)
+        self.app_state.add_input_file(folder)
+        self.app_state.current_video_path = folder
+        self.update_count_label()
+
+        self.video_info_panel.set_image_sequence_info(folder, len(image_files))
+        self.app_state.log(
+            f"Added image sequence: {folder_name} ({len(image_files)} images)", "SUCCESS"
+        )
+
+    @staticmethod
+    def _natural_sort_key(path: str) -> list:
+        """Natural sort helper - sorts 'img2' before 'img10'"""
+        import re
+        return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', os.path.basename(path))]
+                
+    def add_dvd_folder(self):
+        """Open a DVD folder (VIDEO_TS) and select title to import"""
+        from dvd_handler import DVDHandler
+        
+        folder = QFileDialog.getExistingDirectory(self, "Select DVD Folder (VIDEO_TS parent folder)")
+        if not folder:
+            return
+            
+        handler = DVDHandler(
+            self.app_state.ffmpeg_path,
+            self.app_state.ffprobe_path,
+            self.app_state.log,
+            backend=self.app_state.backend
+        )
+        
+        # Check if it's a valid DVD folder
+        video_ts_path = handler.find_video_ts_folder(folder)
+        if not video_ts_path:
+            QMessageBox.warning(
+                self, "Invalid DVD Folder",
+                f"No VIDEO_TS folder found in:\n{folder}\n\nPlease select a DVD-Video folder containing VIDEO_TS directory."
+            )
+            return
+        
+        # Scan for titles
+        self.app_state.log(f"Scanning DVD: {video_ts_path}", "INFO")
+        titles = handler.get_dvd_titles(video_ts_path)
+        
+        if not titles:
+            QMessageBox.warning(
+                self, "No Titles Found",
+                "No DVD titles found in the selected folder."
+            )
+            return
+        
+        # Show title selection dialog
+        dialog = DVDTitleDialog(titles, video_ts_path, self)
+        if dialog.exec() == QDialog.Accepted:
+            selected_title = dialog.get_selected_title()
+            if selected_title:
+                self._import_dvd_title(handler, selected_title, video_ts_path)
+    
+    def _import_dvd_title(self, handler, title, video_ts_path):
+        """Import a DVD title into the encoding queue"""
+        import tempfile
+        import os
+        
+        # Create concat file for the selected title
+        concat_file = handler.create_concat_file(title.vob_files)
+        
+        # Store DVD info in app state
+        self.app_state.dvd.is_dvd_source = True
+        self.app_state.dvd.dvd_folder_path = video_ts_path
+        self.app_state.dvd.available_titles = handler.get_dvd_titles(video_ts_path)
+        self.app_state.dvd.selected_title_number = title.title_number
+        self.app_state.dvd.concat_file_path = concat_file
+        self.app_state.dvd.selected_subtitle_index = -1  # Reset - will be set in subtitles panel
+        self.app_state.dvd.subtitle_tracks = title.subtitles  # Store for subtitles panel
+        self.app_state.dvd.extracted_subtitle_path = ""  # Reset (not used for DVD subtitles)
+        
+        # Add to file list as a special DVD entry
+        # Clear existing files first (DVD replaces queue)
+        self.clear_files()
+        
+        # Add the concat file as the input
+        # We use a special display name for DVD sources
+        display_name = f"[DVD] Title {title.title_number} - {title.duration_display}"
+        
+        item = QListWidgetItem(display_name)
+        item.setData(Qt.UserRole, concat_file)  # Actual path is concat file
+        item.setData(Qt.UserRole + 1, "dvd")  # Mark as DVD source
+        
+        # Build tooltip with track info
+        tooltip = f"DVD Title {title.title_number}\nDuration: {title.duration_display}\nSize: {title.size_display}\nSource: {video_ts_path}"
+        if title.subtitles:
+            tooltip += f"\nSubtitles: {len(title.subtitles)} track(s) available"
+        item.setToolTip(tooltip)
+        
+        # Set a special icon/color for DVD entries
+        from theme import is_dark, list_item_color
+        item.setForeground(list_item_color("dvd", is_dark(self)))
+        
+        self.files_list.addItem(item)
+        self.app_state.add_input_file(concat_file)
+        
+        # Update the current video path
+        self.app_state.current_video_path = concat_file
+        
+        self.update_count_label()
+        
+        sub_info = f", {len(title.subtitles)} subtitle tracks" if title.subtitles else ""
+        self.app_state.log(
+            f"Imported DVD Title {title.title_number}: {title.duration_display}, {len(title.vob_files)} VOB files{sub_info}",
+            "SUCCESS"
+        )
+        
+        # Emit signals
+        self.file_selected.emit(concat_file)
+        self.dvd_imported.emit()  # Notify subtitles panel to update DVD subtitle selector
+                
+    def add_files_to_list(self, files):
+        """Add files to the list widget and app state"""
+        for file_path in files:
+            if file_path not in self.app_state.input_files:
+                self.app_state.add_input_file(file_path)
+                item = QListWidgetItem(os.path.basename(file_path))
+                item.setData(Qt.UserRole, file_path)
+                item.setToolTip(file_path)
+                self.files_list.addItem(item)
+                
+        self.update_count_label()
+        
+    def on_files_dropped(self, files):
+        """Handle files dropped onto the list"""
+        self.add_files_to_list(files)
+        self.app_state.log(f"Added {len(files)} file(s) via drag & drop", "INFO")
+        
+    def remove_selected(self):
+        """Remove selected files from the list"""
+        selected = self.files_list.selectedItems()
+        for item in selected:
+            source_type = item.data(Qt.UserRole + 1)
+            if source_type == "image_seq":
+                self.app_state.image_sequence = models.ImageSequenceSettings()
+            file_path = item.data(Qt.UserRole)
+            self.app_state.input_files.remove(file_path)
+            self.files_list.takeItem(self.files_list.row(item))
+        self.update_count_label()
+        
+    def clear_files(self):
+        """Clear all files from the list"""
+        self.app_state.clear_input_files()
+        self.files_list.clear()
+        self.update_count_label()
+        self.video_info_panel.clear_info()
+        self.app_state.current_video_path = None
+        self.app_state.image_sequence = models.ImageSequenceSettings()
+        
+    def update_count_label(self):
+        """Update the file count label"""
+        count = self.files_list.count()
+        self.count_label.setText(f"{count} file{'s' if count != 1 else ''} selected")
+        
+    def on_selection_changed(self):
+        """Handle file selection change"""
+        selected = self.files_list.selectedItems()
+        if selected:
+            item = selected[0]
+            source_type = item.data(Qt.UserRole + 1)
+            file_path = item.data(Qt.UserRole)
+            
+            if source_type == "image_seq":
+                self.app_state.current_video_path = file_path
+                self.video_info_panel.set_image_sequence_info(
+                    self.app_state.image_sequence.folder_path,
+                    len(self.app_state.image_sequence.image_files)
+                )
+                self.file_selected.emit(file_path)
+                return
+            
+            self.app_state.current_video_path = file_path
+            self.file_selected.emit(file_path)
+            self.video_info_panel.set_info(file_path)
+        else:
+            self.video_info_panel.clear_info()
+            
+
+            
+    def validate_video_file(self):
+        """Validate selected video file for health and DTS issues"""
+        selected = self.files_list.selectedItems()
+        if not selected:
+            QMessageBox.warning(self, "Validation", "Please select a file first.")
+            return
+        
+        file_path = selected[0].data(Qt.UserRole)
+        self.run_validation(file_path)
+        
+    def extract_subtitles(self):
+        """Extract all subtitles from video or DVD folder"""
+        selected = self.files_list.selectedItems()
+        
+        if selected:
+            file_path = selected[0].data(Qt.UserRole)
+            source_type = selected[0].data(Qt.UserRole + 1)
+            
+            if source_type == "dvd":
+                self._extract_subs_from_dvd(self.app_state.dvd.dvd_folder_path)
+            else:
+                self._extract_subs_from_video(file_path)
+            return
+        
+        # Let user choose between video file or DVD folder
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Extract Subtitles")
+        msg.setText("Choose source type:")
+        msg.setInformativeText("Select a video file or DVD folder to extract subtitles from.")
+        
+        btn_video = msg.addButton("Video File", QMessageBox.AcceptRole)
+        btn_dvd = msg.addButton("DVD Folder", QMessageBox.ActionRole)
+        btn_cancel = msg.addButton("Cancel", QMessageBox.RejectRole)
+        
+        msg.exec()
+        
+        if msg.clickedButton() == btn_video:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Select Video File",
+                "",
+                "Video Files (*.mp4 *.mkv *.avi *.mov *.mpg *.mpeg *.ts *.mts *.m2ts);;All Files (*)"
+            )
+            if file_path:
+                self._extract_subs_from_video(file_path)
+        elif msg.clickedButton() == btn_dvd:
+            folder_path = QFileDialog.getExistingDirectoryUrl(
+                self, "Select DVD Folder (VIDEO_TS)"
+            )
+            if folder_path:
+                self._extract_subs_from_dvd(folder_path.toLocalFile())
+    
+    def _extract_subs_from_video(self, video_path):
+        """Extract subtitles from a video file via backend"""
+        self.app_state.log(f"Extracting subtitles from: {os.path.basename(video_path)}", "INFO")
+        
+        try:
+            subtitle_streams = self.app_state.backend.extract_subtitle_streams(video_path)
+            
+            if not subtitle_streams:
+                self.app_state.log("No subtitle streams found in video file", "WARN")
+                QMessageBox.information(self, "Extract Subtitles", "No subtitle streams found in the video file.")
+                return
+            
+            self.app_state.log(f"Found {len(subtitle_streams)} subtitle stream(s)", "INFO")
+            
+            video_dir = os.path.dirname(video_path)
+            video_name = os.path.splitext(os.path.basename(video_path))[0]
+            output_dir = os.path.join(video_dir, f"{video_name}_subs")
+            os.makedirs(output_dir, exist_ok=True)
+            
+            extracted_files = []
+            
+            for i, stream in enumerate(subtitle_streams):
+                lang = stream.get('tags', {}).get('language', f'track{i}')
+                codec = stream.get('codec_name', '')
+                ext = ".sup" if codec in ("hdmv_pgs_subtitle", "pgssub") else ".srt"
+                output_file = os.path.join(output_dir, f"sub_{i}_{lang}{ext}")
+                
+                result = self.app_state.backend.extract_subtitle(video_path, i, output_file, codec)
+                if result and os.path.exists(result):
+                    extracted_files.append(result)
+                    self.app_state.log(f"Extracted: {os.path.basename(result)}", "SUCCESS")
+            
+            if extracted_files:
+                msg = f"Extracted {len(extracted_files)} subtitle(s) to:\n{output_dir}"
+                self.app_state.log(msg, "SUCCESS")
+                QMessageBox.information(self, "Extract Subtitles", msg)
+            else:
+                self.app_state.log("Failed to extract subtitles", "WARN")
+                QMessageBox.warning(self, "Extract Subtitles", "Failed to extract subtitles from video file.")
+                
+        except Exception as e:
+            self.app_state.log(f"Error extracting subtitles: {e}", "ERROR")
+            QMessageBox.warning(self, "Extract Subtitles", f"Error: {e}")
+    
+    def _extract_subs_from_dvd(self, folder_path):
+        """Extract subtitles from DVD folder - shows info about DVD subtitles"""
+        from dvd_handler import DVDHandler
+        import tempfile
+        
+        self.app_state.log(f"Scanning DVD folder: {folder_path}", "INFO")
+        
+        handler = DVDHandler(
+            ffmpeg_path=self.app_state.ffmpeg_path,
+            ffprobe_path=self.app_state.ffprobe_path,
+            log_callback=self.app_state.log,
+            backend=self.app_state.backend
+        )
+        
+        # Check if it's a VIDEO_TS folder
+        if not handler.is_video_ts_folder(folder_path):
+            # Try VIDEO_TS subfolder
+            video_ts = os.path.join(folder_path, 'VIDEO_TS')
+            if os.path.isdir(video_ts):
+                folder_path = video_ts
+            else:
+                self.app_state.log("Not a valid VIDEO_TS folder", "WARN")
+                QMessageBox.warning(self, "Extract Subtitles", "Selected folder is not a valid VIDEO_TS folder.")
+                return
+        
+        # Get DVD titles
+        titles = handler.get_dvd_titles(folder_path)
+        
+        if not titles:
+            self.app_state.log("No DVD titles found", "WARN")
+            QMessageBox.warning(self, "Extract Subtitles", "No DVD titles found in the folder.")
+            return
+        
+        # Find main title (longest)
+        main_title = max(titles, key=lambda t: t.duration)
+        
+        self.app_state.log(f"Found {len(titles)} title(s), main title is Title {main_title.title_number}", "INFO")
+        
+        # Get subtitles for main title
+        if not main_title.subtitles:
+            self.app_state.log("No subtitles found in main title", "WARN")
+            QMessageBox.warning(self, "Extract Subtitles", "No subtitles found in the main DVD title.")
+            return
+        
+        self.app_state.log(f"Found {len(main_title.subtitles)} subtitle track(s)", "INFO")
+        
+        # Show subtitle info
+        msg = f"Found {len(main_title.subtitles)} subtitle track(s) in DVD Title {main_title.title_number}:\n\n"
+        for i, sub in enumerate(main_title.subtitles):
+            lang = sub.get('language', 'unknown')
+            msg += f"  Track {i}: {lang}\n"
+        
+        msg += "\n"
+        msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += "NOTE: DVD subtitles are bitmap-based (VobSub format).\n\n"
+        msg += "They cannot be extracted to text files like .srt.\n"
+        msg += "Instead, they are burned directly into the video\n"
+        msg += "during encoding using FFmpeg's overlay filter.\n\n"
+        msg += "To use DVD subtitles:\n"
+        msg += "1. Click '📀 Open DVD' to import the DVD\n"
+        msg += "2. Select a subtitle track in the dialog\n"
+        msg += "3. Enable 'Burn Subtitles' in Subtitles panel\n"
+        msg += "4. Start encoding - subtitles will be burned in"
+        
+        self.app_state.log(msg, "INFO")
+        QMessageBox.information(self, "DVD Subtitles", msg)
+    
+    def extract_track(self):
+        """Extract video or audio track from video file"""
+        selected = self.files_list.selectedItems()
+        
+        if selected:
+            file_path = selected[0].data(Qt.UserRole)
+            self._extract_track_from_video(file_path)
+            return
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Video File",
+            "",
+            "Video Files (*.mp4 *.mkv *.avi *.mov *.mpg *.mpeg *.ts *.mts *.m2ts *.vob);;All Files (*)"
+        )
+        if not file_path:
+            return
+        
+        self._extract_track_from_video(file_path)
+    
+    def _extract_track_from_video(self, video_path):
+        """Extract a track from a video file via backend"""
+        self.app_state.log(f"Analyzing tracks in: {os.path.basename(video_path)}", "INFO")
+        
+        try:
+            data = self.app_state.backend.get_streams(video_path)
+            streams = data.get('streams', []) if data else []
+            
+            if not streams:
+                self.app_state.log("No stream information available from backend", "WARN")
+                QMessageBox.warning(self, "Extract Track", "Failed to analyze file: no stream data.")
+                return
+            
+            video_tracks = []
+            audio_tracks = []
+            
+            for stream in streams:
+                codec_type = stream.get('codec_type')
+                
+                if codec_type == 'video':
+                    width = stream.get('width', 0)
+                    height = stream.get('height', 0)
+                    resolution = f"{width}x{height}" if width and height else ""
+                    video_tracks.append({
+                        'index': stream.get('index'),
+                        'video_index': len(video_tracks),
+                        'codec': stream.get('codec_name', 'unknown').upper(),
+                        'resolution': resolution
+                    })
+                elif codec_type == 'audio':
+                    channels = stream.get('channels', 0)
+                    ch_str = f"{channels}ch" if channels else "Stereo"
+                    audio_tracks.append({
+                        'index': stream.get('index'),
+                        'audio_index': len(audio_tracks),
+                        'codec': stream.get('codec_name', 'unknown').upper(),
+                        'channels': ch_str,
+                        'language': stream.get('tags', {}).get('language', 'unknown')
+                    })
+            
+            if not video_tracks and not audio_tracks:
+                self.app_state.log("No video or audio tracks found", "WARN")
+                QMessageBox.information(self, "Extract Track", "No video or audio tracks found in the file.")
+                return
+            
+            dialog = TrackSelectionDialog(video_tracks, audio_tracks, self)
+            if dialog.exec() == QDialog.Accepted:
+                selected = dialog.get_selected_track()
+                if selected:
+                    self._do_extract_track(video_path, selected)
+                    
+        except Exception as e:
+            self.app_state.log(f"Error extracting track: {e}", "ERROR")
+            QMessageBox.warning(self, "Extract Track", f"Error: {e}")
+    
+    def _do_extract_track(self, video_path, track_info):
+        """Perform the actual track extraction via backend"""
+        output_folder = self.app_state.output_folder if self.app_state.output_folder else os.path.dirname(video_path)
+        
+        self.app_state.log(f"Extracting {track_info['type']} track...", "INFO")
+        
+        try:
+            output_path = self.app_state.backend.extract_track(video_path, track_info, output_folder)
+            
+            if output_path and os.path.exists(output_path):
+                size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                filename = os.path.basename(output_path)
+                msg = f"Successfully extracted {track_info['type']} track!\n\nOutput: {filename}\nSize: {size_mb:.2f} MB"
+                self.app_state.log(msg, "SUCCESS")
+                QMessageBox.information(self, "Extract Track", msg)
+            else:
+                self.app_state.log("Track extraction failed", "ERROR")
+                QMessageBox.warning(self, "Extract Track", "Extraction failed.")
+                
+        except Exception as e:
+            self.app_state.log(f"Error during extraction: {e}", "ERROR")
+            QMessageBox.warning(self, "Extract Track", f"Error: {e}")
+        
+    def run_validation(self, filepath):
+        """Run video validation and show results"""
+        from video_validator import VideoValidator
+        
+        validator = VideoValidator(self.app_state.backend, self.app_state.log)
+        
+        # Quick health check
+        if not validator.quick_health_check(filepath):
+            self.app_state.log("Quick health check failed", "WARN")
+            QMessageBox.warning(self, "Video Validation", "❌ Quick health check failed. File may be corrupted.")
+            return
+        
+        # DTS check
+        dts_result = validator.check_dts_issues(filepath)
+        
+        # Frame rate analysis
+        fps_info = validator.analyze_frame_rate(filepath)
+        
+        # Build results message
+        warnings = []
+        
+        if dts_result['has_issues']:
+            warnings.extend(dts_result['issues'])
+        
+        if fps_info.get('is_vfr', True):
+            warnings.append(f"Variable frame rate: {fps_info.get('fps_str', 'unknown')}")
+        
+        if fps_info.get('is_problematic', True):
+            warnings.append(f"Unusual frame rate: {fps_info.get('fps_str', 'unknown')}")
+        
+        # Show results
+        if not warnings:
+            QMessageBox.information(self, "Video Validation", "✅ Video appears healthy\n\nNo DTS or frame rate issues detected.")
+        else:
+            QMessageBox.warning(self, "Video Validation", f"⚠️ Issues found:\n\n" + "\n".join(warnings))
+        
+        self.app_state.log(f"Validation completed for {os.path.basename(filepath)}", "INFO")
+        
+    def join_files(self):
+        """Join queued input files into a single video if identical codecs/params."""
+        import tempfile
+        
+        files = [f for f in self.app_state.input_files if os.path.exists(f)]
+        if len(files) < 2:
+            QMessageBox.information(self, "Join", "Need at least 2 input files to join.")
+            return
+            
+        if not self._files_identical(files):
+            QMessageBox.information(self, "Join", "Files cannot be joined without re-encoding. Please re-encode to a common format first.")
+            return
+
+        # Create concat list file
+        with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', encoding='utf-8') as tf:
+            list_path = tf.name
+            for p in files:
+                # Escape single quotes in path
+                safe = p.replace("'", "'\"'\"'")
+                tf.write(f"file '{safe}'\n")
+
+        first_ext = os.path.splitext(files[0])[1] or ".mp4"
+        default_name = os.path.splitext(os.path.basename(files[0]))[0] + "_joined" + first_ext
+        
+        out_path, _ = QFileDialog.getSaveFileName(
+            self, "Save joined video as", default_name,
+            f"Video (*{first_ext});;All Files (*)"
+        )
+        
+        if not out_path:
+            try:
+                os.remove(list_path)
+            except Exception:
+                pass
+            return
+
+        cmd = [self.app_state.ffmpeg_path, "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", out_path]
+
+        def do_join():
+            try:
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+                ok = res.returncode == 0
+                err = res.stderr
+            except Exception as e:
+                ok = False
+                err = str(e)
+
+            # Cleanup and show result in main thread
+            try:
+                os.remove(list_path)
+            except Exception:
+                pass
+                
+            if ok:
+                self.app_state.log(f"Joined file created: {out_path}", "SUCCESS")
+            else:
+                self.app_state.log(f"Failed to join files: {err}", "ERROR")
+
+        thread = threading.Thread(target=do_join, daemon=True)
+        thread.start()
+        self.app_state.log("Starting file join operation...", "INFO")
+
+    def _files_identical(self, paths):
+        """Return True if all inputs have identical video/audio params."""
+        base = self._get_media_params(paths[0])
+        for p in paths[1:]:
+            if self._get_media_params(p) != base:
+                return False
+        return True
+
+    def _get_media_params(self, path):
+        """Return a simple dict of media params via backend."""
+        params = {}
+        try:
+            data = self.app_state.backend.get_streams(path)
+            streams = data.get('streams', []) if data else []
+            for s in streams:
+                if s.get('codec_type') == 'video':
+                    params["vcodec"] = s.get('codec_name', '')
+                    params["width"] = str(s.get('width', ''))
+                    params["height"] = str(s.get('height', ''))
+                    break
+            for s in streams:
+                if s.get('codec_type') == 'audio':
+                    params["acodec"] = s.get('codec_name', '')
+                    break
+            fps_info = self.app_state.backend.get_frame_rate(path)
+            if fps_info.get('fps'):
+                params["fps"] = str(fps_info['fps'])
+        except Exception:
+            pass
+        return params
+        
+

@@ -1,0 +1,10 @@
+{
+  "ffmpeg_path": "ffmpeg",
+  "output_folder": "",
+  "handbrake_path": "HandBrakeCLI",
+  "media_engine": "ffmpeg",
+  "gstreamer_path": "gst-launch-1.0",
+  "realesrgan_path": "",
+  "anime4k_path": "",
+  "theme": "dark"
+}

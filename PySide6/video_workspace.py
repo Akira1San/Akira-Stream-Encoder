@@ -1,0 +1,1060 @@
+"""
+Video Workspace - Main Video Tab layout and panel management (PySide6)
+"""
+import os
+import re
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
+    QTabWidget, QScrollArea, QFrame, QLabel, QPushButton,
+    QTextEdit, QFileDialog, QMessageBox
+)
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+
+from models import AppState
+from ui_components import CollapsibleFrame
+from encoding_settings import EncodingPanel
+from multi_track_panel import MultiTrackPanel
+from geometry import GeometryPanel
+from color_correction import ColorCorrectionPanel
+from subtitles import SubtitlesPanel
+from filters import FiltersPanel
+from extra_panel import ExtraPanel
+from trim_panel import TrimPanel
+from video_preview import VideoPreview
+
+
+class LogWidget(QTextEdit):
+    """Custom log display widget"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.document().setMaximumBlockCount(1000)
+        self.setFont(QFont("Consolas", 9))
+        
+    def log(self, message: str, level: str = "INFO"):
+        """Add a log entry with color coding"""
+        colors = {
+            "INFO": "#000000",
+            "WARN": "#FF8C00",
+            "ERROR": "#FF0000",
+            "SUCCESS": "#008000"
+        }
+        color = colors.get(level, "#000000")
+        
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        html = f'<span style="color: #666666;">[{timestamp}]</span> '
+        html += f'<span style="color: {color};">{message}</span>'
+        
+        self.append(html)
+        
+        scrollbar = self.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+
+class VideoWorkspace(QWidget):
+    """
+    Main video workspace with settings panels on the left
+    and preview with tabs on the right.
+    """
+    
+    def __init__(self, app_state: AppState, parent=None):
+        super().__init__(parent)
+        self.app_state = app_state
+        self.controller = None
+        self._cut_controller = None
+        
+        # Create log widget
+        self.log_widget = LogWidget()
+        
+        self.setup_ui()
+        self.connect_signals()
+        
+    def setup_ui(self):
+        """Setup the main layout"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
+        
+        # Main horizontal splitter
+        main_splitter = QSplitter(Qt.Horizontal)
+        
+        # === LEFT PANE: Settings Panels ===
+        left_widget = QWidget()
+        left_widget.setMinimumWidth(380)
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Scroll area for settings
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(5)
+        
+        # Encoding Settings (Collapsible)
+        enc_collapsible = CollapsibleFrame("Encoding Settings")
+        self.enc_panel = EncodingPanel(self.app_state)
+        self.enc_panel.settings_changed.connect(self.on_settings_changed)
+        enc_collapsible.content_layout().addWidget(self.enc_panel)
+        scroll_layout.addWidget(enc_collapsible)
+
+        # Multi Track (Collapsible - collapsed by default)
+        mt_collapsible = CollapsibleFrame("Multi Track")
+        self.multi_track_panel = MultiTrackPanel(self.app_state)
+        self.multi_track_panel.settings_changed.connect(self.on_settings_changed)
+        mt_collapsible.content_layout().addWidget(self.multi_track_panel)
+        mt_collapsible.collapse()
+        scroll_layout.addWidget(mt_collapsible)
+        
+        # Subtitles (Collapsible)
+        subs_collapsible = CollapsibleFrame("Subtitles")
+        self.subs_panel = SubtitlesPanel(self.app_state)
+        self.subs_panel.settings_changed.connect(self.on_settings_changed)
+        self.subs_panel.refresh_subtitles.connect(self.on_refresh_subtitles)
+        subs_collapsible.content_layout().addWidget(self.subs_panel)
+        scroll_layout.addWidget(subs_collapsible)
+        
+        # Geometry Settings (Collapsible, collapsed by default)
+        geo_collapsible = CollapsibleFrame("Geometry")
+        self.geo_panel = GeometryPanel(self.app_state)
+        self.geo_panel.settings_changed.connect(self.on_settings_changed)
+        geo_collapsible.content_layout().addWidget(self.geo_panel)
+        scroll_layout.addWidget(geo_collapsible)
+        geo_collapsible.collapse()
+        
+        # Color Correction (Collapsible)
+        color_collapsible = CollapsibleFrame("Color Correction")
+        self.color_panel = ColorCorrectionPanel(self.app_state)
+        self.color_panel.settings_changed.connect(self.on_settings_changed)
+        color_collapsible.content_layout().addWidget(self.color_panel)
+        scroll_layout.addWidget(color_collapsible)
+        
+        # Filters (Collapsible)
+        filters_collapsible = CollapsibleFrame("Filters")
+        self.filters_panel = FiltersPanel(self.app_state)
+        self.filters_panel.settings_changed.connect(self.on_settings_changed)
+        filters_collapsible.content_layout().addWidget(self.filters_panel)
+        scroll_layout.addWidget(filters_collapsible)
+        
+        # Extra (Collapsible - collapsed by default)
+        extra_collapsible = CollapsibleFrame("Extra")
+        self.extra_panel = ExtraPanel(self.app_state)
+        self.extra_panel.settings_changed.connect(self.on_settings_changed)
+        extra_collapsible.content_layout().addWidget(self.extra_panel)
+        extra_collapsible.collapse()
+        scroll_layout.addWidget(extra_collapsible)
+        
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_content)
+        left_layout.addWidget(scroll)
+        
+        main_splitter.addWidget(left_widget)
+        
+        # === RIGHT PANE: Preview and Tabs ===
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Use splitter between preview and tabs for adjustable sizing
+        right_splitter = QSplitter(Qt.Vertical)
+        
+        # Video Preview
+        self.preview = VideoPreview(self.app_state)
+        right_splitter.addWidget(self.preview)
+        
+        # Tabs for Trim/Cut, Log, and Scan
+        self.tabs = QTabWidget()
+        
+        # Trim/Cut Tab
+        self.trim_tab = QWidget()
+        trim_layout = QVBoxLayout(self.trim_tab)
+        self.trim_panel = TrimPanel(self.app_state, self.preview.get_current_timestamp)
+        self.trim_panel.cut_point_set.connect(self.on_cut_point_set)
+        self.trim_panel.execute_cuts.connect(self.on_execute_cuts)
+        self.trim_panel.cut_removed.connect(self.on_cut_removed)
+        self.trim_panel.clear_all_cuts.connect(self.on_clear_all_cuts)
+        self.trim_panel.delete_segment.connect(self.on_delete_segment)
+        trim_layout.addWidget(self.trim_panel)
+        
+        # Connect timeline marker clicks to select cuts
+        self.preview.timeline_slider.cut_marker_clicked.connect(self.on_cut_marker_clicked)
+        trim_layout.addStretch()
+        self.tabs.addTab(self.trim_tab, "Trim/Cut")
+        
+        # Log Tab
+        self.log_tab = QWidget()
+        log_layout = QVBoxLayout(self.log_tab)
+        
+        log_header = QHBoxLayout()
+        log_header.addWidget(QLabel("<b>Log Output</b>"))
+        log_header.addStretch()
+        
+        clear_btn = QPushButton("Clear")
+        clear_btn.setMaximumWidth(80)
+        clear_btn.clicked.connect(self.clear_log)
+        log_header.addWidget(clear_btn)
+        
+        log_layout.addLayout(log_header)
+        log_layout.addWidget(self.log_widget)
+        
+        self.tabs.addTab(self.log_tab, "📋 Log")
+        
+        
+        right_splitter.addWidget(self.tabs)
+        right_splitter.setSizes([500, 250])
+        
+        right_layout.addWidget(right_splitter)
+        
+        main_splitter.addWidget(right_widget)
+        main_splitter.setSizes([350, 900])
+        
+        layout.addWidget(main_splitter)
+        
+        # Bottom: Encode and Cancel buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        # Cancel button (hidden by default)
+        self.cancel_btn = QPushButton("❌ Cancel")
+        self.cancel_btn.setMinimumWidth(120)
+        self.cancel_btn.setMinimumHeight(40)
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.cancel_btn.clicked.connect(self.on_cancel_clicked)
+        self.cancel_btn.setVisible(False)
+        btn_layout.addWidget(self.cancel_btn)
+        
+        # Encode button
+        self.encode_btn = QPushButton("🎬 Start Encoding")
+        self.encode_btn.setMinimumWidth(150)
+        self.encode_btn.setMinimumHeight(40)
+        self.encode_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.encode_btn.clicked.connect(self.on_encode_clicked)
+        btn_layout.addWidget(self.encode_btn)
+        
+        layout.addLayout(btn_layout)
+        
+    def connect_signals(self):
+        """Connect signals"""
+        self.app_state.current_video_changed.connect(self.on_video_changed)
+        self.enc_panel.upscaling_active.connect(self.on_upscaling_active)
+        self.geo_panel.extract_frames_requested.connect(self.on_extract_frames_requested)
+        
+    def clear_log(self):
+        """Clear the log widget"""
+        self.log_widget.clear()
+        
+    def on_settings_changed(self):
+        """Handle settings change - refresh preview"""
+        self.preview.refresh_preview()
+        
+    def on_video_changed(self, video_path: str):
+        """Handle video selection change"""
+        if not video_path:
+            self.preview.clear_video()
+            self.app_state.tracks.available_video_tracks = []
+            self.app_state.tracks.available_audio_tracks = []
+            self.enc_panel.populate_video_tracks([])
+            self.enc_panel.populate_audio_tracks([])
+            self.multi_track_panel.populate_audio_tracks([])
+            self.multi_track_panel.populate_subtitle_tracks([])
+            return
+
+        if self.app_state.image_sequence.enabled and video_path == self.app_state.image_sequence.folder_path:
+            fps_float = self._parse_framerate(self.app_state.encoding.framerate)
+            self.preview.set_image_sequence(
+                self.app_state.image_sequence.image_files,
+                fps_float
+            )
+            return
+
+        self.preview.set_video(video_path)
+        self.trim_panel.detect_tracks(video_path)
+
+        # Clear external audio when new video is loaded (audio is specific to each video)
+        if hasattr(self.app_state.tracks, 'external_audio_enabled'):
+            self.app_state.tracks.external_audio_enabled = False
+            self.app_state.tracks.external_audio_path = ""
+            self.app_state.tracks.external_audio_info = ""
+            # Reset the UI if enc_panel exists
+            if hasattr(self, 'enc_panel') and hasattr(self.enc_panel, 'on_clear_external_audio'):
+                self.enc_panel.external_audio_path.clear()
+                self.enc_panel.external_audio_path.setToolTip("")
+                self.enc_panel.external_audio_info.setText("No audio file selected")
+                self.enc_panel.external_audio_info.setStyleSheet("color: gray; font-size: 11px;")
+                self.enc_panel.external_audio_check.setChecked(False)
+                self.enc_panel.external_audio_path.setEnabled(False)
+                self.enc_panel.clear_audio_btn.setEnabled(False)
+                self.enc_panel.browse_audio_btn.setEnabled(False)
+
+        # Detect video and audio tracks and populate encoding panel
+        from controller import VideoController
+        controller = VideoController(self.app_state)
+
+        # Video tracks
+        video_tracks = controller.get_video_tracks(video_path)
+        if video_tracks:
+            from models import VideoTrackInfo
+            video_track_infos = []
+            for track in video_tracks:
+                vtrack_info = VideoTrackInfo(
+                    index=track['index'],
+                    codec=track['codec'],
+                    width=track['width'],
+                    height=track['height'],
+                    fps=track['fps'],
+                    language=track['language'],
+                    title=track['title']
+                )
+                video_track_infos.append(vtrack_info)
+            self.app_state.tracks.available_video_tracks = video_track_infos
+            self.enc_panel.populate_video_tracks(video_track_infos)
+            self.app_state.log(f"Detected {len(video_track_infos)} video track(s)", "INFO")
+        else:
+            self.app_state.tracks.available_video_tracks = []
+            self.enc_panel.populate_video_tracks([])
+
+        # Audio tracks
+        audio_tracks = controller.get_audio_tracks(video_path)
+        if audio_tracks:
+            from models import AudioTrackInfo
+            track_infos = []
+            for track in audio_tracks:
+                track_info = AudioTrackInfo(
+                    index=track['index'],
+                    codec=track['codec'],
+                    channels=track['channels'],
+                    sample_rate=track['sample_rate'],
+                    language=track['language'],
+                    title=track['title']
+                )
+                track_infos.append(track_info)
+
+            self.app_state.tracks.available_audio_tracks = track_infos
+            self.enc_panel.populate_audio_tracks(track_infos)
+            self.multi_track_panel.populate_audio_tracks(track_infos)
+            self.app_state.log(f"Detected {len(track_infos)} audio track(s)", "INFO")
+        else:
+            self.app_state.tracks.available_audio_tracks = []
+            self.enc_panel.populate_audio_tracks([])
+            self.multi_track_panel.populate_audio_tracks([])
+
+        # Subtitle tracks (embedded)
+        subtitle_tracks = controller.get_subtitle_tracks(video_path)
+        if subtitle_tracks:
+            from models import SubtitleTrackInfo
+            sub_track_infos = []
+            for track in subtitle_tracks:
+                sub_track_info = SubtitleTrackInfo(
+                    index=track['index'],
+                    codec=track['codec'],
+                    language=track['language'],
+                    title=track['title']
+                )
+                sub_track_infos.append(sub_track_info)
+            self.app_state.tracks.available_subtitle_tracks = sub_track_infos
+            self.multi_track_panel.populate_subtitle_tracks(sub_track_infos)
+            self.app_state.log(f"Detected {len(sub_track_infos)} embedded subtitle track(s)", "INFO")
+        else:
+            self.app_state.tracks.available_subtitle_tracks = []
+            self.multi_track_panel.populate_subtitle_tracks([])
+            
+    def on_cut_point_set(self, position: float):
+        """Handle adding a new cut point"""
+        # Format time display from position
+        mins, secs = divmod(int(position), 60)
+        hours = mins // 60
+        mins = mins % 60
+        if hours > 0:
+            time_str = f"{hours}:{mins:02d}:{secs:02d}"
+        else:
+            time_str = f"{mins}:{secs:02d}"
+        
+        # Add the cut point to the list
+        cut_point = self.app_state.cut.add_point(position, time_str)
+        
+        # Get segment info for display
+        sorted_cuts = self.app_state.cut.get_sorted_points()
+        segment_info = self._get_segment_info_for_cut(cut_point, sorted_cuts)
+        
+        # Add to UI list
+        self.trim_panel.add_cut_to_list(cut_point, segment_info)
+        
+        # Update timeline markers
+        self._update_timeline_markers()
+        
+        # Update segments info
+        self.trim_panel._update_segments_list()
+        
+        self.app_state.log(f"Added cut point at {time_str}", "INFO")
+    
+    def on_cut_removed(self, cut_id: str):
+        """Handle removing a cut point"""
+        if self.app_state.cut.remove_point(cut_id):
+            self.trim_panel.remove_cut_from_list(cut_id)
+            self._update_timeline_markers()
+            
+            # Update segments info
+            self.trim_panel._update_segments_list()
+            
+            self.app_state.log(f"Removed cut point", "INFO")
+    
+    def on_clear_all_cuts(self):
+        """Handle clearing all cut points"""
+        self.app_state.cut.clear_all()
+        self.app_state.cut.clear_deleted_segments()
+        self.trim_panel.clear_all_cuts_from_list()
+        self._update_timeline_markers()
+        self.trim_panel._update_segments_list()
+        self.preview.clear_deleted_segments()
+        self.app_state.log("Cleared all cut points", "INFO")
+    
+    def on_delete_segment(self, start_cut_id: str, end_cut_id: str):
+        """Handle delete segment between 2 cuts"""
+        # Find the cut points
+        start_cut = None
+        end_cut = None
+        for cut in self.app_state.cut.points:
+            if cut.cut_id == start_cut_id:
+                start_cut = cut
+            elif cut.cut_id == end_cut_id:
+                end_cut = cut
+        
+        if not start_cut or not end_cut:
+            self.app_state.log("Could not find selected cuts", "ERROR")
+            return
+        
+        # Sort by position to get correct start/end
+        if start_cut.position > end_cut.position:
+            start_cut, end_cut = end_cut, start_cut
+        
+        deleted_start = start_cut.position
+        deleted_end = end_cut.position
+        
+        # Log what we're removing
+        self.app_state.log(f"Deleting segment between {start_cut.time_display} and {end_cut.time_display}", "INFO")
+        
+        # Track the deleted segment for preview playback
+        self.app_state.cut.add_deleted_segment(deleted_start, deleted_end)
+        
+        # Remove both cut points (the segment between them is deleted)
+        self.app_state.cut.remove_point(start_cut_id)
+        self.app_state.cut.remove_point(end_cut_id)
+        
+        # Update UI
+        self.trim_panel.remove_cuts_from_list([start_cut_id, end_cut_id])
+        self._update_timeline_markers()
+        self.trim_panel._update_segments_list()
+        
+        # Update preview to skip deleted segments
+        self.preview.update_deleted_segments(self.app_state.cut.deleted_segments)
+        
+        self.app_state.log("Segment removed - cuts deleted and remaining parts will be joined during encoding", "INFO")
+    
+    def _get_segment_info_for_cut(self, cut_point, sorted_cuts):
+        """Get segment duration info for a cut point"""
+        # Find the index of this cut
+        for i, cut in enumerate(sorted_cuts):
+            if cut.cut_id == cut_point.cut_id:
+                # Calculate segment duration
+                if i == 0:
+                    # First cut - segment is from 0 to this cut
+                    return f"0:00 - {cut_point.time_display}"
+                else:
+                    # Subsequent cut - segment is from previous cut to this cut
+                    return f"{sorted_cuts[i-1].time_display} - {cut_point.time_display}"
+        return ""
+    
+    def _update_timeline_markers(self):
+        """Update the timeline with current cut markers"""
+        cut_points = [(cut.position, cut.cut_id) for cut in self.app_state.cut.points]
+        self.preview.update_cut_markers(cut_points)
+        
+    def on_execute_cuts(self, segments_data):
+        """Handle execute cuts - encode selected segments only (runs in background thread)"""
+        if not self.app_state.input_files:
+            self.app_state.log("No video file loaded", "ERROR")
+            return
+            
+        if not segments_data:
+            self.app_state.log("No segments selected", "ERROR")
+            return
+        
+        # Show cancel button, hide encode button
+        self.encode_btn.setVisible(False)
+        self.cancel_btn.setVisible(True)
+        
+        self.app_state.log(f"Encoding {len(segments_data)} selected segment(s)", "INFO")
+        
+        # Start encoding in a separate thread to keep UI responsive
+        import threading
+        def cut_worker():
+            try:
+                self._execute_cuts_worker(segments_data)
+            finally:
+                # Re-enable encode button when done
+                self.encode_btn.setVisible(True)
+                self.cancel_btn.setVisible(False)
+        
+        self.cut_thread = threading.Thread(target=cut_worker, daemon=True)
+        self.cut_thread.start()
+    
+    def _execute_cuts_worker(self, segments_data):
+        """Worker method that does the actual encoding (runs in background thread)"""
+        input_file = self.app_state.input_files[0]
+        
+        # segments_data is list of (start_time, end_time, segment_name) tuples
+        # end_time = -1 means "end of video"
+        
+        # Initialize controller
+        from controller import VideoController
+        controller = VideoController(self.app_state)
+        self._cut_controller = controller
+        
+        # Get video duration
+        duration = controller.get_video_duration(input_file)
+        if duration == 0:
+            self.app_state.log("Could not determine video duration", "ERROR")
+            return
+        
+        self.app_state.log(f"Video duration: {duration:.2f} seconds ({duration/60:.2f} minutes)", "INFO")
+        
+        # Check for deleted segments - need to exclude them during encoding
+        deleted_segments = self.app_state.cut.deleted_segments
+        has_deleted = deleted_segments and len(deleted_segments) > 0
+        
+        # If deleted segments exist, build segments that exclude them
+        if has_deleted:
+            # Sort deleted segments
+            sorted_del = sorted(deleted_segments, key=lambda x: x[0])
+            segments_to_encode = []
+            current_start = 0.0
+            
+            for del_start, del_end in sorted_del:
+                if current_start < del_start:
+                    segments_to_encode.append((current_start, del_start))
+                current_start = del_end
+            
+            # Add final segment to end
+            if current_start < duration:
+                segments_to_encode.append((current_start, duration))
+            
+            self.app_state.log(f"Deleted segments: {len(deleted_segments)} - will be excluded from output", "INFO")
+            needs_join = True  # Must join because we have gaps
+        else:
+            # Normal case: use segments from UI
+            segments_to_encode = []
+            for seg_start, seg_end, seg_name in segments_data:
+                if seg_end == -1:
+                    seg_end = duration
+                segments_to_encode.append((seg_start, seg_end))
+            
+            # Check if segments are contiguous (no gaps = can use fast cut or normal encode)
+            # If there are gaps, we need to join
+            segments_to_encode.sort()
+            needs_join = False
+            for i in range(len(segments_to_encode) - 1):
+                current_end = segments_to_encode[i][1]
+                next_start = segments_to_encode[i + 1][0]
+                if abs(current_end - next_start) > 0.1:
+                    needs_join = True
+                    break
+            
+            # If only 1 segment OR segments are contiguous, use fast cut/encode
+            if len(segments_to_encode) == 1:
+                needs_join = False
+        
+        # If only 1 segment OR segments are contiguous, use fast cut/encode
+        # If multiple non-contiguous segments, need join mode
+        
+        # Check if we can do fast cut (stream copy) - only when no filters or re-encoding needed
+        # Note: External audio requires re-encoding, so we can't use fast cut
+        # Also: join mode requires re-encode
+        external_audio_enabled = getattr(self.app_state.tracks, 'external_audio_enabled', False)
+        external_audio_path = getattr(self.app_state.tracks, 'external_audio_path', '')
+        has_external_audio = external_audio_enabled and external_audio_path
+        
+        can_fast_cut = (
+            not needs_join and
+            self.app_state.encoding.video_mode == "copy" and
+            self.app_state.encoding.resolution == "none" and
+            not self.app_state.filters.deinterlace and
+            not self.app_state.filters.denoise and
+            not getattr(self.app_state.filters, 'delogo_enabled', False) and
+            not self.app_state.eq.enabled and
+            not self.app_state.subtitles.burn_subs and
+            not self.app_state.filters.volume_enabled and
+            not getattr(self.app_state.filters, 'audio_denoise', False) and
+            not getattr(self.app_state.filters, 'audio_dynnorm', False) and
+            not getattr(self.app_state.filters, 'audio_compressor', False) and
+            not getattr(self.app_state.filters, 'audio_room_fix', False) and
+            not has_external_audio  # External audio requires re-encoding
+        )
+        # Generate output paths
+        import os
+        from pathlib import Path
+        is_dvd_concat = input_file.endswith('.txt') and self.app_state.dvd.is_dvd_source
+        if is_dvd_concat:
+            base_name = f"dvd_title_{self.app_state.dvd.selected_title_number}"
+        else:
+            base_name = Path(input_file).stem
+        output_folder = self.app_state.output_folder
+        if not output_folder:
+            if is_dvd_concat and self.app_state.dvd.dvd_folder_path:
+                output_folder = os.path.dirname(self.app_state.dvd.dvd_folder_path)
+            else:
+                output_folder = os.path.dirname(input_file)
+        container = self.app_state.encoding.container
+        
+        # Single output path for joined output
+        if needs_join or len(segments_to_encode) > 1:
+            output_path = os.path.join(output_folder, f"{base_name}_joined.{container}")
+        else:
+            output_path = os.path.join(output_folder, f"{base_name}_{segments_data[0][2]}.{container}")
+        
+        # Handle duplicates
+        counter = 1
+        while os.path.exists(output_path):
+            output_path = os.path.join(output_folder, f"{base_name}_joined_{counter}.{container}")
+            counter += 1
+        
+        # Handle join mode (deleted segment case)
+        if needs_join:
+            self.app_state.log(f"Segments have gaps - using join mode to merge {len(segments_to_encode)} parts", "INFO")
+            
+            video_settings = {
+                "codec": "libx264" if not self.app_state.encoding.use_gpu else "h264_nvenc",
+                "crf": self.app_state.encoding.cq,
+                "preset": self.app_state.encoding.cpu_preset if not self.app_state.encoding.use_gpu else self.app_state.encoding.gpu_preset
+            }
+            audio_settings = {
+                "codec": self.app_state.encoding.audio_codec,
+                "bitrate": "128k"
+            }
+            
+            success = controller.join_segments(
+                input_file,
+                output_path,
+                segments_to_encode,
+                video_settings,
+                audio_settings
+            )
+            
+            if success:
+                self.app_state.log(f"Successfully joined {len(segments_to_encode)} segment(s)!", "SUCCESS")
+            else:
+                self.app_state.log(f"Failed to join segments", "ERROR")
+            return
+        
+        # Encode each selected segment (original behavior for non-join case)
+        all_success = True
+        for i, (seg_start, seg_end, seg_name) in enumerate(segments_data, 1):
+            # Handle end = -1 (end of video)
+            if seg_end == -1:
+                seg_end = duration
+            
+            # Validate segment
+            if seg_start < 0 or seg_end <= seg_start:
+                self.app_state.log(f"Invalid segment: {seg_name} (start: {seg_start}, end: {seg_end})", "ERROR")
+                continue
+            
+            duration_sec = seg_end - seg_start
+            
+            # Skip very short segments
+            if duration_sec < 1:
+                self.app_state.log(f"Skipping {seg_name}: too short ({duration_sec:.1f}s)", "WARN")
+                continue
+            
+            # Generate output path
+            output_path = os.path.join(output_folder, f"{base_name}_{seg_name}.{container}")
+            
+            # Remove stale 0-byte files from previous runs
+            if os.path.exists(output_path) and os.path.getsize(output_path) == 0:
+                os.remove(output_path)
+            
+            # Check for existing file and append counter if needed
+            counter = 1
+            while os.path.exists(output_path):
+                output_path = os.path.join(output_folder, f"{base_name}_{seg_name}_{counter}.{container}")
+                counter += 1
+            
+            self.app_state.log(f"Processing {seg_name}: {self._format_time(seg_start)} - {self._format_time(seg_end)} ({duration_sec:.1f}s)", "INFO")
+            
+            if can_fast_cut:
+                success = controller.fast_cut_file(
+                    input_file,
+                    output_path,
+                    start_time=str(seg_start),
+                    duration=str(duration_sec)
+                )
+            else:
+                success = controller.encode_file(
+                    input_file,
+                    output_path,
+                    start_time=str(seg_start),
+                    duration=str(duration_sec)
+                )
+            
+            if not success:
+                self.app_state.log(f"Failed to encode {seg_name}", "ERROR")
+                all_success = False
+                break
+        
+        if all_success:
+            self.app_state.log(f"Successfully encoded {len(segments_data)} segment(s)!", "SUCCESS")
+        
+        self._cut_controller = None
+    
+    def _format_time(self, seconds: float) -> str:
+        """Format seconds as time string"""
+        mins, secs = divmod(int(seconds), 60)
+        hours = mins // 60
+        mins = mins % 60
+        if hours > 0:
+            return f"{hours}:{mins:02d}:{secs:02d}"
+        else:
+            return f"{mins:02d}:{secs:02d}"
+    
+    def on_cut_marker_clicked(self, position: float, cut_id: str):
+        """Handle click on timeline cut marker - select in list"""
+        # Find and select the cut in the list
+        self.trim_panel.select_cut_by_id(cut_id)
+        self.app_state.log(f"Selected cut at {self._format_time(position)}", "INFO")
+
+    def _split_subtitle_file(self, sub_path: str, output_path: str, start_sec: float, end_sec: float):
+        """Split an SRT subtitle file to only include subtitles within [start_sec, end_sec)"""
+        if not os.path.exists(sub_path):
+            self.app_state.log(f"Subtitle file not found: {sub_path}", "WARN")
+            return
+        ext = os.path.splitext(sub_path)[1].lower()
+        if ext != ".srt":
+            self.app_state.log(f"Subtitle splitting only supports SRT format, got {ext}", "WARN")
+            return
+        try:
+            with open(sub_path, "r", encoding="utf-8-sig") as f:
+                content = f.read()
+        except Exception as e:
+            self.app_state.log(f"Failed to read subtitle file: {e}", "ERROR")
+            return
+
+        def _parse_srt_time(t_str: str) -> float:
+            m = re.match(r"(\d{2}):(\d{2}):(\d{2})[.,](\d{3})", t_str.strip())
+            if not m:
+                return -1
+            h, mn, s, ms = map(int, m.groups())
+            return h * 3600 + mn * 60 + s + ms / 1000
+
+        def _format_srt_time(t: float) -> str:
+            h = int(t // 3600)
+            m = int((t % 3600) // 60)
+            s = int(t % 60)
+            ms = int((t - int(t)) * 1000)
+            return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+        blocks = re.split(r"\n\s*\n", content.strip())
+        new_blocks = []
+        idx = 1
+        for block in blocks:
+            lines = block.strip().split("\n")
+            if len(lines) < 3:
+                continue
+            time_line = lines[1]
+            m = re.match(
+                r"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})",
+                time_line,
+            )
+            if not m:
+                continue
+            sub_start = _parse_srt_time(m.group(1))
+            sub_end = _parse_srt_time(m.group(2))
+            if sub_start < 0 or sub_end < 0:
+                continue
+            if sub_start >= end_sec or sub_end <= start_sec:
+                continue
+            new_start = max(sub_start - start_sec, 0)
+            new_end = min(sub_end, end_sec) - start_sec
+            if new_end <= new_start:
+                continue
+            lines[0] = str(idx)
+            lines[1] = f"{_format_srt_time(new_start)} --> {_format_srt_time(new_end)}"
+            new_blocks.append("\n".join(lines))
+            idx += 1
+
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write("\n\n".join(new_blocks) + "\n")
+            self.app_state.log(f"Split subtitle saved: {output_path}", "INFO")
+        except Exception as e:
+            self.app_state.log(f"Failed to write split subtitle: {e}", "ERROR")
+
+    def on_encode_clicked(self):
+        """Handle encode button click"""
+        if not self.app_state.input_files and not self.app_state.extra.generate_video:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "No Files", "Please add video files first.")
+            return
+            
+        # Initialize controller and start encoding
+        from controller import VideoController
+        self.controller = VideoController(self.app_state)
+        
+        # Show cancel button, hide encode button
+        self.encode_btn.setVisible(False)
+        self.cancel_btn.setVisible(True)
+        
+        # Resolve output path for generated video (main thread — QFileDialog)
+        gen_output_path = None
+        if self.app_state.extra.generate_video:
+            container = self.app_state.encoding.container
+            if self.app_state.output_folder:
+                gen_output_path = os.path.join(self.app_state.output_folder, f"generated_video.{container}")
+            else:
+                from PySide6.QtWidgets import QFileDialog
+                gen_output_path, _ = QFileDialog.getSaveFileName(
+                    self, "Save Generated Video", f"generated_video.{container}",
+                    f"Video (*.{container})")
+                if not gen_output_path:
+                    self.encode_btn.setVisible(True)
+                    self.cancel_btn.setVisible(False)
+                    return
+        
+        # Start encoding in a separate thread to keep UI responsive
+        import threading
+        def encode_worker():
+            split = self.app_state.split
+            subs = self.app_state.subtitles
+            
+            # Handle standalone generated video
+            if self.app_state.extra.generate_video:
+                success = self.controller.encode_file(None, gen_output_path)
+                if not success:
+                    self.app_state.log("Failed to generate video", "ERROR")
+                self.encode_btn.setVisible(True)
+                self.cancel_btn.setVisible(False)
+                return
+
+            # Handle image sequence (folder of images → video)
+            if self.app_state.image_sequence.enabled:
+                folder_path = self.app_state.image_sequence.folder_path
+                output_path = self.controller.generate_output_path(folder_path)
+                success = self.controller.encode_file(folder_path, output_path)
+                if not success:
+                    self.app_state.log("Failed to encode image sequence", "ERROR")
+                self.encode_btn.setVisible(True)
+                self.cancel_btn.setVisible(False)
+                return
+            
+            for input_file in self.app_state.input_files:
+                if split.enabled:
+                    # Split by duration
+                    duration = self.controller.get_video_duration(input_file)
+                    if duration <= 0:
+                        self.app_state.log(f"Failed to get duration for {input_file}", "ERROR")
+                        continue
+                    chunk_sec = split.split_duration_min * 60
+                    base = os.path.splitext(input_file)[0]
+                    out_base = os.path.splitext(self.controller.generate_output_path(input_file))[0]
+                    container = self.app_state.encoding.container
+                    n_segments = int((duration + chunk_sec - 1) // chunk_sec)
+                    is_copy = self.app_state.encoding.video_mode == "copy"
+                    for i in range(n_segments):
+                        seg_start = i * chunk_sec
+                        seg_end = min(seg_start + chunk_sec, duration)
+                        dur = seg_end - seg_start
+                        seg_output = f"{out_base}_Part{i+1:02d}.{container}"
+                        self.app_state.log(
+                            f"Segment {i+1}/{n_segments}: {self._format_time(seg_start)} - {self._format_time(seg_end)}", "INFO")
+                        # Split subtitles if enabled (independent of burn checkbox)
+                        if split.split_subs:
+                            sub_path = self.controller.backend.find_subtitle_file(input_file)
+                            if sub_path:
+                                seg_sub = f"{base}_Part{i+1:02d}.srt"
+                                self._split_subtitle_file(sub_path, seg_sub, seg_start, seg_end)
+                                if subs.burn_subs:
+                                    subs.selected_subtitle = seg_sub
+                        if is_copy:
+                            success = self.controller.fast_cut_file(
+                                input_file, seg_output,
+                                start_time=str(int(seg_start)), duration=str(int(dur)))
+                        else:
+                            success = self.controller.encode_file(
+                                input_file, seg_output,
+                                start_time=str(int(seg_start)), duration=str(int(dur)))
+                        if not success:
+                            self.app_state.log(f"Failed to encode segment {i+1} of {input_file}", "ERROR")
+                            break
+                else:
+                    output_path = self.controller.generate_output_path(input_file)
+                    success = self.controller.encode_file(input_file, output_path)
+                    if not success:
+                        self.app_state.log(f"Failed to encode: {input_file}", "ERROR")
+            
+            # Re-enable encode button when done
+            self.encode_btn.setVisible(True)
+            self.cancel_btn.setVisible(False)
+                    
+        self.encode_thread = threading.Thread(target=encode_worker, daemon=True)
+        self.encode_thread.start()
+        self.app_state.log(f"Started encoding {len(self.app_state.input_files)} file(s)...", "INFO")
+        
+    def on_cancel_clicked(self):
+        """Handle cancel button click"""
+        if self.controller and self.controller.is_encoding:
+            self.controller.cancel_encode()
+            self.app_state.log("Encoding cancelled by user", "INFO")
+        elif self._cut_controller and self._cut_controller.is_encoding:
+            self._cut_controller.cancel_encode()
+            self.app_state.log("Cut export cancelled by user", "INFO")
+        elif hasattr(self, 'enc_panel') and self.enc_panel.is_upscaling:
+            self.enc_panel.cancel_upscale()
+            self.enc_panel.reset_upscale_buttons()
+            self.app_state.log("Upscaling cancelled by user", "INFO")
+        
+        # Reset buttons
+        self.encode_btn.setVisible(True)
+        self.cancel_btn.setVisible(False)
+        
+    def on_upscaling_active(self, active: bool):
+        self.cancel_btn.setVisible(active)
+
+    def on_refresh_subtitles(self):
+        """Handle refresh subtitle files button click"""
+        self._scan_and_update_subtitles()
+        
+    def _scan_and_update_subtitles(self):
+        """Scan video folder for subtitle files and update combobox"""
+        import os
+        
+        if not self.app_state.input_files:
+            self.subs_panel.set_subtitle_files([])
+            return
+        
+        video_path = self.app_state.input_files[0]
+        video_dir = os.path.dirname(video_path)
+        
+        if not video_dir:
+            self.subs_panel.set_subtitle_files([])
+            return
+        
+        # Scan for subtitle files
+        sub_files = []
+        for f in os.listdir(video_dir):
+            if f.lower().endswith(('.srt', '.ass', '.ssa', '.sub')):
+                sub_files.append(os.path.join(video_dir, f))
+        
+        # Sort: .srt first, then alphabetically
+        sub_files.sort(key=lambda x: (0 if x.lower().endswith('.srt') else 1, os.path.basename(x).lower()))
+        
+        self.subs_panel.set_subtitle_files(sub_files)
+        
+    def on_extract_frames_requested(self, count: int, fmt: str):
+        """Handle frame extraction request from GeometryPanel"""
+        video_path = self.app_state.current_video_path
+        if not video_path or not os.path.exists(video_path):
+            QMessageBox.warning(self, "No Video", "No video file loaded.")
+            return
+
+        timestamp = self.preview.get_current_timestamp()
+        if self.app_state.dvd.is_dvd_source and video_path.endswith('.txt'):
+            video_path = self.app_state.dvd.dvd_folder_path
+            if not video_path:
+                QMessageBox.warning(self, "No Video", "DVD source not available.")
+                return
+
+        output_dir = os.path.dirname(os.path.abspath(video_path))
+
+        saved = self.app_state.backend.extract_frames_at_timestamp(
+            video_path, timestamp, count, output_dir, fmt
+        )
+
+        if saved:
+            self.app_state.log(
+                f"Extracted {len(saved)} frame(s) at {timestamp:.2f}s → {output_dir}", "SUCCESS")
+        else:
+            self.app_state.log(
+                f"Frame extraction failed at {timestamp:.2f}s — check ffmpeg path and video file", "ERROR")
+
+    def set_video(self, video_path: str):
+        """Set the current video"""
+        # Check if this is an image sequence
+        if self.app_state.image_sequence.enabled and video_path == self.app_state.image_sequence.folder_path:
+            fps_float = self._parse_framerate(self.app_state.encoding.framerate)
+            self.preview.set_image_sequence(
+                self.app_state.image_sequence.image_files,
+                fps_float
+            )
+            return
+
+        self.preview.set_video(video_path)
+        self.trim_panel.detect_tracks(video_path)
+        
+        # Scan for subtitle files in video folder
+        self._scan_and_update_subtitles()
+        
+        # Update DVD subtitle selector (will hide if not a DVD source)
+        self.subs_panel.update_dvd_subtitles()
+        
+        # Detect embedded subtitle tracks
+        from controller import VideoController
+        controller = VideoController(self.app_state)
+        subtitle_tracks = controller.get_subtitle_tracks(video_path)
+        if subtitle_tracks:
+            from models import SubtitleTrackInfo
+            sub_track_infos = []
+            for track in subtitle_tracks:
+                sub_track_info = SubtitleTrackInfo(
+                    index=track['index'],
+                    codec=track['codec'],
+                    language=track['language'],
+                    title=track['title']
+                )
+                sub_track_infos.append(sub_track_info)
+            self.app_state.tracks.available_subtitle_tracks = sub_track_infos
+            self.multi_track_panel.populate_subtitle_tracks(sub_track_infos)
+        else:
+            self.app_state.tracks.available_subtitle_tracks = []
+            self.multi_track_panel.populate_subtitle_tracks([])
+
+    @staticmethod
+    def _parse_framerate(fps_str: str) -> float:
+        """Parse framerate string like '24000/1001' or '30' to float"""
+        try:
+            if '/' in fps_str:
+                num, den = fps_str.split('/')
+                return float(num) / float(den)
+            return float(fps_str)
+        except (ValueError, ZeroDivisionError):
+            return 24.0

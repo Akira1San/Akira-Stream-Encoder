@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+venv/
+.venv/
+
+# Local machine settings (user keeps their own copy)
+settings.json
+
+# Local-only notes and roadmaps
+plans/
+todo/
+
+# Local tests and generated media
+test/
+
+# Encoder outputs
+PySide6/output/
+
+# Backups / OS junk
+*.backup
+*.bak
+*~
+.DS_Store
+Thumbs.db
