@@ -248,6 +248,40 @@ class FiltersPanel(QWidget):
         )
         video_layout.addWidget(self.compressor_check)
 
+        self.upmix_check = QCheckBox("Upmix Mono to Stereo (1ch to 2ch)")
+        self.upmix_check.setChecked(self.app_state.filters.audio_upmix_mono_to_stereo)
+        self.upmix_check.setToolTip(
+            "Copy one audio channel to left + right (dual-mono stereo).\n"
+            "For one-sided stereo files (sound only on L or R), pick the source below.\n"
+            "Set Audio Channels to 2 (Stereo) and Audio Mode to Encode.\n"
+            "Ignored on Copy. Folds true stereo to mono — leave off for real stereo.\n"
+            "FFmpeg only."
+        )
+        video_layout.addWidget(self.upmix_check)
+
+        upmix_source_layout = QHBoxLayout()
+        upmix_source_layout.addWidget(QLabel("  Upmix source:"))
+        self.upmix_source_combo = QComboBox()
+        self.upmix_source_combo.addItems([
+            "Mix L+R (both sides)", "Left channel", "Right channel"
+        ])
+        source_display = {
+            "mix": "Mix L+R (both sides)",
+            "left": "Left channel",
+            "right": "Right channel",
+        }
+        self.upmix_source_combo.setCurrentText(
+            source_display.get(self.app_state.filters.audio_upmix_source, "Mix L+R (both sides)"))
+        self.upmix_source_combo.setEnabled(self.app_state.filters.audio_upmix_mono_to_stereo)
+        self.upmix_source_combo.setToolTip(
+            "Which side feeds both speakers when upmixing:\n"
+            "Mix L+R: average of both sides (safe for left-only, right-only, mono).\n"
+            "Left / Right: duplicate that side (silent if that side is empty)."
+        )
+        upmix_source_layout.addWidget(self.upmix_source_combo)
+        upmix_source_layout.addStretch()
+        video_layout.addLayout(upmix_source_layout)
+
         # Room Sound Reduction
         self.room_fix_check = QCheckBox("Room Sound Reduction (Reverb / Mud / Echo)")
         self.room_fix_check.setChecked(self.app_state.filters.audio_room_fix)
@@ -734,6 +768,10 @@ class FiltersPanel(QWidget):
                                    "Dynamic Normalizer (dynaudnorm)" if is_gst else "")
         self._set_enabled_with_tip(self.compressor_check, support.get('audio_compressor', True),
                                    "Audio Compressor (acompressor)" if is_gst else "")
+        self._set_enabled_with_tip(self.upmix_check, support.get('audio_upmix_mono_to_stereo', True),
+                                   "Upmix Mono to Stereo" if is_gst else "")
+        self.upmix_source_combo.setEnabled(
+            support.get('audio_upmix_mono_to_stereo', True) and self.upmix_check.isChecked())
         self._set_enabled_with_tip(self.room_fix_check, support.get('audio_room_fix', True),
                                    "Room Sound Reduction" if is_gst else "")
         room_en = support.get('audio_room_fix', True) and self.room_fix_check.isChecked()
@@ -802,6 +840,8 @@ class FiltersPanel(QWidget):
         self.vol_edit.textChanged.connect(self.on_vol_changed)
         self.dynnorm_check.toggled.connect(self.on_dynnorm_changed)
         self.compressor_check.toggled.connect(self.on_compressor_changed)
+        self.upmix_check.toggled.connect(self.on_upmix_changed)
+        self.upmix_source_combo.currentTextChanged.connect(self.on_upmix_source_changed)
         self.room_fix_check.toggled.connect(self.on_room_fix_changed)
         self.room_fix_strength_slider.valueChanged.connect(self.on_room_fix_strength_changed)
         self.room_fix_strength_input.valueChanged.connect(self.on_room_fix_strength_input_changed)
@@ -1105,6 +1145,22 @@ class FiltersPanel(QWidget):
         self.app_state.filters.audio_compressor = checked
         self.settings_changed.emit()
 
+    def on_upmix_changed(self, checked):
+        """Handle mono-to-stereo upmix checkbox change"""
+        self.app_state.filters.audio_upmix_mono_to_stereo = checked
+        self.upmix_source_combo.setEnabled(checked and self.upmix_check.isEnabled())
+        self.settings_changed.emit()
+
+    def on_upmix_source_changed(self, text):
+        """Handle upmix source selection change"""
+        mapping = {
+            "Mix L+R (both sides)": "mix",
+            "Left channel": "left",
+            "Right channel": "right",
+        }
+        self.app_state.filters.audio_upmix_source = mapping.get(text, "mix")
+        self.settings_changed.emit()
+
     def on_room_fix_changed(self, checked):
         """Handle room sound reduction checkbox change"""
         self.app_state.filters.audio_room_fix = checked
@@ -1188,6 +1244,8 @@ class FiltersPanel(QWidget):
         self.app_state.filters.volume_db = 0.0
         self.app_state.filters.audio_dynnorm = False
         self.app_state.filters.audio_compressor = False
+        self.app_state.filters.audio_upmix_mono_to_stereo = False
+        self.app_state.filters.audio_upmix_source = "mix"
         self.app_state.filters.audio_room_fix = False
         self.app_state.filters.audio_room_fix_strength = 0.5
         self.app_state.filters.audio_delay_enabled = False
@@ -1261,6 +1319,8 @@ class FiltersPanel(QWidget):
         self.vol_edit.setEnabled(False)
         self.dynnorm_check.setChecked(False)
         self.compressor_check.setChecked(False)
+        self.upmix_check.setChecked(False)
+        self.upmix_source_combo.setCurrentText("Mix L+R (both sides)")
         self.room_fix_check.setChecked(False)
         self.room_fix_strength_slider.setValue(50)
         self.room_fix_strength_input.setValue(0.5)

@@ -609,6 +609,9 @@ class GStreamerBackend(MediaBackend):
         if getattr(filters, 'audio_delay_enabled', False) and filters.audio_delay_ms > 0:
             self._log_unsupported("audio delay")
 
+        if getattr(filters, 'audio_upmix_mono_to_stereo', False):
+            self._log_unsupported("mono-to-stereo upmix (use FFmpeg engine)")
+
         if audio_copy:
             elements.append("identity")
         else:
@@ -1267,4 +1270,5 @@ class GStreamerBackend(MediaBackend):
             'audio_compressor': self._element_available('audiocompressor'),
             'audio_room_fix': False,  # no room/reverb reduction in GStreamer
             'audio_delay': False,    # audio delay not implemented
+            'audio_upmix_mono_to_stereo': False,  # pan upmix needs FFmpeg
         }

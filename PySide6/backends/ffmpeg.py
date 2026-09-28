@@ -549,6 +549,7 @@ class FFmpegBackend(MediaBackend):
             'audio_compressor': True,
             'audio_room_fix': True,
             'audio_delay': True,
+            'audio_upmix_mono_to_stereo': True,
         }
 
     def get_file_info(self, input_path: str) -> dict:
@@ -879,6 +880,8 @@ class FFmpegBackend(MediaBackend):
             delay_ms = filters.audio_delay_ms
             if delay_ms > 0:
                 audio_filters.append(f"adelay={delay_ms}|{delay_ms}")
+        if getattr(filters, 'audio_upmix_mono_to_stereo', False):
+            audio_filters.append(self._upmix_filter())
 
         # ── Extra: Text overlays (drawtext) ──
         extra = app_state.extra
@@ -892,6 +895,25 @@ class FFmpegBackend(MediaBackend):
             ",".join(video_filters) if video_filters else "",
             ",".join(audio_filters) if audio_filters else ""
         )
+
+    @staticmethod
+    def _upmix_pan_for_source(source: str) -> str:
+        """Return the pan mapping for the selected upmix source side."""
+        if source == "left":
+            return "pan=stereo|c0=c0|c1=c0"
+        if source == "right":
+            return "pan=stereo|c0=c1|c1=c1"
+        return "pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1"
+
+    def _upmix_filter(self) -> str:
+        """Build the mono-to-stereo upmix filter chain.
+
+        aformat first guarantees a stereo frame (duplicates true mono),
+        so the pan mapping is valid for mono, one-sided stereo and
+        unknown layouts alike.
+        """
+        source = getattr(self.app_state.filters, 'audio_upmix_source', 'mix')
+        return f"aformat=channel_layouts=stereo,{self._upmix_pan_for_source(source)}"
 
     # ── Extra: Text Overlays (drawtext) ─────────────────────────────
 

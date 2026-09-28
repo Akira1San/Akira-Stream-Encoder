@@ -621,6 +621,7 @@ class VideoWorkspace(QWidget):
             not getattr(self.app_state.filters, 'audio_dynnorm', False) and
             not getattr(self.app_state.filters, 'audio_compressor', False) and
             not getattr(self.app_state.filters, 'audio_room_fix', False) and
+            not getattr(self.app_state.filters, 'audio_upmix_mono_to_stereo', False) and
             not has_external_audio  # External audio requires re-encoding
         )
         # Generate output paths

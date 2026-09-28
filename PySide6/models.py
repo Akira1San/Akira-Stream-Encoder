@@ -150,6 +150,8 @@ class FilterSettings:
     stretch_fill: bool = False
     audio_dynnorm: bool = False
     audio_compressor: bool = False
+    audio_upmix_mono_to_stereo: bool = False
+    audio_upmix_source: str = "mix"  # mix (L+R average) / left / right
     # Room Sound Reduction (room reverb / mud / echo)
     audio_room_fix: bool = False
     audio_room_fix_strength: float = 0.5  # 0.0 (light) - 1.0 (strong)
