@@ -179,6 +179,7 @@ class MediaBackend(ABC):
             - 'eq_saturation'       (videobalance saturation)
             - 'eq_gamma'            (gamma element)
             - 'white_balance'       (colorbalance)
+            - 'color_boost'         (vibrance / colortemperature / colorlevels / curves, FFmpeg only)
 
           Colorization (B&W → Color):
             - 'colorization'        (colorchannelmixer / pseudocolor / lut3d)

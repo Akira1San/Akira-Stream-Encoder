@@ -1259,6 +1259,7 @@ class GStreamerBackend(MediaBackend):
             'eq_saturation': self._element_available('videobalance'),
             'eq_gamma': self._element_available('gamma'),
             'white_balance': False,  # colorbalance not available in GStreamer
+            'color_boost': False,  # vibrance/colortemperature/colorlevels/curves need FFmpeg
             # Colorization (B&W → Color)
             'colorization': False,
             # AI Colorization (ECCV16 / DeOldify)

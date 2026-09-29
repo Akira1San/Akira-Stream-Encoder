@@ -20,7 +20,7 @@ from PySide6.QtCore import Qt, Signal, QThread, QObject, QBuffer, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QPen
 
 from video_player import VideoPlayer
-from backends.ffmpeg import build_audio_denoise_filter
+from backends.ffmpeg import build_audio_denoise_filter, build_color_boost_filters
 from PySide6.QtMultimediaWidgets import QVideoWidget
 
 
@@ -1869,6 +1869,10 @@ class VideoPreview(QWidget):
             
             if wb_params:
                 filters.append(f"colorbalance={':'.join(wb_params)}")
+
+        # Color Boost (fix dull/gray/washed-out color, FFmpeg only).
+        # Same order as the encode chain in FFmpegBackend.build_filter_string.
+        filters.extend(build_color_boost_filters(self.app_state.eq))
 
         # Colorization (B&W → Color)
         colorization = self.app_state.colorization

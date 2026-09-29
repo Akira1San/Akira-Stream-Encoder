@@ -92,6 +92,16 @@ class EQSettings:
     gamma_r: float = 1.0
     gamma_g: float = 1.0
     gamma_b: float = 1.0
+    # Color Boost (fix dull/gray/washed-out color video, FFmpeg only)
+    boost_enabled: bool = False
+    boost_preset: str = "none"  # none / dull_fix / vivid / warm_vivid / cool_clean / fade_fix / vhs_restore
+    vibrance: float = 0.0       # -1.0 to +1.0 (smart saturation, spares skin tones)
+    boost_saturation: float = 1.0  # 0.0-3.0 extra saturation for dull footage
+    color_temperature: float = 0.0  # -1.0 (cool) to +1.0 (warm)
+    tint: float = 0.0           # -1.0 (green) to +1.0 (magenta)
+    black_point: float = 0.0    # 0.0-0.2 crush lifted blacks
+    white_point: float = 1.0    # 0.8-1.0 pull down blown whites
+    clarity: float = 0.0        # 0.0-1.0 S-curve midtone contrast
     # White Balance settings (colorbalance filter)
     white_balance_enabled: bool = False
     wb_shadows_r: float = 0.0  # -1.0 to 1.0

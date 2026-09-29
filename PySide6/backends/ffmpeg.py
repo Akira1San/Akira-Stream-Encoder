@@ -11,6 +11,66 @@ from typing import Optional, List, Dict, Any
 from backends.base import MediaBackend
 
 
+def build_color_boost_filters(eq) -> list:
+    """Build Color Boost (fix dull/gray) FFmpeg video filters.
+
+    Order: eq(saturation) -> vibrance -> colortemperature ->
+           colorbalance(tint) -> colorlevels -> curves.
+    Returns a list of filter strings (empty when disabled/no-op).
+    """
+    filters = []
+    if not getattr(eq, 'boost_enabled', False):
+        return filters
+
+    sat = float(getattr(eq, 'boost_saturation', 1.0))
+    if sat != 1.0:
+        sat = max(0.0, min(3.0, sat))
+        filters.append(f"eq=saturation={sat:.3f}")
+
+    vib = float(getattr(eq, 'vibrance', 0.0))
+    if vib != 0.0:
+        vib = max(-1.0, min(1.0, vib))
+        filters.append(f"vibrance=intensity={vib:.3f}")
+
+    temp = float(getattr(eq, 'color_temperature', 0.0))
+    if temp != 0.0:
+        temp = max(-1.0, min(1.0, temp))
+        # Lower Kelvin = warmer. +1 -> ~4500K (warm), -1 -> ~8500K (cool).
+        kelvin = int(round(6500 - temp * 2000))
+        mix = min(1.0, abs(temp))
+        filters.append(f"colortemperature=temperature={kelvin}:mix={mix:.3f}")
+
+    tint = float(getattr(eq, 'tint', 0.0))
+    if tint != 0.0:
+        tint = max(-1.0, min(1.0, tint))
+        # Magenta (+): -green, +red/blue. Green (-): inverse. Midtones only
+        # to avoid crushing shadows/highlights. Chains fine with WB filter.
+        g = -tint * 0.5
+        r = tint * 0.25
+        b = tint * 0.25
+        filters.append(f"colorbalance=rm={r:.3f}:gm={g:.3f}:bm={b:.3f}")
+
+    black = float(getattr(eq, 'black_point', 0.0))
+    white = float(getattr(eq, 'white_point', 1.0))
+    if black != 0.0 or white != 1.0:
+        black = max(0.0, min(0.2, black))
+        white = max(0.8, min(1.0, white))
+        filters.append(
+            f"colorlevels=rimin={black:.3f}:gimin={black:.3f}:bimin={black:.3f}"
+            f":rimax={white:.3f}:gimax={white:.3f}:bimax={white:.3f}"
+        )
+
+    clarity = float(getattr(eq, 'clarity', 0.0))
+    if clarity != 0.0:
+        clarity = max(0.0, min(1.0, clarity))
+        d = clarity * 0.08
+        lo = 0.25 - d
+        hi = 0.75 + d
+        filters.append(f"curves=all='0/0 0.25/{lo:.3f} 0.75/{hi:.3f} 1/1'")
+
+    return filters
+
+
 def build_audio_denoise_filter(filters):
     """Build the audio denoise filter string, or None when disabled.
 
@@ -538,6 +598,7 @@ class FFmpegBackend(MediaBackend):
             'eq_saturation': True,
             'eq_gamma': True,
             'white_balance': True,
+            'color_boost': True,
             # Colorization (B&W → Color)
             'colorization': True,
             # AI Colorization (ECCV16 / DeOldify)
@@ -822,6 +883,9 @@ class FFmpegBackend(MediaBackend):
                 wb_params.append(f"bh={eq.wb_highlights_b}")
             if wb_params:
                 video_filters.append(f"colorbalance={':'.join(wb_params)}")
+
+        # === Color Boost (fix dull/gray/washed-out color) ===
+        video_filters.extend(build_color_boost_filters(eq))
 
         # === Colorization (B&W → Color) ===
         colorization = app_state.colorization

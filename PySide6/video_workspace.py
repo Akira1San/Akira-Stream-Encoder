@@ -615,6 +615,7 @@ class VideoWorkspace(QWidget):
             not self.app_state.filters.denoise and
             not getattr(self.app_state.filters, 'delogo_enabled', False) and
             not self.app_state.eq.enabled and
+            not getattr(self.app_state.eq, 'boost_enabled', False) and
             not self.app_state.subtitles.burn_subs and
             not self.app_state.filters.volume_enabled and
             not getattr(self.app_state.filters, 'audio_denoise', False) and

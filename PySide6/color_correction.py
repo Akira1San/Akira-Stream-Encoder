@@ -57,6 +57,106 @@ class ColorCorrectionPanel(QWidget):
 
         layout.addLayout(top_layout)
 
+        # === 0. Color Boost Section (fix dull/gray/washed-out color, FFmpeg only) ===
+        self.boost_frame = CollapsibleFrame("Color Boost (Fix Dull/Gray)")
+        boost_layout = self.boost_frame.content_layout()
+
+        self.boost_enable_check = QCheckBox("Enable Color Boost")
+        self.boost_enable_check.setChecked(getattr(self.app_state.eq, 'boost_enabled', False))
+        self.boost_enable_check.setToolTip(
+            "Fix dull, gray, washed-out color video.\n"
+            "Uses vibrance (smart saturation) + saturation up to 3.0,\n"
+            "warmth, tint, black/white levels and S-curve clarity.\n"
+            "FFmpeg only. Preview with Split button (Original | Processed)."
+        )
+        boost_layout.addWidget(self.boost_enable_check)
+
+        # Preset selector
+        boost_preset_row = QHBoxLayout()
+        boost_preset_row.addWidget(QLabel("Preset:"))
+        self.boost_preset_combo = QComboBox()
+        self.boost_preset_combo.addItems([
+            "Custom",
+            "Fix Dull/Gray",
+            "Vivid",
+            "Warm Vivid",
+            "Cool Clean",
+            "Fade Fix",
+            "VHS Restore",
+        ])
+        preset_labels = {
+            "none": "Custom", "custom": "Custom", "dull_fix": "Fix Dull/Gray",
+            "vivid": "Vivid", "warm_vivid": "Warm Vivid", "cool_clean": "Cool Clean",
+            "fade_fix": "Fade Fix", "vhs_restore": "VHS Restore",
+        }
+        self.boost_preset_combo.setCurrentText(
+            preset_labels.get(getattr(self.app_state.eq, 'boost_preset', 'none'), "Custom")
+        )
+        self.boost_preset_combo.setToolTip(
+            "One-click starting points for dull footage.\n"
+            "Fix Dull/Gray: balanced rescue for gray, flat video.\n"
+            "Fade Fix: crushes lifted blacks + S-curve for faded film."
+        )
+        boost_preset_row.addWidget(self.boost_preset_combo)
+        boost_preset_row.addStretch()
+        boost_layout.addLayout(boost_preset_row)
+
+        eq_state = self.app_state.eq
+        self.boost_vibrance_slider = self.create_slider(
+            "Vibrance", getattr(eq_state, 'vibrance', 0.0),
+            -1.0, 1.0, 0.0,
+            "Smart saturation: boosts weak colors, spares skin tones.\n"
+            "Best first knob for dull/gray video. Try +0.3 to +0.6."
+        )
+        boost_layout.addLayout(self.boost_vibrance_slider['layout'])
+
+        self.boost_sat_slider = self.create_slider(
+            "Boost Sat", getattr(eq_state, 'boost_saturation', 1.0),
+            0.0, 3.0, 1.0,
+            "Extra saturation for dull footage (up to 3x).\n"
+            "1.0 = no change. Try 1.4-1.8 for gray video."
+        )
+        boost_layout.addLayout(self.boost_sat_slider['layout'])
+
+        self.boost_temp_slider = self.create_slider(
+            "Warmth", getattr(eq_state, 'color_temperature', 0.0),
+            -1.0, 1.0, 0.0,
+            "Color temperature: negative = cooler (blue), positive = warmer (orange).\n"
+            "Dull video often looks cold/gray — try +0.1 to +0.3."
+        )
+        boost_layout.addLayout(self.boost_temp_slider['layout'])
+
+        self.boost_tint_slider = self.create_slider(
+            "Tint", getattr(eq_state, 'tint', 0.0),
+            -1.0, 1.0, 0.0,
+            "Green-magenta balance: negative = greener, positive = more magenta."
+        )
+        boost_layout.addLayout(self.boost_tint_slider['layout'])
+
+        self.boost_black_slider = self.create_slider(
+            "Blacks", getattr(eq_state, 'black_point', 0.0),
+            0.0, 0.2, 0.0,
+            "Crush lifted/faded blacks. Try 0.02-0.06 for washed-out footage."
+        )
+        boost_layout.addLayout(self.boost_black_slider['layout'])
+
+        self.boost_white_slider = self.create_slider(
+            "Whites", getattr(eq_state, 'white_point', 1.0),
+            0.8, 1.0, 1.0,
+            "Pull down blown highlights. 1.0 = no change."
+        )
+        boost_layout.addLayout(self.boost_white_slider['layout'])
+
+        self.boost_clarity_slider = self.create_slider(
+            "Clarity", getattr(eq_state, 'clarity', 0.0),
+            0.0, 1.0, 0.0,
+            "S-curve midtone contrast (dehaze-like pop).\n"
+            "Try 0.3-0.6 for flat video."
+        )
+        boost_layout.addLayout(self.boost_clarity_slider['layout'])
+
+        layout.addWidget(self.boost_frame)
+
         # === 1. EQ Section (Collapsible, closed by default) ===
         self.eq_frame = CollapsibleFrame("EQ")
         eq_layout = self.eq_frame.content_layout()
@@ -77,11 +177,12 @@ class ColorCorrectionPanel(QWidget):
         )
         eq_layout.addLayout(self.contrast_slider['layout'])
 
-        # Saturation
+        # Saturation (widened: old 0.70-1.10 cap of 1.1 could not rescue dull footage)
         self.saturation_slider = self.create_slider(
             "Saturation", self.app_state.eq.saturation,
-            0.70, 1.10, 1.00,
-            "Color intensity. High values can cause VHS color bleeding."
+            0.0, 3.0, 1.00,
+            "Color intensity. 1.0 = no change. Dull/gray video often needs 1.4-2.0.\n"
+            "High values can cause color bleeding on VHS."
         )
         eq_layout.addLayout(self.saturation_slider['layout'])
 
@@ -690,7 +791,32 @@ class ColorCorrectionPanel(QWidget):
     def connect_signals(self):
         """Connect UI signals to handlers"""
         self.enable_check.toggled.connect(self.on_enable_changed)
-        
+
+        # Color Boost signals
+        self.boost_enable_check.toggled.connect(self.on_boost_enable_changed)
+        self.boost_preset_combo.currentTextChanged.connect(self.on_boost_preset_changed)
+        self.boost_vibrance_slider['slider'].valueChanged.connect(
+            lambda v: self.on_boost_slider_changed(v, self.boost_vibrance_slider, 'vibrance')
+        )
+        self.boost_sat_slider['slider'].valueChanged.connect(
+            lambda v: self.on_boost_slider_changed(v, self.boost_sat_slider, 'boost_saturation')
+        )
+        self.boost_temp_slider['slider'].valueChanged.connect(
+            lambda v: self.on_boost_slider_changed(v, self.boost_temp_slider, 'color_temperature')
+        )
+        self.boost_tint_slider['slider'].valueChanged.connect(
+            lambda v: self.on_boost_slider_changed(v, self.boost_tint_slider, 'tint')
+        )
+        self.boost_black_slider['slider'].valueChanged.connect(
+            lambda v: self.on_boost_slider_changed(v, self.boost_black_slider, 'black_point')
+        )
+        self.boost_white_slider['slider'].valueChanged.connect(
+            lambda v: self.on_boost_slider_changed(v, self.boost_white_slider, 'white_point')
+        )
+        self.boost_clarity_slider['slider'].valueChanged.connect(
+            lambda v: self.on_boost_slider_changed(v, self.boost_clarity_slider, 'clarity')
+        )
+
         # Connect sliders
         self.brightness_slider['slider'].valueChanged.connect(
             lambda v: self.on_slider_changed(v, self.brightness_slider, 'brightness')
@@ -810,6 +936,23 @@ class ColorCorrectionPanel(QWidget):
             "Color Correction (EQ)" if is_gst else ""
         )
         
+        # Color Boost (FFmpeg only)
+        boost_supported = support.get('color_boost', True)
+        self._set_enabled_with_tip(
+            self.boost_enable_check,
+            boost_supported,
+            "Color Boost" if is_gst else ""
+        )
+        boost_en = boost_supported and getattr(self.app_state.eq, 'boost_enabled', False)
+        self.boost_preset_combo.setEnabled(boost_en)
+        for sdict in [
+            self.boost_vibrance_slider, self.boost_sat_slider,
+            self.boost_temp_slider, self.boost_tint_slider,
+            self.boost_black_slider, self.boost_white_slider,
+            self.boost_clarity_slider,
+        ]:
+            self._set_slider_enabled_with_tip(sdict, boost_en, "Color Boost" if is_gst else "")
+
         # EQ sliders: disable individually per support
         eq_enabled = self.app_state.eq.enabled
         self._set_slider_enabled_with_tip(
@@ -927,7 +1070,85 @@ class ColorCorrectionPanel(QWidget):
         self.app_state.eq.enabled = checked
         self.update_engine_state()
         self.settings_changed.emit()
-        
+
+    # ---- Color Boost Handlers ----
+
+    BOOST_PRESETS = {
+        # label: (preset_key, vibrance, boost_sat, temp, tint, black, white, clarity)
+        "Fix Dull/Gray": ("dull_fix", 0.40, 1.50, 0.10, 0.00, 0.02, 1.00, 0.40),
+        "Vivid": ("vivid", 0.60, 1.80, 0.00, 0.00, 0.00, 1.00, 0.50),
+        "Warm Vivid": ("warm_vivid", 0.50, 1.70, 0.30, 0.05, 0.00, 1.00, 0.40),
+        "Cool Clean": ("cool_clean", 0.40, 1.40, -0.25, -0.05, 0.01, 1.00, 0.30),
+        "Fade Fix": ("fade_fix", 0.30, 1.40, 0.05, 0.00, 0.05, 0.95, 0.60),
+        "VHS Restore": ("vhs_restore", 0.30, 1.30, 0.15, 0.00, 0.02, 1.00, 0.30),
+    }
+
+    def on_boost_enable_changed(self, checked):
+        """Handle Color Boost enable checkbox change"""
+        self.app_state.eq.boost_enabled = checked
+        self.update_engine_state()
+        self.settings_changed.emit()
+
+    def on_boost_slider_changed(self, value, slider_dict, attr_name):
+        """Handle Color Boost slider change (marks preset as Custom)"""
+        multiplier = slider_dict['slider'].property("multiplier")
+        float_value = value / multiplier
+        slider_dict['value_label'].setText(f"{float_value:.2f}")
+        setattr(self.app_state.eq, attr_name, float_value)
+        if self.app_state.eq.boost_preset != "custom":
+            self.app_state.eq.boost_preset = "custom"
+            self.boost_preset_combo.blockSignals(True)
+            self.boost_preset_combo.setCurrentText("Custom")
+            self.boost_preset_combo.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_boost_preset_changed(self, text):
+        """Apply a Color Boost preset to sliders + model"""
+        if text == "Custom":
+            self.app_state.eq.boost_preset = "custom"
+            return
+        preset = self.BOOST_PRESETS.get(text)
+        if not preset:
+            return
+        key, vib, sat, temp, tint, black, white, clarity = preset
+        eq = self.app_state.eq
+        eq.boost_preset = key
+        eq.vibrance = vib
+        eq.boost_saturation = sat
+        eq.color_temperature = temp
+        eq.tint = tint
+        eq.black_point = black
+        eq.white_point = white
+        eq.clarity = clarity
+        if not eq.boost_enabled:
+            eq.boost_enabled = True
+            self.boost_enable_check.blockSignals(True)
+            self.boost_enable_check.setChecked(True)
+            self.boost_enable_check.blockSignals(False)
+        self._refresh_boost_sliders()
+        self.update_engine_state()
+        self.settings_changed.emit()
+        self.app_state.log(f"Color Boost preset applied: {text}", "INFO")
+
+    def _refresh_boost_sliders(self):
+        """Push model values into Color Boost sliders"""
+        eq = self.app_state.eq
+        for attr, sdict in [
+            ('vibrance', self.boost_vibrance_slider),
+            ('boost_saturation', self.boost_sat_slider),
+            ('color_temperature', self.boost_temp_slider),
+            ('tint', self.boost_tint_slider),
+            ('black_point', self.boost_black_slider),
+            ('white_point', self.boost_white_slider),
+            ('clarity', self.boost_clarity_slider),
+        ]:
+            m = sdict['slider'].property("multiplier")
+            val = float(getattr(eq, attr))
+            sdict['slider'].blockSignals(True)
+            sdict['slider'].setValue(int(round(val * m)))
+            sdict['slider'].blockSignals(False)
+            sdict['value_label'].setText(f"{val:.2f}")
+
     def on_slider_changed(self, value, slider_dict, attr_name):
         """Handle slider value change"""
         multiplier = slider_dict['slider'].property("multiplier")
@@ -1702,6 +1923,23 @@ class ColorCorrectionPanel(QWidget):
             multiplier = slider_dict['slider'].property("multiplier")
             slider_dict['slider'].setValue(0)
             slider_dict['value_label'].setText("0.00")
+
+        # Reset Color Boost
+        eq = self.app_state.eq
+        eq.boost_enabled = False
+        eq.boost_preset = "none"
+        eq.vibrance = 0.0
+        eq.boost_saturation = 1.0
+        eq.color_temperature = 0.0
+        eq.tint = 0.0
+        eq.black_point = 0.0
+        eq.white_point = 1.0
+        eq.clarity = 0.0
+        self.boost_enable_check.setChecked(False)
+        self.boost_preset_combo.blockSignals(True)
+        self.boost_preset_combo.setCurrentText("Custom")
+        self.boost_preset_combo.blockSignals(False)
+        self._refresh_boost_sliders()
 
         # Reset colorization
         self.app_state.colorization.enabled = False
