@@ -8,6 +8,8 @@ import threading
 import json
 from pathlib import Path
 
+from backends.ffmpeg_escaping import format_concat_line
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QListWidget, QListWidgetItem, QFileDialog,
@@ -1326,9 +1328,7 @@ class ConfigTab(QWidget):
         with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', encoding='utf-8') as tf:
             list_path = tf.name
             for p in files:
-                # Escape single quotes in path
-                safe = p.replace("'", "'\"'\"'")
-                tf.write(f"file '{safe}'\n")
+                tf.write(format_concat_line(p))
 
         first_ext = os.path.splitext(files[0])[1] or ".mp4"
         default_name = os.path.splitext(os.path.basename(files[0]))[0] + "_joined" + first_ext

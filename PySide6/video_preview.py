@@ -21,6 +21,7 @@ from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QFont, QPen
 
 from video_player import VideoPlayer
 from backends.ffmpeg import build_audio_denoise_filter, build_color_boost_filters
+from backends.ffmpeg_escaping import escape_filter_path, prepare_filter_path
 from PySide6.QtMultimediaWidgets import QVideoWidget
 
 
@@ -1403,14 +1404,16 @@ class VideoPreview(QWidget):
         """Build FFmpeg subtitle filter string for preview with user styling"""
         subs = self.app_state.subtitles
         
-        # Escape path for FFmpeg filter syntax
-        escaped_path = sub_path.replace("\\", "/").replace("'", "'\\''")
-        escaped_path = escaped_path.replace("[", "\\[").replace("]", "\\]")
-        escaped_path = re.sub(r'^([A-Z]):/', r'\1\:/', escaped_path, flags=re.IGNORECASE)
-        
+        # Stage apostrophe paths to a safe temp copy, then escape (shared helper)
+        usable_path, was_staged = prepare_filter_path(sub_path)
+        if was_staged:
+            self.app_state.log(
+                f"Subtitle path contains apostrophe, staged for preview: {usable_path}", "INFO")
+        escaped_path = escape_filter_path(usable_path)
+
         # For VobSub files - bitmap-based, no force_style supported
         if sub_path.lower().endswith('.sub'):
-            return f"subtitles='{escaped_path}':original_size=720x576"
+            return f"subtitles={escaped_path}:original_size=720x576"
         
         # Build force_style options for text-based subtitles (SRT/ASS)
         style = []
@@ -1462,7 +1465,7 @@ class VideoPreview(QWidget):
                 style.append(f"MarginV={subs.vertical_offset}")
         
         force_style = f":force_style='{','.join(style)}'" if style else ""
-        return f"subtitles='{escaped_path}'{force_style}"
+        return f"subtitles={escaped_path}{force_style}"
     
     def _build_dvd_subtitle_filter(self, vob_path: str, sub_idx: int) -> str:
         return ""
@@ -1900,13 +1903,17 @@ class VideoPreview(QWidget):
                 lut_path = colorization.lut_path
                 if lut_path and os.path.exists(lut_path):
                     lut_type = colorization.lut_type
-                    escaped = lut_path.replace("'", "'\\''")
+                    lut_usable, lut_staged = prepare_filter_path(lut_path)
+                    if lut_staged:
+                        self.app_state.log(
+                            f"LUT path contains apostrophe, staged for preview: {lut_usable}", "INFO")
+                    escaped = escape_filter_path(lut_usable)
                     if lut_type == "lut3d":
-                        filters.append(f"lut3d=file='{escaped}'")
+                        filters.append(f"lut3d=file={escaped}")
                     elif lut_type == "lutrgb":
-                        filters.append(f"lutrgb=file='{escaped}'")
+                        filters.append(f"lutrgb=file={escaped}")
                     elif lut_type == "lutyuv":
-                        filters.append(f"lutyuv=file='{escaped}'")
+                        filters.append(f"lutyuv=file={escaped}")
 
         if not filters:
             return image.copy()

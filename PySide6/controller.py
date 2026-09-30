@@ -12,6 +12,7 @@ import numpy as np
 
 from models import AppState
 from handbrake_handler import HandBrakeHandler, ISO639_1_TO_639_2
+from backends.ffmpeg_escaping import format_command_for_log
 
 
 class VideoController:
@@ -376,8 +377,8 @@ class VideoController:
         try:
             self.is_encoding = True
             cmd = self.backend.build_generate_video_command(output_path)
-            self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
-            self._append_command_log(output_path, f"Command: {' '.join(cmd)}")
+            self.app_state.log(f"Command: {format_command_for_log(cmd)}", "INFO")
+            self._append_command_log(output_path, f"Command: {format_command_for_log(cmd)}")
 
             self.current_process = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -427,8 +428,8 @@ class VideoController:
         try:
             self.is_encoding = True
             cmd = self.backend.build_image_sequence_command(image_files, output_path)
-            self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
-            self._append_command_log(output_path, f"Command: {' '.join(cmd)}")
+            self.app_state.log(f"Command: {format_command_for_log(cmd)}", "INFO")
+            self._append_command_log(output_path, f"Command: {format_command_for_log(cmd)}")
 
             self.current_process = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

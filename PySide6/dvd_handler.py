@@ -11,6 +11,8 @@ import tempfile
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 
+from backends.ffmpeg_escaping import format_concat_line, format_command_for_log
+
 
 @dataclass
 class DVDTitle:
@@ -780,7 +782,7 @@ class DVDHandler:
                     vob_file
                 ]
                 
-                self.log(f"Running: {' '.join(cmd)}", "DEBUG")
+                self.log(f"Running: {format_command_for_log(cmd)}", "DEBUG")
                 
                 result = subprocess.run(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -995,14 +997,9 @@ class DVDHandler:
         
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             for vob_path in vob_files:
-                # Convert to absolute path and normalize
-                abs_path = os.path.abspath(vob_path)
-                # Convert backslashes to forward slashes for FFmpeg
-                escaped = abs_path.replace('\\', '/')
-                # Escape single quotes for FFmpeg concat format
-                escaped = escaped.replace("'", "'\\''")
-                f.write(f"file '{escaped}'\n")
-                self.log(f"Added to concat: {abs_path}", "DEBUG")
+                # Shared helper: abspath + '/' + '\'' escaping for concat demuxer
+                f.write(format_concat_line(vob_path))
+                self.log(f"Added to concat: {os.path.abspath(vob_path)}", "DEBUG")
         
         self._concat_file = concat_path
         self.log(f"Created concat file: {concat_path} with {len(vob_files)} files", "INFO")

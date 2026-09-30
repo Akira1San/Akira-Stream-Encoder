@@ -27,6 +27,11 @@ from gi.repository import Gst, GLib
 
 from backends.base import MediaBackend
 from backends.ffmpeg import FFmpegBackend
+from backends.ffmpeg_escaping import (
+    parse_concat_line,
+    quote_parse_launch_path,
+    format_command_for_log,
+)
 
 
 # ------------------------------------------------------------------ #
@@ -177,11 +182,11 @@ class GStreamerBackend(MediaBackend):
         """Extract VOB file paths from an ffmpeg concat file."""
         vobs = []
         try:
-            with open(input_path) as f:
+            with open(input_path, encoding="utf-8") as f:
                 for line in f:
-                    m = re.match(r"file\s+'(.+)'", line.strip())
-                    if m:
-                        vobs.append(m.group(1))
+                    parsed = parse_concat_line(line)
+                    if parsed:
+                        vobs.append(parsed)
         except Exception:
             pass
         return vobs
@@ -895,18 +900,18 @@ class GStreamerBackend(MediaBackend):
             )
             fb = FFmpegBackend(app_state)
             cmd = fb.build_command(input_path, output_path, start_time, duration)
-            self.app_state.log(f"FFmpeg fallback command: {' '.join(cmd)}", "INFO")
+            self.app_state.log(f"FFmpeg fallback command: {format_command_for_log(cmd)}", "INFO")
             log_path = output_path + ".log"
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with open(log_path, "a") as f:
-                f.write(f"[{timestamp}] Command: {' '.join(cmd)}\n")
+                f.write(f"[{timestamp}] Command: {format_command_for_log(cmd)}\n")
             return subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 universal_newlines=True, bufsize=1
             )
 
         pipeline = self._build_pipeline_list(input_path, output_path)
-        self.app_state.log(f"GStreamer pipeline: {' '.join(pipeline)}", "INFO")
+        self.app_state.log(f"GStreamer pipeline: {format_command_for_log(pipeline)}", "INFO")
         return subprocess.Popen(
             pipeline, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             universal_newlines=True, bufsize=1
@@ -1033,7 +1038,7 @@ class GStreamerBackend(MediaBackend):
             return _run(p, sink, p.get_bus())
 
         def _run_decodebin():
-            pipe = f"filesrc location={target} ! decodebin ! videoconvert{scale} ! pngenc ! appsink name=sink"
+            pipe = f"filesrc location={quote_parse_launch_path(target)} ! decodebin ! videoconvert{scale} ! pngenc ! appsink name=sink"
             p = Gst.parse_launch(pipe)
             if not p: return None
             sink = p.get_by_name("sink")

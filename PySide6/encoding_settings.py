@@ -2,6 +2,7 @@
 Encoding Settings Panel (PySide6)
 """
 import os
+from backends.ffmpeg_escaping import format_command_for_log
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QCheckBox, QSlider, QSpinBox, QLineEdit, QGroupBox,
@@ -2031,7 +2032,7 @@ class EncodingPanel(QWidget):
 
             cmd = [binary, "-i", test_dir, "-o", out_dir, "-s", str(ai.scale),
                    "-n", ai.model, "-m", model_dir, "-g", "0", "-v", "-f", "png"]
-            self.app_state.log(f"Running: {' '.join(cmd)}", "INFO")
+            self.app_state.log(f"Running: {format_command_for_log(cmd)}", "INFO")
 
             try:
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

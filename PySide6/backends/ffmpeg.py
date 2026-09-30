@@ -9,6 +9,16 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from backends.base import MediaBackend
+from backends.ffmpeg_escaping import (
+    escape_filter_path,
+    escape_drawtext_text,
+    build_drawtext_text_arg,
+    prepare_filter_path,
+    format_concat_line,
+    write_concat_file,
+    build_concat_protocol_input,
+    format_command_for_log,
+)
 
 
 def build_color_boost_filters(eq) -> list:
@@ -140,7 +150,9 @@ class FFmpegBackend(MediaBackend):
             return None
         for title in dvd.available_titles:
             if title.title_number == dvd.selected_title_number and title.vob_files:
-                return "concat:" + "|".join(title.vob_files)
+                # '|' is the concat: separator with no escape mechanism;
+                # fall back to the concat demuxer when it appears in a path.
+                return build_concat_protocol_input(title.vob_files)
         return None
 
     def _get_ffprobe_path(self) -> str:
@@ -463,7 +475,7 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-vf", ",".join(vf_parts)])
 
         cmd.extend(["-vframes", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "png", "-"])
-        self.app_state.log(f"[DVD] FFmpeg cmd: {' '.join(cmd[:6])} ... -vframes 1", "DEBUG")
+        self.app_state.log(f"[DVD] FFmpeg cmd: {format_command_for_log(cmd[:6])} ... -vframes 1", "DEBUG")
         try:
             timeout = 30 if is_dvd_source else 10
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
@@ -913,13 +925,17 @@ class FFmpegBackend(MediaBackend):
                 lut_path = colorization.lut_path
                 if lut_path and os.path.exists(lut_path):
                     lut_type = colorization.lut_type
-                    escaped = lut_path.replace("'", "'\\''")
+                    lut_usable, lut_staged = prepare_filter_path(lut_path)
+                    if lut_staged:
+                        self.app_state.log(
+                            f"LUT path contains apostrophe, staged for filter: {lut_usable}", "INFO")
+                    escaped = escape_filter_path(lut_usable)
                     if lut_type == "lut3d":
-                        video_filters.append(f"lut3d=file='{escaped}'")
+                        video_filters.append(f"lut3d=file={escaped}")
                     elif lut_type == "lutrgb":
-                        video_filters.append(f"lutrgb=file='{escaped}'")
+                        video_filters.append(f"lutrgb=file={escaped}")
                     elif lut_type == "lutyuv":
-                        video_filters.append(f"lutyuv=file='{escaped}'")
+                        video_filters.append(f"lutyuv=file={escaped}")
 
         if filters.volume_enabled:
             audio_filters.append(f"volume={filters.volume_db}dB")
@@ -984,7 +1000,7 @@ class FFmpegBackend(MediaBackend):
     @staticmethod
     def _build_drawtext_string(item) -> str:
         """Build a drawtext filter string for a single text overlay."""
-        text = item.text.replace("'", "'\\''").replace(":", "\\:")
+        text_arg, _ = build_drawtext_text_arg(item.text)
         fontcolor = item.font_color
         x, y = item.x, item.y
         anim = item.animation
@@ -1007,7 +1023,7 @@ class FFmpegBackend(MediaBackend):
             expr_x = f"W-t*{speed}"
 
         dt = (
-            f"drawtext=text='{text}'"
+            f"drawtext={text_arg}"
             f":fontsize={item.font_size}"
             f":fontcolor={fontcolor}"
             f":x={expr_x}"
@@ -1209,11 +1225,10 @@ class FFmpegBackend(MediaBackend):
         import tempfile
 
         concat_file = tempfile.NamedTemporaryFile(
-            mode='w', suffix='_img_concat.txt', delete=False, dir='/tmp'
+            mode='w', suffix='_img_concat.txt', delete=False, encoding='utf-8'
         )
         for img_path in image_files:
-            escaped = img_path.replace("'", "'\\''")
-            concat_file.write(f"file '{escaped}'\n")
+            concat_file.write(format_concat_line(img_path))
         concat_file.close()
         self._image_seq_concat_file = concat_file.name
 
@@ -1335,12 +1350,14 @@ class FFmpegBackend(MediaBackend):
     def build_subtitle_filter(self, sub_path: str) -> str:
         subs = self.app_state.subtitles
         is_vobsub = sub_path.lower().endswith('.sub')
-        escaped_path = sub_path.replace("\\", "/").replace("'", "'\\''")
-        escaped_path = escaped_path.replace("[", "\\[").replace("]", "\\]")
-        escaped_path = re.sub(r'^([A-Z]):/', r'\1\:/', escaped_path, flags=re.IGNORECASE)
+        usable_path, was_staged = prepare_filter_path(sub_path)
+        if was_staged:
+            self.app_state.log(
+                f"Subtitle path contains apostrophe, staged for filter: {usable_path}", "INFO")
+        escaped_path = escape_filter_path(usable_path)
 
         if is_vobsub:
-            return f"subtitles='{escaped_path}'"
+            return f"subtitles={escaped_path}"
 
         style = []
         if subs.font != "Arial":
@@ -1388,7 +1405,7 @@ class FFmpegBackend(MediaBackend):
                 style.append(f"MarginV={subs.vertical_offset}")
 
         force_style = f":force_style='{','.join(style)}'" if style else ""
-        return f"subtitles='{escaped_path}'{force_style}"
+        return f"subtitles={escaped_path}{force_style}"
 
     def build_command(self, input_path: str, output_path: str,
                       start_time: Optional[str] = None,
@@ -1967,14 +1984,14 @@ class FFmpegBackend(MediaBackend):
     def _save_command_log(self, output_path: str, cmd: list):
         log_path = output_path + ".log"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        entry = f"[{timestamp}] Command: {' '.join(cmd)}\n"
+        entry = f"[{timestamp}] Command: {format_command_for_log(cmd)}\n"
         with open(log_path, "a") as f:
             f.write(entry)
 
     def encode(self, input_path: str, output_path: str,
                app_state, start_time=None, duration=None) -> subprocess.Popen:
         cmd = self.build_command(input_path, output_path, start_time, duration)
-        self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        self.app_state.log(f"Command: {format_command_for_log(cmd)}", "INFO")
         self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -2057,7 +2074,7 @@ class FFmpegBackend(MediaBackend):
             cmd.extend(["-an"])
 
         cmd.extend(["-y", output_path])
-        self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        self.app_state.log(f"Command: {format_command_for_log(cmd)}", "INFO")
         self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -2085,7 +2102,7 @@ class FFmpegBackend(MediaBackend):
         cmd.extend(["-c:a", audio_settings.get("codec", self._audio_codec())])
         cmd.extend(["-b:a", audio_settings.get("bitrate", "128k")])
         cmd.extend(["-y", output_path])
-        self.app_state.log(f"Command: {' '.join(cmd)}", "INFO")
+        self.app_state.log(f"Command: {format_command_for_log(cmd)}", "INFO")
         self._save_command_log(output_path, cmd)
         return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -2475,10 +2492,10 @@ class FFmpegBackend(MediaBackend):
 
         concat_file = os.path.join(frames_dir, "concat_list.txt")
         try:
-            with open(concat_file, "w") as f:
+            with open(concat_file, "w", encoding="utf-8") as f:
                 for tmp_mp4 in tmp_parts:
                     if os.path.isfile(tmp_mp4):
-                        f.write(f"file '{tmp_mp4}'\n")
+                        f.write(format_concat_line(tmp_mp4))
 
             cmd = [
                 ffmpeg_path, "-y",

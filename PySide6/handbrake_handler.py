@@ -8,6 +8,8 @@ import shutil
 from datetime import datetime
 from typing import List, Dict, Optional, Callable
 
+from backends.ffmpeg_escaping import format_command_for_log
+
 
 # ISO 639-1 (2-letter) to ISO 639-2 (3-letter) language code mapping
 # This is needed because the app's IFO parsing gives 2-letter codes
@@ -205,12 +207,12 @@ class HandBrakeHandler:
 
         cmd.extend(["-f", container])
 
-        self.log(f"HandBrake command: {' '.join(cmd)}", "INFO")
+        self.log(f"HandBrake command: {format_command_for_log(cmd)}", "INFO")
 
         log_path = output_path + ".log"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(log_path, "a") as f:
-            f.write(f"[{timestamp}] Command: {' '.join(cmd)}\n")
+            f.write(f"[{timestamp}] Command: {format_command_for_log(cmd)}\n")
 
         return subprocess.Popen(
             cmd,
