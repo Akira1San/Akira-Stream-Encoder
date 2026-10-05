@@ -174,7 +174,11 @@ class VideoWorkspace(QWidget):
         # Trim/Cut Tab
         self.trim_tab = QWidget()
         trim_layout = QVBoxLayout(self.trim_tab)
-        self.trim_panel = TrimPanel(self.app_state, self.preview.get_current_timestamp)
+        self.trim_panel = TrimPanel(
+            self.app_state,
+            self.preview.get_current_timestamp,
+            self.preview.get_current_fps,
+        )
         self.trim_panel.cut_point_set.connect(self.on_cut_point_set)
         self.trim_panel.execute_cuts.connect(self.on_execute_cuts)
         self.trim_panel.cut_removed.connect(self.on_cut_removed)
@@ -466,11 +470,33 @@ class VideoWorkspace(QWidget):
         if start_cut.position > end_cut.position:
             start_cut, end_cut = end_cut, start_cut
         
-        deleted_start = start_cut.position
-        deleted_end = end_cut.position
-        
-        # Log what we're removing
-        self.app_state.log(f"Deleting segment between {start_cut.time_display} and {end_cut.time_display}", "INFO")
+        # Snap boundaries to nearest frames (frame-exact delete)
+        try:
+            from models import time_to_frame, frame_to_time
+            fps = self.preview.get_current_fps() if hasattr(self.preview, "get_current_fps") else 30.0
+        except Exception:
+            from models import time_to_frame, frame_to_time
+            fps = 30.0
+        if not fps or fps < 1.0:
+            fps = 30.0
+
+        f0 = time_to_frame(start_cut.position, fps)
+        f1 = time_to_frame(end_cut.position, fps)
+        if f0 == f1:
+            msg = f"Both cuts round to the same frame (#{f0 + 1} @ {fps:.3f}fps) - move a cut by >= 1 frame."
+            self.app_state.log(msg, "WARN")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Same Frame", msg)
+            return
+
+        deleted_start = frame_to_time(f0, fps)
+        deleted_end = frame_to_time(f1, fps)
+
+        # Log what we're removing (frames + snapped times)
+        self.app_state.log(
+            f"Deleting segment frames {f0 + 1}-{f1 + 1} @ {fps:.3f}fps "
+            f"({deleted_start:.6f}s -> {deleted_end:.6f}s, was {start_cut.time_display} -> {end_cut.time_display})",
+            "INFO")
         
         # Track the deleted segment for preview playback
         self.app_state.cut.add_deleted_segment(deleted_start, deleted_end)

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Qt
 
-from models import AppState, CutPoint
+from models import AppState, CutPoint, time_to_frame, frame_to_time
 
 
 class TrimPanel(QGroupBox):
@@ -19,14 +19,34 @@ class TrimPanel(QGroupBox):
     clear_all_cuts = Signal()
     delete_segment = Signal(str, str)  # cut_id_start, cut_id_end (delete segment between these)
     
-    def __init__(self, app_state: AppState, get_timeline_position_callback=None, parent=None):
+    def __init__(self, app_state: AppState, get_timeline_position_callback=None, get_fps_callback=None, parent=None):
         super().__init__("Trim/Cut Video", parent)
         self.app_state = app_state
         self.get_timeline_position = get_timeline_position_callback
+        self.get_fps = get_fps_callback
         self.segment_checkboxes = []  # Store checkbox references
         
         self.setup_ui()
         self.connect_signals()
+
+    def _current_fps(self) -> float:
+        """FPS for frame<->time conversion (callback, else detected, else fallback)."""
+        if self.get_fps:
+            try:
+                fps = float(self.get_fps())
+                if fps and fps >= 1.0:
+                    return fps
+            except (TypeError, ValueError):
+                pass
+        try:
+            files = getattr(self.app_state, 'input_files', None) or []
+            if files and hasattr(self.app_state, 'backend') and self.app_state.backend:
+                fps = float(self.app_state.backend.get_fps(files[0]))
+                if fps and fps >= 1.0:
+                    return fps
+        except Exception:
+            pass
+        return 30.0
         
     def setup_ui(self):
         """Setup the UI layout"""
@@ -177,11 +197,23 @@ class TrimPanel(QGroupBox):
             return
         start_pos = start_cut.time_display
         end_pos = end_cut.time_display
+
+        # Frame-exact info for confirmation
+        fps = self._current_fps()
+        f0 = time_to_frame(start_cut.position, fps)
+        f1 = time_to_frame(end_cut.position, fps)
+        if f0 == f1:
+            QMessageBox.warning(
+                self, "Same Frame",
+                f"Both cuts round to the same frame (#{f0 + 1} @ {fps:.3f}fps).\n"
+                "Move one cut by at least 1 frame.")
+            return
         
         reply = QMessageBox.question(
             self,
             "Delete Segment",
-            f"Delete segment between {start_pos} and {end_pos}?\n\nThe cuts at these positions will be removed and the surrounding parts will be joined during encoding.",
+            f"Delete frames {f0 + 1}-{f1 + 1} @ {fps:.3f}fps?\n"
+            f"({start_pos} -> {end_pos}, snapped to {frame_to_time(f0, fps):.6f}s -> {frame_to_time(f1, fps):.6f}s)\n\nThe cuts at these positions will be removed and the surrounding parts will be joined during encoding.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -254,7 +286,11 @@ class TrimPanel(QGroupBox):
     
     def add_cut_to_list(self, cut_point: CutPoint, segment_info: str = ""):
         """Add a cut point to the visual list"""
-        display_text = f"Cut: {cut_point.time_display}"
+        try:
+            frame = time_to_frame(cut_point.position, self._current_fps()) + 1
+            display_text = f"Cut: {cut_point.time_display} (#{frame})"
+        except Exception:
+            display_text = f"Cut: {cut_point.time_display}"
         
         item = QListWidgetItem(display_text)
         item.setData(256, cut_point.cut_id)  # Qt.UserRole = 256

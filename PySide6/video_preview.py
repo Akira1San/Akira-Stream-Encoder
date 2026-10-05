@@ -1679,6 +1679,17 @@ class VideoPreview(QWidget):
             value = self.timeline_slider.value()
             return self.timeline_slider.value_to_time(value)
         return 0.0
+
+    def get_current_fps(self) -> float:
+        """FPS used for frame<->time conversion (detected, else fallback)."""
+        fps = getattr(self.timeline_slider, "fps", 0.0) or getattr(self, "_video_fps", 0.0)
+        try:
+            fps = float(fps)
+        except (TypeError, ValueError):
+            fps = 0.0
+        if not fps or fps < 1.0:
+            fps = 24000.0 / 1001.0
+        return fps
     
     def update_cut_markers(self, cut_points: list):
         """

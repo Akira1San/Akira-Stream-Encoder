@@ -329,6 +329,24 @@ class CutPoint:
     cut_id: str  # unique identifier
     enabled: bool = True
 
+    def frame_number(self, fps: float) -> int:
+        """Frame number for this cut at the given fps (1-based to match timeline)."""
+        return time_to_frame(self.position, fps) + 1
+
+
+def time_to_frame(t: float, fps: float) -> int:
+    """Convert time in seconds to 0-based frame index (rounded)."""
+    if not fps or fps < 1.0:
+        return int(round(t * 30.0))
+    return int(round(t * fps))
+
+
+def frame_to_time(f: int, fps: float) -> float:
+    """Convert 0-based frame index to time in seconds."""
+    if not fps or fps < 1.0:
+        fps = 30.0
+    return float(f) / float(fps)
+
 
 @dataclass
 class CutSettings:
