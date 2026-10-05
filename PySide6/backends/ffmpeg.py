@@ -1946,6 +1946,21 @@ class FFmpegBackend(MediaBackend):
             else:
                 full_vf_str = subs_filter
 
+        # ── Framerate decimation: 30 CFR -> 23.976 (keep speed, drop frames) ──
+        # Additive only: existing `-r` above is kept; this fixes PTS so duration
+        # stays == source instead of stretching ~25% (slow-motion look).
+        # Gated to 30 -> 24000/1001 Encode; everything else returns None.
+        _fps_decimate_filter = None
+        try:
+            if not is_dvd_source:
+                _src_fps = self.get_fps(input_path)
+                _fps_decimate_filter = self._fps_filter_for_convert(
+                    _src_fps, encoding.framerate, video_mode)
+        except Exception:
+            _fps_decimate_filter = None
+        if _fps_decimate_filter:
+            full_vf_str = f"{full_vf_str},{_fps_decimate_filter}" if full_vf_str else _fps_decimate_filter
+
         # ── Extra: Image overlays (filter_complex) ──
         overlay_fc, num_overlays, last_label = self._build_overlay_filter_complex(extra, full_vf_str)
         if overlay_fc and num_overlays > 0:
@@ -1977,6 +1992,11 @@ class FFmpegBackend(MediaBackend):
 
         if audio_filters_str and not audio_copy and not self._extra_audio_mix:
             cmd.extend(["-af", audio_filters_str])
+
+        # Enforce CFR muxing only when the decimation filter above was added.
+        # (Existing `-r` output option is left untouched.)
+        if locals().get("_fps_decimate_filter"):
+            cmd.extend(["-fps_mode", "cfr"])
 
         cmd.extend(["-y", output_path])
         return cmd
@@ -2259,6 +2279,27 @@ class FFmpegBackend(MediaBackend):
         return None
 
     # ── AI Upscaling Pipeline ──────────────────────────────────────
+
+    @staticmethod
+    def _fps_filter_for_convert(src_fps, target: str, video_mode: str) -> Optional[str]:
+        """Return an fps filter for 30 CFR -> 23.976, else None (no behavior change).
+
+        Gated strictly to FFmpeg Encode mode with target 24000/1001 and a
+        ~30fps source so all other rates/sources/paths stay byte-identical.
+        """
+        if video_mode == "copy":
+            return None
+        if target != "24000/1001":
+            return None
+        try:
+            src = float(src_fps)
+        except (TypeError, ValueError):
+            return None
+        if abs(src - 30.0) > 0.6:
+            return None
+        if abs(src - 24000.0 / 1001.0) < 0.1:
+            return None
+        return "fps=24000/1001:round=near"
 
     def get_fps(self, input_path: str) -> float:
         ffprobe_path = self._get_ffprobe_path()
