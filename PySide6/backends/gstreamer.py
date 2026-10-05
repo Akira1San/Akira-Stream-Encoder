@@ -647,6 +647,25 @@ class GStreamerBackend(MediaBackend):
             sub_path = base + ext
             if os.path.exists(sub_path):
                 return sub_path
+        # Language variants: movie.en.srt, movie.de.ass, ...
+        from pathlib import Path as _Path
+        try:
+            video_dir = os.path.dirname(os.path.abspath(video_path))
+            stem = _Path(video_path).stem.lower()
+            if os.path.isdir(video_dir):
+                variants = []
+                for f in os.listdir(video_dir):
+                    fl = f.lower()
+                    if not fl.endswith((".srt", ".ass", ".ssa", ".sub")):
+                        continue
+                    if fl.startswith(stem + "."):
+                        variants.append(os.path.join(video_dir, f))
+                if variants:
+                    variants.sort(key=lambda x: (0 if x.lower().endswith('.srt') else 1,
+                                                os.path.basename(x).lower()))
+                    return variants[0]
+        except OSError:
+            pass
         selected = self.app_state.subtitles.selected_subtitle
         if selected and os.path.exists(selected):
             return selected

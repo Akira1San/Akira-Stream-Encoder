@@ -425,17 +425,74 @@ class SubtitlesPanel(QWidget):
                 self.subtitle_combo.setCurrentIndex(i)
                 return
 
+        display = self._display_name_for(file_path)
+
         self.subtitle_combo.blockSignals(True)
-        self.subtitle_combo.addItem(os.path.basename(file_path), file_path)
+        self.subtitle_combo.addItem(display, file_path)
         self.subtitle_combo.setCurrentIndex(self.subtitle_combo.count() - 1)
         self.subtitle_combo.blockSignals(False)
 
         self.app_state.subtitles.selected_subtitle = file_path
         self.settings_changed.emit()
 
-    def set_subtitle_files(self, files: list):
-        """Populate the subtitle combobox with found files"""
+    @staticmethod
+    def _is_basename_match(sub_path: str, video_path: str) -> bool:
+        """Check if a subtitle file matches a video by basename.
+
+        Matches `movie.srt` and language variants like `movie.en.srt`
+        (case-insensitive). Used to tell stale subs from explicit picks.
+        """
+        if not sub_path or not video_path:
+            return False
+        import os as _os
+        sub_name = _os.path.basename(sub_path).lower()
+        stem = _os.path.splitext(_os.path.basename(video_path))[0].lower()
+        for ext in (".srt", ".ass", ".ssa", ".sub"):
+            if sub_name == stem + ext:
+                return True
+            if sub_name.startswith(stem + ".") and sub_name.endswith(ext):
+                return True
+        return False
+
+    def _display_name_for(self, file_path: str) -> str:
+        """Display name, tagged when the file is not auto-detected for this video."""
+        base = os.path.basename(file_path)
+        video_path = getattr(self, "_current_video_path", "")
+        if video_path and not self._is_basename_match(file_path, video_path):
+            return f"[External] {base}"
+        return base
+
+    def reset_for_video(self, video_path: str = ""):
+        """Clear selection state for a newly loaded video (avoids stale subs)."""
+        self._current_video_path = video_path or ""
+        self.app_state.subtitles.selected_subtitle = ""
+        self.subtitle_combo.blockSignals(True)
+        self.subtitle_combo.clear()
+        self.subtitle_combo.addItem("(Auto-detect)", "")
+        self.subtitle_combo.setCurrentIndex(0)
+        self.subtitle_combo.blockSignals(False)
+
+    def set_subtitle_files(self, files: list, video_path: str = ""):
+        """Populate the subtitle combobox with basename-matched files.
+
+        Defaults to `(Auto-detect)` so each video resolves its own
+        `basename.srt` at encode/preview time. An explicit external pick
+        for the *same* video is preserved across refreshes; stale picks
+        from a previous video are dropped (caller resets on video change).
+        """
+        if video_path:
+            self._current_video_path = video_path
+        current_video = getattr(self, "_current_video_path", "") or video_path
         current_selection = self.app_state.subtitles.selected_subtitle
+
+        # Drop stale selection: it must either be in the new matched list
+        # or still exist AND (explicit external for this same video).
+        # Since the workspace resets selection on video change, anything
+        # left here is an explicit pick for the current video (refresh case).
+        keep_external = ""
+        if (current_selection and current_selection not in files
+                and os.path.exists(current_selection)):
+            keep_external = current_selection
 
         self.subtitle_combo.blockSignals(True)
         self.subtitle_combo.clear()
@@ -445,36 +502,24 @@ class SubtitlesPanel(QWidget):
             # Add file with full path as data
             self.subtitle_combo.addItem(os.path.basename(f), f)
 
-        # If there's a saved external subtitle not in the scanned folder,
-        # add it so the selection is preserved across refreshes
-        if current_selection and current_selection not in files and os.path.exists(current_selection):
-            self.subtitle_combo.addItem(os.path.basename(current_selection), current_selection)
+        if keep_external:
+            self.subtitle_combo.addItem(
+                self._display_name_for(keep_external), keep_external)
 
-        # Auto-select: prioritize .srt files
-        if self.subtitle_combo.count() > 1:
-            # Find first .srt file
-            srt_index = -1
-            for i in range(1, self.subtitle_combo.count()):  # Start from 1 (skip auto-detect)
-                if self.subtitle_combo.itemText(i).lower().endswith('.srt'):
-                    srt_index = i
+        # Default to Auto-detect; restore explicit selection only if present.
+        if current_selection:
+            for i in range(1, self.subtitle_combo.count()):
+                if self.subtitle_combo.itemData(i) == current_selection:
+                    self.subtitle_combo.setCurrentIndex(i)
                     break
-
-            # If saved selection exists and still available, use it
-            if current_selection:
-                for i in range(1, self.subtitle_combo.count()):
-                    if self.subtitle_combo.itemData(i) == current_selection:
-                        self.subtitle_combo.setCurrentIndex(i)
-                        break
-            elif srt_index > 0:
-                # Auto-select first .srt found
-                self.subtitle_combo.setCurrentIndex(srt_index)
             else:
-                # Just select first file found
-                self.subtitle_combo.setCurrentIndex(1)
+                self.subtitle_combo.setCurrentIndex(0)
+        else:
+            self.subtitle_combo.setCurrentIndex(0)
 
-            # Update selected_subtitle in AppState (signals are blocked,
-            # so on_subtitle_changed won't fire)
-            self.app_state.subtitles.selected_subtitle = self.subtitle_combo.currentData() or ""
+        # Update selected_subtitle in AppState (signals are blocked,
+        # so on_subtitle_changed won't fire)
+        self.app_state.subtitles.selected_subtitle = self.subtitle_combo.currentData() or ""
 
         self.subtitle_combo.blockSignals(False)
 

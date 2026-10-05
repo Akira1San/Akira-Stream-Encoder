@@ -291,6 +291,7 @@ class VideoWorkspace(QWidget):
             self.enc_panel.populate_audio_tracks([])
             self.multi_track_panel.populate_audio_tracks([])
             self.multi_track_panel.populate_subtitle_tracks([])
+            self._load_subtitles_for_video("", reset_selection=True)
             return
 
         if self.app_state.image_sequence.enabled and video_path == self.app_state.image_sequence.folder_path:
@@ -319,6 +320,10 @@ class VideoWorkspace(QWidget):
                 self.enc_panel.external_audio_path.setEnabled(False)
                 self.enc_panel.clear_audio_btn.setEnabled(False)
                 self.enc_panel.browse_audio_btn.setEnabled(False)
+
+        # Reset burn-subtitle state for the new video BEFORE embedded
+        # tracks are populated (clears stale externals/selection)
+        self._load_subtitles_for_video(video_path, reset_selection=True)
 
         # Detect video and audio tracks and populate encoding panel
         from controller import VideoController
@@ -953,34 +958,78 @@ class VideoWorkspace(QWidget):
         self.cancel_btn.setVisible(active)
 
     def on_refresh_subtitles(self):
-        """Handle refresh subtitle files button click"""
-        self._scan_and_update_subtitles()
-        
-    def _scan_and_update_subtitles(self):
-        """Scan video folder for subtitle files and update combobox"""
+        """Handle refresh subtitle files button click (same video, keep explicit pick)"""
+        self._scan_and_update_subtitles(reset_selection=False)
+
+    @staticmethod
+    def _find_matching_subtitles(video_path: str) -> list:
+        """Find subtitle files matching a video by basename.
+
+        Matches `movie.srt/.ass/.ssa/.sub` plus language variants like
+        `movie.en.srt`. Scoping to the basename keeps other videos' subs
+        in a shared folder out of the list.
+        """
         import os
-        
-        if not self.app_state.input_files:
-            self.subs_panel.set_subtitle_files([])
+        from pathlib import Path
+        if not video_path or video_path.endswith('.txt'):
+            return []
+        video_dir = os.path.dirname(os.path.abspath(video_path))
+        if not video_dir or not os.path.isdir(video_dir):
+            # Fall back to exact basename checks (file may be remote/temp)
+            base = os.path.splitext(video_path)[0]
+            return [base + ext for ext in (".srt", ".ass", ".ssa", ".sub")
+                    if os.path.exists(base + ext)]
+        stem = Path(video_path).stem.lower()
+        exts = ('.srt', '.ass', '.ssa', '.sub')
+        matched = []
+        try:
+            for f in os.listdir(video_dir):
+                fl = f.lower()
+                if not fl.endswith(exts):
+                    continue
+                name_no_ext = fl[:fl.rfind('.')]
+                # Exact: movie.srt — Variant: movie.en.srt / movie.de.ass
+                if fl.startswith(stem):
+                    rest = fl[len(stem):]
+                    if rest in exts or (rest.startswith('.') and fl.endswith(exts)):
+                        # Ensure variant form is stem + "." + lang + ext
+                        if rest in exts or rest.count('.') >= 1:
+                            matched.append(os.path.join(video_dir, f))
+        except OSError:
+            return []
+        matched.sort(key=lambda x: (0 if x.lower().endswith('.srt') else 1,
+                                    os.path.basename(x).lower()))
+        return matched
+
+    def _load_subtitles_for_video(self, video_path: str, reset_selection: bool = True):
+        """Single entry point for (re)loading burn-subtitle state for a video."""
+        tracks = self.app_state.tracks
+        if reset_selection:
+            self.subs_panel.reset_for_video(video_path or "")
+            tracks.external_subtitle_tracks.clear()
+            tracks.subtitle_track_assignments = []
+            tracks.selected_subtitle_indices = []
+            tracks.subtitle_burn_index = -1
+            # Don't let a DVD subtitle choice leak into normal videos
+            if not (self.app_state.dvd.is_dvd_source and (video_path or "").endswith('.txt')):
+                self.app_state.dvd.selected_subtitle_index = -1
+        matched = self._find_matching_subtitles(video_path) if video_path else []
+        self.subs_panel.set_subtitle_files(matched, video_path or "")
+        self.subs_panel.update_dvd_subtitles()
+
+    def _scan_and_update_subtitles(self, reset_selection: bool = False):
+        """Scan for basename-matched subtitles of the current video."""
+        video_path = (self.app_state.current_video_path
+                      or (self.app_state.input_files[0] if self.app_state.input_files else ""))
+        if not video_path:
+            self.subs_panel.reset_for_video("")
             return
-        
-        video_path = self.app_state.input_files[0]
-        video_dir = os.path.dirname(video_path)
-        
-        if not video_dir:
-            self.subs_panel.set_subtitle_files([])
-            return
-        
-        # Scan for subtitle files
-        sub_files = []
-        for f in os.listdir(video_dir):
-            if f.lower().endswith(('.srt', '.ass', '.ssa', '.sub')):
-                sub_files.append(os.path.join(video_dir, f))
-        
-        # Sort: .srt first, then alphabetically
-        sub_files.sort(key=lambda x: (0 if x.lower().endswith('.srt') else 1, os.path.basename(x).lower()))
-        
-        self.subs_panel.set_subtitle_files(sub_files)
+        if reset_selection:
+            self._load_subtitles_for_video(video_path, reset_selection=True)
+        else:
+            matched = self._find_matching_subtitles(video_path)
+            self.subs_panel.set_subtitle_files(matched, video_path)
+            self.subs_panel.update_dvd_subtitles()
         
     def on_extract_frames_requested(self, count: int, fmt: str):
         """Handle frame extraction request from GeometryPanel"""
@@ -1022,13 +1071,10 @@ class VideoWorkspace(QWidget):
 
         self.preview.set_video(video_path)
         self.trim_panel.detect_tracks(video_path)
-        
-        # Scan for subtitle files in video folder
-        self._scan_and_update_subtitles()
-        
-        # Update DVD subtitle selector (will hide if not a DVD source)
-        self.subs_panel.update_dvd_subtitles()
-        
+
+        # Reset + load basename-matched subs for this video
+        self._load_subtitles_for_video(video_path, reset_selection=True)
+
         # Detect embedded subtitle tracks
         from controller import VideoController
         controller = VideoController(self.app_state)

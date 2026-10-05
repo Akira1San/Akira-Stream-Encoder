@@ -1343,52 +1343,72 @@ class VideoPreview(QWidget):
             # Use seek_preview to get frame via FFmpeg
             self.seek_preview(current_pos)
     
-    def _get_current_subtitle(self) -> str:
-        """Get subtitle text for current playback position"""
-        if not self.app_state.subtitles.burn_subs or not self.current_video_path:
-            return ""
-        
-        # Check user-selected subtitle file first
-        sub_path = None
-        selected = self.app_state.subtitles.selected_subtitle
-        if selected and os.path.exists(selected):
-            sub_path = selected
-        
-        # Fall back to auto-detect by basename
-        if not sub_path:
-            base = os.path.splitext(self.current_video_path)[0]
-            for ext in [".srt", ".ass", ".ssa", ".sub"]:
-                test_path = base + ext
-                if os.path.exists(test_path):
-                    sub_path = test_path
-                    break
-        
-        if not sub_path:
-            return ""
-        
-        # Get subtitle for current timestamp
-        timestamp = self._playback_time
-        return get_subtitle_text(sub_path, timestamp)
-    
-    def _find_subtitle_file(self) -> Optional[str]:
-        """Find the subtitle file to use for preview burning"""
-        if not self.app_state.subtitles.burn_subs:
-            return None
-        
-        # Check user-selected subtitle file
-        selected = self.app_state.subtitles.selected_subtitle
-        if selected and os.path.exists(selected):
-            return selected
-        
+    def _resolve_basename_subtitle(self) -> Optional[str]:
+        """Basename auto-detect (exact + language variants like movie.en.srt)."""
         if not self.current_video_path:
             return None
-        
-        # Auto-detect by basename
         base = os.path.splitext(self.current_video_path)[0]
         for ext in [".srt", ".ass", ".ssa", ".sub"]:
             test_path = base + ext
             if os.path.exists(test_path):
                 return test_path
+        try:
+            from pathlib import Path as _Path
+            video_dir = os.path.dirname(os.path.abspath(self.current_video_path))
+            stem = _Path(self.current_video_path).stem.lower()
+            if os.path.isdir(video_dir):
+                variants = []
+                for f in os.listdir(video_dir):
+                    fl = f.lower()
+                    if not fl.endswith((".srt", ".ass", ".ssa", ".sub")):
+                        continue
+                    if fl.startswith(stem + "."):
+                        variants.append(os.path.join(video_dir, f))
+                if variants:
+                    variants.sort(key=lambda x: (0 if x.lower().endswith('.srt') else 1,
+                                                os.path.basename(x).lower()))
+                    return variants[0]
+        except OSError:
+            pass
+        return None
+
+    def _get_current_subtitle(self) -> str:
+        """Get subtitle text for current playback position.
+
+        Basename auto-detect wins (matches encode path); explicit
+        combo selection is the fallback. This avoids showing a stale
+        subtitle from a previously loaded video.
+        """
+        if not self.app_state.subtitles.burn_subs or not self.current_video_path:
+            return ""
+
+        sub_path = self._resolve_basename_subtitle()
+
+        if not sub_path:
+            selected = self.app_state.subtitles.selected_subtitle
+            if selected and os.path.exists(selected):
+                sub_path = selected
+
+        if not sub_path:
+            return ""
+
+        # Get subtitle for current timestamp
+        timestamp = self._playback_time
+        return get_subtitle_text(sub_path, timestamp)
+
+    def _find_subtitle_file(self) -> Optional[str]:
+        """Find the subtitle file to use for preview burning (basename first)."""
+        if not self.app_state.subtitles.burn_subs:
+            return None
+
+        sub_path = self._resolve_basename_subtitle()
+        if sub_path:
+            return sub_path
+
+        selected = self.app_state.subtitles.selected_subtitle
+        if selected and os.path.exists(selected):
+            return selected
+
         return None
     
     def _hex_to_ass(self, hex_color: str, opacity: float = 1.0) -> str:
