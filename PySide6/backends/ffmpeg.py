@@ -100,9 +100,9 @@ def build_audio_denoise_filter(filters):
         patch = round(0.002 + 0.001 * s, 4)
         research = round(0.006 + 0.003 * s, 4)
         return f"anlmdn=s={strength:.2f}:p={patch}:r={research}"
-    nr = int(round(6 + 14 * s))
-    nf = int(round(-20 - 5 * s))
-    gs = int(round(6 * s))
+    nr = int(round(10 + 15 * s))
+    nf = int(round(-25 - 8 * s))
+    gs = int(round(8 * s))
     return f"afftdn=nr={nr}:nf={nf}:tn=1:gs={gs}"
 
 
@@ -621,6 +621,9 @@ class FFmpegBackend(MediaBackend):
             'audio_dynnorm': True,
             'audio_compressor': True,
             'audio_room_fix': True,
+            'audio_highpass': True,
+            'audio_notch_hum': True,
+            'audio_lowpass': True,
             'audio_delay': True,
             'audio_upmix_mono_to_stereo': True,
         }
@@ -956,6 +959,22 @@ class FFmpegBackend(MediaBackend):
                 f"equalizer=f=250:t=q:w=1:g={mud_gain:.1f},"
                 f"equalizer=f=3200:t=q:w=1:g={pres_gain:.1f}"
             )
+        if getattr(filters, 'audio_highpass', False):
+            hpf = int(getattr(filters, 'audio_highpass_freq', 80))
+            hpf = max(20, min(500, hpf))
+            audio_filters.append(f"highpass=f={hpf}:poles=2")
+        if getattr(filters, 'audio_notch_hum', False):
+            base = int(getattr(filters, 'audio_notch_freq', 50))
+            base = max(40, min(70, base))
+            notches = []
+            for harm in range(1, 7):
+                f = base * harm
+                notches.append(f"equalizer=f={f}:t=o:width=0.6:g=-28")
+            audio_filters.append(",".join(notches))
+        if getattr(filters, 'audio_lowpass', False):
+            lpf = int(getattr(filters, 'audio_lowpass_freq', 10000))
+            lpf = max(2000, min(20000, lpf))
+            audio_filters.append(f"lowpass=f={lpf}")
         if getattr(filters, 'audio_delay_enabled', False):
             delay_ms = filters.audio_delay_ms
             if delay_ms > 0:

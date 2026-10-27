@@ -314,6 +314,74 @@ class FiltersPanel(QWidget):
         room_fix_layout.addStretch()
         video_layout.addLayout(room_fix_layout)
 
+        # ── Audio High-pass Filter ──
+        self.highpass_check = QCheckBox("Audio High-pass (cut low hum/rumble)")
+        self.highpass_check.setChecked(self.app_state.filters.audio_highpass)
+        self.highpass_check.setToolTip(
+            "High-pass filter removes low-frequency noise below a cutoff frequency.\n"
+            "Useful for VHS mains hum (50/60 Hz), rumble, and wind.\n"
+            "Start with 80-100 Hz for voice; higher cuts more bass."
+        )
+        video_layout.addWidget(self.highpass_check)
+
+        highpass_layout = QHBoxLayout()
+        highpass_layout.addWidget(QLabel("  Cutoff freq:"))
+        self.highpass_freq_spin = QSpinBox()
+        self.highpass_freq_spin.setRange(20, 500)
+        self.highpass_freq_spin.setValue(self.app_state.filters.audio_highpass_freq)
+        self.highpass_freq_spin.setSuffix(" Hz")
+        self.highpass_freq_spin.setMaximumWidth(80)
+        self.highpass_freq_spin.setEnabled(self.app_state.filters.audio_highpass)
+        highpass_layout.addWidget(self.highpass_freq_spin)
+        highpass_layout.addStretch()
+        video_layout.addLayout(highpass_layout)
+
+        # ── Audio Notch Filter (mains hum) ──
+        self.notch_check = QCheckBox("Audio Notch (mains hum + harmonics)")
+        self.notch_check.setChecked(self.app_state.filters.audio_notch_hum)
+        self.notch_check.setToolTip(
+            "Surgical notch filters at a custom base frequency and its harmonics.\n"
+            "Best for removing a steady mains hum tone (e.g., 48/50/60 Hz).\n"
+            "FFmpeg only."
+        )
+        video_layout.addWidget(self.notch_check)
+
+        notch_layout = QHBoxLayout()
+        notch_layout.addWidget(QLabel("  Base freq:"))
+        self.notch_freq_spin = QSpinBox()
+        self.notch_freq_spin.setRange(20, 120)
+        self.notch_freq_spin.setValue(self.app_state.filters.audio_notch_freq)
+        self.notch_freq_spin.setSuffix(" Hz")
+        self.notch_freq_spin.setMaximumWidth(80)
+        self.notch_freq_spin.setEnabled(self.app_state.filters.audio_notch_hum)
+        self.notch_freq_spin.setToolTip("Base frequency for the notch filter (e.g., 48, 50, or 60 Hz).")
+        notch_layout.addWidget(self.notch_freq_spin)
+        notch_layout.addStretch()
+        video_layout.addLayout(notch_layout)
+
+        # ── Audio Low-pass Filter (cuts tape hiss) ──
+        self.lowpass_check = QCheckBox("Audio Low-pass (cut tape hiss)")
+        self.lowpass_check.setChecked(self.app_state.filters.audio_lowpass)
+        self.lowpass_check.setToolTip(
+            "Low-pass filter removes high-frequency noise above a cutoff frequency.\n"
+            "Useful for VHS tape hiss. Voices stay below ~8 kHz.\n"
+            "Start with 10000 Hz (10 kHz)."
+        )
+        video_layout.addWidget(self.lowpass_check)
+
+        lowpass_layout = QHBoxLayout()
+        lowpass_layout.addWidget(QLabel("  Cutoff freq:"))
+        self.lowpass_freq_spin = QSpinBox()
+        self.lowpass_freq_spin.setRange(2000, 20000)
+        self.lowpass_freq_spin.setValue(self.app_state.filters.audio_lowpass_freq)
+        self.lowpass_freq_spin.setSuffix(" Hz")
+        self.lowpass_freq_spin.setMaximumWidth(100)
+        self.lowpass_freq_spin.setEnabled(self.app_state.filters.audio_lowpass)
+        self.lowpass_freq_spin.setToolTip("High frequencies above this are removed (tape hiss).")
+        lowpass_layout.addWidget(self.lowpass_freq_spin)
+        lowpass_layout.addStretch()
+        video_layout.addLayout(lowpass_layout)
+
         delay_layout = QHBoxLayout()
         self.audio_delay_check = QCheckBox("Audio Delay:")
         self.audio_delay_check.setChecked(self.app_state.filters.audio_delay_enabled)
@@ -774,9 +842,21 @@ class FiltersPanel(QWidget):
             support.get('audio_upmix_mono_to_stereo', True) and self.upmix_check.isChecked())
         self._set_enabled_with_tip(self.room_fix_check, support.get('audio_room_fix', True),
                                    "Room Sound Reduction" if is_gst else "")
+        self._set_enabled_with_tip(self.highpass_check, support.get('audio_highpass', True),
+                                   "Audio High-pass" if is_gst else "")
+        self._set_enabled_with_tip(self.notch_check, support.get('audio_notch_hum', True),
+                                   "Audio Notch" if is_gst else "")
+        self._set_enabled_with_tip(self.lowpass_check, support.get('audio_lowpass', True),
+                                   "Audio Low-pass" if is_gst else "")
         room_en = support.get('audio_room_fix', True) and self.room_fix_check.isChecked()
         self.room_fix_strength_slider.setEnabled(room_en)
         self.room_fix_strength_input.setEnabled(room_en)
+        hp_en = support.get('audio_highpass', True) and self.highpass_check.isChecked()
+        self.highpass_freq_spin.setEnabled(hp_en)
+        nt_en = support.get('audio_notch_hum', True) and self.notch_check.isChecked()
+        self.notch_freq_spin.setEnabled(nt_en)
+        lp_en = support.get('audio_lowpass', True) and self.lowpass_check.isChecked()
+        self.lowpass_freq_spin.setEnabled(lp_en)
         self._set_enabled_with_tip(self.audio_delay_check, support.get('audio_delay', True),
                                    "Audio Delay" if is_gst else "")
         self.audio_delay_spin.setEnabled(
@@ -845,6 +925,12 @@ class FiltersPanel(QWidget):
         self.room_fix_check.toggled.connect(self.on_room_fix_changed)
         self.room_fix_strength_slider.valueChanged.connect(self.on_room_fix_strength_changed)
         self.room_fix_strength_input.valueChanged.connect(self.on_room_fix_strength_input_changed)
+        self.highpass_check.toggled.connect(self.on_highpass_changed)
+        self.highpass_freq_spin.valueChanged.connect(self.on_highpass_freq_changed)
+        self.notch_check.toggled.connect(self.on_notch_changed)
+        self.notch_freq_spin.valueChanged.connect(self.on_notch_freq_changed)
+        self.lowpass_check.toggled.connect(self.on_lowpass_changed)
+        self.lowpass_freq_spin.valueChanged.connect(self.on_lowpass_freq_changed)
         self.audio_delay_check.toggled.connect(self.on_audio_delay_changed)
         self.audio_delay_spin.valueChanged.connect(self.on_audio_delay_value_changed)
         # Crop & Aspect Ratio toggle
@@ -1183,6 +1269,39 @@ class FiltersPanel(QWidget):
         self.room_fix_strength_slider.blockSignals(True)
         self.room_fix_strength_slider.setValue(int(value * 100))
         self.room_fix_strength_slider.blockSignals(False)
+        self.settings_changed.emit()
+
+    def on_highpass_changed(self, checked):
+        """Handle audio high-pass checkbox change"""
+        self.app_state.filters.audio_highpass = checked
+        self.highpass_freq_spin.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_highpass_freq_changed(self, value):
+        """Handle audio high-pass frequency change"""
+        self.app_state.filters.audio_highpass_freq = value
+        self.settings_changed.emit()
+
+    def on_notch_changed(self, checked):
+        """Handle audio notch checkbox change"""
+        self.app_state.filters.audio_notch_hum = checked
+        self.notch_freq_combo.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_notch_freq_changed(self, value):
+        """Handle audio notch frequency change"""
+        self.app_state.filters.audio_notch_freq = value
+        self.settings_changed.emit()
+
+    def on_lowpass_changed(self, checked):
+        """Handle audio low-pass checkbox change"""
+        self.app_state.filters.audio_lowpass = checked
+        self.lowpass_freq_spin.setEnabled(checked)
+        self.settings_changed.emit()
+
+    def on_lowpass_freq_changed(self, value):
+        """Handle audio low-pass frequency change"""
+        self.app_state.filters.audio_lowpass_freq = value
         self.settings_changed.emit()
 
     def on_audio_delay_changed(self, checked):

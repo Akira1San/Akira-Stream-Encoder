@@ -165,6 +165,15 @@ class FilterSettings:
     # Room Sound Reduction (room reverb / mud / echo)
     audio_room_fix: bool = False
     audio_room_fix_strength: float = 0.5  # 0.0 (light) - 1.0 (strong)
+    # Audio High-pass Filter (removes low-frequency hum/rumble, e.g. 50 Hz mains hum)
+    audio_highpass: bool = False
+    audio_highpass_freq: int = 80  # Hz, 20-500
+    # Audio Notch Filter for mains hum (base frequency + harmonics)
+    audio_notch_hum: bool = False
+    audio_notch_freq: int = 50  # 48/50/60 Hz base frequency
+    # Audio Low-pass Filter (cuts tape hiss above cutoff)
+    audio_lowpass: bool = False
+    audio_lowpass_freq: int = 10000  # Hz, 2000-20000
     # Audio delay/sync
     audio_delay_enabled: bool = False
     audio_delay_ms: int = 0       # milliseconds, 0 = no delay
