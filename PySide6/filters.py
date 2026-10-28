@@ -1285,7 +1285,7 @@ class FiltersPanel(QWidget):
     def on_notch_changed(self, checked):
         """Handle audio notch checkbox change"""
         self.app_state.filters.audio_notch_hum = checked
-        self.notch_freq_combo.setEnabled(checked)
+        self.notch_freq_spin.setEnabled(checked)
         self.settings_changed.emit()
 
     def on_notch_freq_changed(self, value):
